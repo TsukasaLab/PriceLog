@@ -9,12 +9,12 @@
   <title>PriceLog</title>
   <link rel="manifest" href="./manifest.webmanifest">
   <link rel="apple-touch-icon" href="./icon-192.png">
-  <link rel="stylesheet" href="./style.css?v=0.39">
+  <link rel="stylesheet" href="./style.css?v=0.44">
 </head>
 <body>
   <header class="topbar">
     <div>
-      <strong>PriceLog</strong> <small class="app-version">Ver.0.39</small>
+      <strong>PriceLog</strong> <small class="app-version">Ver.0.44</small>
     </div>
     <div class="top-actions">
       <button id="btnSettings" class="icon-btn" type="button" aria-label="設定">⚙</button>
@@ -86,7 +86,7 @@
       </button>
 
       <label>商品名
-        <input id="productName" required maxlength="60" placeholder="例：ブレンディ">
+        <input id="productName" required maxlength="60">
       </label>
 
       <label class="reading-field">よみがな
@@ -102,8 +102,10 @@
           <select id="productUnit">
             <option value="g">g</option>
             <option value="ml">ml</option>
+            <option value="m">m</option>
             <option value="個">個</option>
             <option value="枚">枚</option>
+            <option value="粒">粒</option>
             <option value="本">本</option>
             <option value="袋">袋</option>
             <option value="箱">箱</option>
@@ -112,6 +114,15 @@
         <label>既定税率
           <select id="productTax"></select>
         </label>
+      </div>
+
+      <div id="productImageSetting" class="product-image-setting hidden">
+        <div class="product-image-setting-title">商品画像</div>
+        <div class="product-image-setting-body">
+          <img id="productImageSettingPreview" class="product-image-setting-preview" alt="登録済み商品画像">
+          <button id="btnDeleteProductImage" class="ghost danger" type="button">商品画像を削除</button>
+        </div>
+        <div id="productImageDeleteNote" class="field-hint hidden">保存すると商品画像を削除します。</div>
       </div>
 
       <div class="dialog-actions">
@@ -260,17 +271,20 @@
             <input id="barcodeProductNameEdit" type="text" maxlength="80">
           </label>
           <label>種類候補
-            <input id="barcodeTypeNameEdit" type="text" maxlength="60" placeholder="例：牛乳">
+            <input id="barcodeTypeNameEdit" type="text" maxlength="60">
           </label>
           <label>内容量
-            <input id="barcodeAmount" type="text" inputmode="decimal" value="1">
+            <input id="barcodeAmount" type="text" inputmode="decimal">
           </label>
           <label>単位
             <select id="barcodeUnit">
+              <option value=""></option>
               <option value="g">g</option>
               <option value="ml">ml</option>
+              <option value="m">m</option>
               <option value="個">個</option>
               <option value="枚">枚</option>
+              <option value="粒">粒</option>
               <option value="本">本</option>
               <option value="袋">袋</option>
               <option value="箱">箱</option>
@@ -452,7 +466,7 @@
     </div>
   </template>
 
-  <script src="./app.js?v=0.39"></script>
-  <script src="./ads.js?v=0.39"></script>
+  <script src="./app.js?v=0.44"></script>
+  <script src="./ads.js?v=0.44"></script>
 </body>
 </html>

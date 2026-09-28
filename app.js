@@ -34,6 +34,7 @@ let barcodeDetector = null;
 let barcodeScanTimer = null;
 let barcodeScanning = false;
 let barcodeLookupData = null;
+let productImageDeletePending = false;
 let recommendedReadingMap = new Map();
 
 const $ = (id) => document.getElementById(id);
@@ -74,6 +75,15 @@ $('btnTestYahooApi').addEventListener('click', testYahooShoppingApi);
 $('productForm').addEventListener('submit', (e) => {
   e.preventDefault();
   saveProductFromDialog();
+});
+
+$('btnDeleteProductImage').addEventListener('click', () => {
+  if (!editProductId) return;
+
+  productImageDeletePending = true;
+  $('productImageSettingPreview').classList.add('hidden');
+  $('btnDeleteProductImage').classList.add('hidden');
+  $('productImageDeleteNote').classList.remove('hidden');
 });
 
 $('btnDeleteProduct').addEventListener('click', () => {
@@ -1469,8 +1479,8 @@ function openBarcodeDialog() {
   $('barcodeCameraMessage').textContent = 'カメラを起動してね。';
   $('barcodeProductNameEdit').value = '';
   $('barcodeTypeNameEdit').value = '';
-  $('barcodeAmount').value = '1';
-  $('barcodeUnit').value = '個';
+  $('barcodeAmount').value = '';
+  $('barcodeUnit').value = '';
 
   if ($('productDialog').open) $('productDialog').close();
   $('barcodeDialog').showModal();
@@ -1737,21 +1747,42 @@ async function lookupYahooShopping(
   clientId = settings.yahooClientId,
   workerUrl = YAHOO_WORKER_URL
 ) {
-  const data = await fetchYahooViaWorker(
-    { janCode: String(code || '').replace(/\D/g, '') },
+  const jan = String(code || '').replace(/\D/g, '');
+
+  // 1回目: Yahoo!公式のJAN検索
+  let data = await fetchYahooViaWorker(
+    { janCode: jan },
     clientId,
     workerUrl
   );
 
-  if (!data || !Array.isArray(data.hits) || !data.hits.length) return null;
+  let hits = Array.isArray(data?.hits) ? data.hits : [];
 
-  const hits = data.hits
-    .filter(hit => String(hit.janCode || code) === String(code))
-    .sort((a, b) => yahooHitScore(b) - yahooHitScore(a));
+  // Yahoo!の商品ページにはJANが存在していても、
+  // JAN検索側で0件になるケースがあるため、
+  // 2回目は同じJANコードをキーワードとして再検索する。
+  if (!hits.length && jan) {
+    data = await fetchYahooViaWorker(
+      { query: jan, results: 10 },
+      clientId,
+      workerUrl
+    );
+    hits = Array.isArray(data?.hits) ? data.hits : [];
+  }
 
-  return hits[0] || data.hits[0] || null;
+  if (!hits.length) return null;
+
+  // JANが返っている商品を最優先。
+  const exactJanHits = hits.filter(
+    hit => String(hit?.janCode || '').replace(/\D/g, '') === jan
+  );
+
+  const candidates = exactJanHits.length ? exactJanHits : hits;
+
+  candidates.sort((a, b) => yahooHitScore(b) - yahooHitScore(a));
+
+  return candidates[0] || null;
 }
-
 
 function yahooHitScore(hit) {
   let score = 0;
@@ -1761,6 +1792,84 @@ function yahooHitScore(hit) {
   if (Array.isArray(hit?.parentGenreCategories)) score += hit.parentGenreCategories.length;
   if (hit?.description) score += 1;
   return score;
+}
+
+
+function normalizeBarcodeNameForCompare(value) {
+  return String(value || '')
+    .normalize('NFKC')
+    .toLowerCase()
+    .replace(/[【】［］\[\]（）()「」『』"'`・:：\-‐‑‒–—―_,，.。\/\\]/g, '')
+    .replace(/\s+/g, '');
+}
+
+function cleanBarcodeProductNameCandidate(value) {
+  return cleanBarcodeText(
+    String(value || '')
+      .replace(/<[^>]*>/g, ' ')
+      .replace(/&nbsp;/gi, ' ')
+      .replace(/&amp;/gi, '&')
+  )
+    .replace(/[【［].*?[】］]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function chooseBarcodeProductName(candidates, typeName = '') {
+  const unique = [];
+  const seen = new Set();
+
+  for (const candidate of candidates || []) {
+    const cleaned = cleanBarcodeProductNameCandidate(candidate);
+    if (!cleaned) continue;
+
+    const key = normalizeBarcodeNameForCompare(cleaned);
+    if (!key || seen.has(key)) continue;
+
+    seen.add(key);
+    unique.push(cleaned);
+  }
+
+  if (!unique.length) return '';
+
+  const typeKey = normalizeBarcodeNameForCompare(typeName);
+  const primary = unique[0];
+  const primaryKey = normalizeBarcodeNameForCompare(primary);
+
+  // APIの正式商品名を最優先する。
+  // ただし「牛乳」「ガム」など種類名だけだった場合は、
+  // 同じAPIレスポンス内にある、より具体的な商品名へ切り替える。
+  if (!typeKey || primaryKey !== typeKey) return primary;
+
+  const richer = unique
+    .slice(1)
+    .filter(name => {
+      const key = normalizeBarcodeNameForCompare(name);
+      return key && key !== typeKey && name.length <= 120;
+    })
+    .sort((a, b) => b.length - a.length)[0];
+
+  return richer || primary;
+}
+
+function applyResolvedBarcodeFields({ exactName, typeName, quantity }) {
+  // 商品名・種類・内容量は完全に独立して反映する。
+  // 種類候補が商品名を上書きすることはない。
+  $('barcodeProductNameEdit').value = cleanBarcodeProductNameCandidate(exactName);
+  $('barcodeTypeNameEdit').value = cleanBarcodeText(typeName);
+
+  if (quantity && Number(quantity.amount) > 0 && quantity.unit) {
+    $('barcodeAmount').value = String(quantity.amount);
+    setBarcodeUnit(quantity.unit);
+  } else {
+    $('barcodeAmount').value = '';
+    setBarcodeUnit('');
+  }
+
+  // 検索結果が変わるたび、必ず「正式商品名」を初期選択に戻す。
+  $('barcodeChoiceProduct').checked = true;
+  $('barcodeChoiceType').checked = false;
+  syncBarcodeChoiceLabels();
 }
 
 function applyYahooShoppingResult(code, hit) {
@@ -1783,8 +1892,8 @@ function applyYahooShoppingResult(code, hit) {
     $('barcodeAmount').value = String(quantity.amount);
     setBarcodeUnit(quantity.unit);
   } else {
-    $('barcodeAmount').value = '1';
-    setBarcodeUnit('個');
+    $('barcodeAmount').value = '';
+    setBarcodeUnit('');
   }
 
   $('barcodeChoiceProduct').checked = true;
@@ -1878,101 +1987,127 @@ function yahooSearchText(hit, exactName = '') {
   ].join(' ').toLowerCase();
 }
 
-function deriveYahooType(hit, exactName = '') {
-  const haystack = yahooSearchText(hit, exactName);
+function deriveKnownBarcodeTypeFromText(value) {
+  const haystack = String(value || '').normalize('NFKC').toLowerCase();
 
   const rules = [
     [['低脂肪乳'], '低脂肪乳'],
+    [['加工乳'], '加工乳'],
     [['牛乳','ミルク'], '牛乳'],
     [['豆乳'], '豆乳'],
     [['ヨーグルト'], 'ヨーグルト'],
-    [['インスタントコーヒー'], 'インスタントコーヒー'],
+    [['インスタントコーヒー','ソリュブルコーヒー'], 'インスタントコーヒー'],
     [['コーヒー'], 'コーヒー'],
     [['紅茶'], '紅茶'],
     [['緑茶'], '緑茶'],
+    [['麦茶'], '麦茶'],
     [['炭酸水'], '炭酸水'],
     [['ミネラルウォーター'], '水'],
+    [['スポーツドリンク'], 'スポーツドリンク'],
+    [['ジュース','果汁飲料'], 'ジュース'],
+    [['コーラ'], 'コーラ'],
     [['食パン'], '食パン'],
     [['パン'], 'パン'],
     [['たまご','卵'], '卵'],
     [['納豆'], '納豆'],
     [['豆腐'], '豆腐'],
-    [['味噌'], '味噌'],
+    [['味噌','みそ'], '味噌'],
     [['醤油','しょうゆ'], '醤油'],
     [['マヨネーズ'], 'マヨネーズ'],
     [['ケチャップ'], 'ケチャップ'],
+    [['ウスターソース','中濃ソース','とんかつソース'], 'ソース'],
+    [['みりん'], 'みりん'],
+    [['料理酒'], '料理酒'],
+    [['穀物酢','米酢','りんご酢','酢'], '酢'],
+    [['オリーブオイル'], 'オリーブオイル'],
+    [['サラダ油','キャノーラ油','食用油'], '食用油'],
+    [['砂糖'], '砂糖'],
+    [['食塩','塩'], '塩'],
+    [['薄力粉'], '薄力粉'],
+    [['強力粉'], '強力粉'],
+    [['小麦粉'], '小麦粉'],
     [['うどん'], 'うどん'],
     [['ラーメン'], 'ラーメン'],
-    [['パスタ'], 'パスタ'],
+    [['パスタ','スパゲッティ'], 'パスタ'],
     [['チーズ'], 'チーズ'],
     [['バター'], 'バター'],
-    [['ジュース'], 'ジュース'],
+    [['粒ガム','板ガム','ボトルガム','チューインガム','chewing gum','ガム','クロレッツ','リカルデント','ブラックブラック','グリーンガム','フィッツ','fits','acuo','アクオ','ポスカ'], 'ガム'],
     [['チョコレート'], 'チョコレート'],
     [['アイスクリーム','アイス'], 'アイス'],
-    [['ティッシュ'], 'ティッシュ'],
+    [['米','こめ'], '米'],
+    [['歯磨き粉','歯みがき粉','ハミガキ','歯磨き'], '歯磨き粉'],
+    [['歯ブラシ'], '歯ブラシ'],
+    [['アルミホイル','アルミ箔'], 'アルミホイル'],
+    [['食品ラップ','キッチンラップ','ラップ'], 'ラップ'],
+    [['キッチンペーパー'], 'キッチンペーパー'],
     [['トイレットペーパー'], 'トイレットペーパー'],
-    [['洗濯洗剤'], '洗濯洗剤'],
-    [['食器用洗剤'], '食器用洗剤'],
+    [['ボックスティッシュ','箱ティッシュ','ティッシュ'], 'ティッシュ'],
+    [['食器用洗剤','台所用洗剤'], '食器用洗剤'],
+    [['洗濯洗剤','衣料用洗剤'], '洗濯洗剤'],
+    [['柔軟剤'], '柔軟剤'],
     [['シャンプー'], 'シャンプー'],
-    [['米','こめ'], '米']
+    [['コンディショナー','リンス'], 'コンディショナー'],
+    [['ボディソープ'], 'ボディソープ'],
+    [['ハンドソープ'], 'ハンドソープ'],
+    [['ゴミ袋','ごみ袋'], 'ゴミ袋'],
+    [['乾電池','電池'], '電池']
   ];
 
   for (const [keywords, label] of rules) {
-    if (keywords.some(keyword => haystack.includes(keyword.toLowerCase()))) {
-      return label;
-    }
+    if (keywords.some(keyword => haystack.includes(keyword.toLowerCase()))) return label;
   }
 
-  const genre = cleanBarcodeText(hit?.genreCategory?.name || '');
-  return genre.length <= 18 ? genre : '';
+  return '';
 }
 
-function parseQuantityFromYahoo(hit) {
-  const text = [
-    hit?.name || '',
-    hit?.headLine || '',
-    hit?.description || ''
-  ].join(' ')
-    .replace(/,/g, '.')
-    .replace(/[×xX＊*]\s*(\d+)/g, ' x$1 ')
+function deriveYahooType(hit, exactName = '') {
+  return deriveKnownBarcodeTypeFromText(yahooSearchText(hit, exactName));
+}
+
+function normalizeQuantityText(value) {
+  return String(value || '')
+    .normalize('NFKC')
+    .replace(/(\d),(?=\d{3}(?:\D|$))/g, '$1')
+    .replace(/[×xX＊*]/g, 'x')
+    .replace(/\s+/g, ' ')
     .toLowerCase();
+}
 
-  const multi = text.match(/(\d+(?:\.\d+)?)\s*(kg|g|ml|l)\s*(?:x|×)\s*(\d+)/i);
-  if (multi) {
-    let amount = Number(multi[1]) * Number(multi[3]);
-    let unit = multi[2].toLowerCase();
+function parseQuantityFromText(value) {
+  const text = normalizeQuantityText(value);
 
-    if (unit === 'kg') {
-      amount *= 1000;
-      unit = 'g';
-    } else if (unit === 'l') {
-      amount *= 1000;
-      unit = 'ml';
-    }
-
+  // 500ml x 2、200g×3袋 などは商品の総内容量として扱う。
+  let m = text.match(/(\d+(?:\.\d+)?)\s*(kg|g|ml|l|m)\s*x\s*(\d+)/i);
+  if (m) {
+    let amount = Number(m[1]) * Number(m[3]);
+    let unit = m[2].toLowerCase();
+    if (unit === 'kg') { amount *= 1000; unit = 'g'; }
+    if (unit === 'l') { amount *= 1000; unit = 'ml'; }
     if (amount > 0) return { amount, unit };
   }
 
-  let m = text.match(/(\d+(?:\.\d+)?)\s*(kg|g|ml|l)\b/i);
+  m = text.match(/(\d+(?:\.\d+)?)\s*(kg|g|ml|l|m)(?=\s|$|[^a-z])/i);
   if (m) {
     let amount = Number(m[1]);
     let unit = m[2].toLowerCase();
-
-    if (unit === 'kg') {
-      amount *= 1000;
-      unit = 'g';
-    } else if (unit === 'l') {
-      amount *= 1000;
-      unit = 'ml';
-    }
-
+    if (unit === 'kg') { amount *= 1000; unit = 'g'; }
+    if (unit === 'l') { amount *= 1000; unit = 'ml'; }
     if (amount > 0) return { amount, unit };
   }
 
-  m = text.match(/(\d+)\s*(個|枚|本|袋|箱)\b/);
+  // ガム・錠菓・小分け商品など。Yahooの商品名に「14粒」「9枚」のように入るケースを拾う。
+  m = text.match(/(\d+(?:\.\d+)?)\s*(粒|枚|個|本|袋|箱)(?:\s*(?:入|入り|セット))?/);
   if (m) return { amount: Number(m[1]), unit: m[2] };
 
   return null;
+}
+
+function parseQuantityFromYahoo(hit) {
+  return parseQuantityFromText([
+    hit?.name || '',
+    hit?.headLine || '',
+    hit?.description || ''
+  ].join(' '));
 }
 
 function isYahooLikelyFood(hit) {
@@ -2081,8 +2216,8 @@ function applyOpenFactsResult(code, product) {
     $('barcodeAmount').value = String(quantity.amount);
     setBarcodeUnit(quantity.unit);
   } else {
-    $('barcodeAmount').value = '1';
-    setBarcodeUnit('個');
+    $('barcodeAmount').value = '';
+    setBarcodeUnit('');
   }
 
   $('barcodeChoiceProduct').checked = true;
@@ -2124,8 +2259,8 @@ function applyUpcItemDbResult(code, item) {
     $('barcodeAmount').value = String(quantity.amount);
     setBarcodeUnit(quantity.unit);
   } else {
-    $('barcodeAmount').value = '1';
-    setBarcodeUnit('個');
+    $('barcodeAmount').value = '';
+    setBarcodeUnit('');
   }
 
   $('barcodeChoiceProduct').checked = true;
@@ -2137,82 +2272,68 @@ function deriveUpcItemType(item, exactName = '') {
     exactName,
     item?.category || '',
     item?.description || ''
-  ].join(' ').toLowerCase();
+  ].join(' ');
 
-  const rules = [
-    [['牛乳','milk'], '牛乳'],
-    [['低脂肪乳','low fat milk','low-fat milk'], '低脂肪乳'],
-    [['豆乳','soy milk','soya milk'], '豆乳'],
-    [['ヨーグルト','yogurt','yoghurt'], 'ヨーグルト'],
-    [['コーヒー','coffee'], 'コーヒー'],
-    [['紅茶','black tea'], '紅茶'],
-    [['緑茶','green tea'], '緑茶'],
-    [['炭酸水','sparkling water'], '炭酸水'],
-    [['水','mineral water','water'], '水'],
-    [['食パン','sliced bread','sandwich bread'], '食パン'],
-    [['パン','bread'], 'パン'],
-    [['卵','egg'], '卵'],
-    [['納豆','natto'], '納豆'],
-    [['豆腐','tofu'], '豆腐'],
-    [['味噌','miso'], '味噌'],
-    [['醤油','soy sauce'], '醤油'],
-    [['マヨネーズ','mayonnaise'], 'マヨネーズ'],
-    [['ケチャップ','ketchup'], 'ケチャップ'],
-    [['うどん','udon'], 'うどん'],
-    [['ラーメン','ramen'], 'ラーメン'],
-    [['パスタ','pasta'], 'パスタ'],
-    [['チーズ','cheese'], 'チーズ'],
-    [['バター','butter'], 'バター'],
-    [['ジュース','juice'], 'ジュース'],
-    [['チョコレート','chocolate'], 'チョコレート'],
-    [['アイス','ice cream'], 'アイス'],
-    [['米','rice'], '米']
+  const known = deriveKnownBarcodeTypeFromText(haystack);
+  if (known) return known;
+
+  const lower = haystack.toLowerCase();
+  const englishRules = [
+    [['low fat milk','low-fat milk'], '低脂肪乳'],
+    [['soy milk','soya milk'], '豆乳'],
+    [['milk'], '牛乳'],
+    [['yogurt','yoghurt'], 'ヨーグルト'],
+    [['instant coffee'], 'インスタントコーヒー'],
+    [['coffee'], 'コーヒー'],
+    [['black tea'], '紅茶'],
+    [['green tea'], '緑茶'],
+    [['sparkling water'], '炭酸水'],
+    [['mineral water'], '水'],
+    [['sliced bread','sandwich bread'], '食パン'],
+    [['bread'], 'パン'],
+    [['egg'], '卵'],
+    [['natto'], '納豆'],
+    [['tofu'], '豆腐'],
+    [['miso'], '味噌'],
+    [['soy sauce'], '醤油'],
+    [['mayonnaise'], 'マヨネーズ'],
+    [['ketchup'], 'ケチャップ'],
+    [['udon'], 'うどん'],
+    [['ramen'], 'ラーメン'],
+    [['pasta'], 'パスタ'],
+    [['cheese'], 'チーズ'],
+    [['butter'], 'バター'],
+    [['juice'], 'ジュース'],
+    [['chocolate'], 'チョコレート'],
+    [['ice cream'], 'アイス'],
+    [['rice'], '米'],
+    [['toothpaste'], '歯磨き粉'],
+    [['aluminum foil','aluminium foil'], 'アルミホイル'],
+    [['toilet paper'], 'トイレットペーパー'],
+    [['tissue'], 'ティッシュ']
   ];
 
-  for (const [keywords, label] of rules) {
-    if (keywords.some(keyword => haystack.includes(keyword.toLowerCase()))) {
-      return label;
-    }
+  for (const [keywords, label] of englishRules) {
+    if (keywords.some(keyword => lower.includes(keyword))) return label;
   }
   return '';
 }
 
 function parseQuantityFromUpcItem(item) {
-  const text = [
+  return parseQuantityFromText([
     item?.title || '',
     item?.description || '',
     item?.size || '',
     item?.weight || ''
-  ].join(' ').toLowerCase().replace(/,/g, '.');
-
-  let m = text.match(/(\d+(?:\.\d+)?)\s*(kg|g|ml|l)\b/);
-  if (m) {
-    let amount = Number(m[1]);
-    let unit = m[2];
-
-    if (unit === 'kg') {
-      amount *= 1000;
-      unit = 'g';
-    } else if (unit === 'l') {
-      amount *= 1000;
-      unit = 'ml';
-    }
-
-    if (amount > 0) return { amount, unit };
-  }
-
-  m = text.match(/(\d+)\s*(個|枚|本|袋|箱)/);
-  if (m) return { amount: Number(m[1]), unit: m[2] };
-
-  return null;
+  ].join(' '));
 }
 
 function prepareBarcodeManualResult(code) {
   barcodeLookupData = { code };
   $('barcodeProductNameEdit').value = '';
   $('barcodeTypeNameEdit').value = '';
-  $('barcodeAmount').value = '1';
-  setBarcodeUnit('個');
+  $('barcodeAmount').value = '';
+  setBarcodeUnit('');
   $('barcodeChoiceProduct').checked = true;
   syncBarcodeChoiceLabels();
 }
@@ -2230,104 +2351,31 @@ function deriveBarcodeType(product, exactName = '') {
     ''
   );
 
-  if (generic && generic.length <= 30) {
-    return simplifyGenericType(generic);
-  }
-
-  const haystack = [
+  const text = [
     exactName,
+    generic,
     product?.categories || '',
     ...(Array.isArray(product?.categories_tags) ? product.categories_tags : [])
-  ].join(' ').toLowerCase();
+  ].join(' ');
 
-  const rules = [
-    [['牛乳','milk','milks'], '牛乳'],
-    [['低脂肪乳','low-fat milk'], '低脂肪乳'],
-    [['ヨーグルト','yogurt','yoghurt'], 'ヨーグルト'],
-    [['豆乳','soy milk','soya milk'], '豆乳'],
-    [['コーヒー','coffee'], 'コーヒー'],
-    [['紅茶','black tea'], '紅茶'],
-    [['緑茶','green tea'], '緑茶'],
-    [['炭酸水','sparkling water'], '炭酸水'],
-    [['ミネラルウォーター','mineral water','waters'], '水'],
-    [['食パン','sandwich bread','sliced bread'], '食パン'],
-    [['パン','bread'], 'パン'],
-    [['卵','たまご','eggs'], '卵'],
-    [['納豆','natto'], '納豆'],
-    [['豆腐','tofu'], '豆腐'],
-    [['味噌','miso'], '味噌'],
-    [['醤油','しょうゆ','soy sauce'], '醤油'],
-    [['マヨネーズ','mayonnaise'], 'マヨネーズ'],
-    [['ケチャップ','ketchup'], 'ケチャップ'],
-    [['うどん','udon'], 'うどん'],
-    [['ラーメン','ramen'], 'ラーメン'],
-    [['パスタ','pasta'], 'パスタ'],
-    [['チーズ','cheese'], 'チーズ'],
-    [['バター','butter'], 'バター'],
-    [['ジュース','juice'], 'ジュース'],
-    [['チョコレート','chocolate'], 'チョコレート'],
-    [['アイス','ice cream'], 'アイス'],
-    [['米','rice'], '米']
-  ];
-
-  for (const [keywords, label] of rules) {
-    if (keywords.some(keyword => haystack.includes(keyword.toLowerCase()))) {
-      return label;
-    }
-  }
-
-  return '';
+  return deriveKnownBarcodeTypeFromText(text);
 }
 
 function simplifyGenericType(value) {
-  const text = cleanBarcodeText(value);
-
-  const known = deriveBarcodeType({
-    categories: text,
-    categories_tags: []
-  }, text);
-
-  return known || text;
+  return deriveKnownBarcodeTypeFromText(cleanBarcodeText(value));
 }
 
 function parseBarcodeQuantity(product) {
   let amount = Number(product?.product_quantity);
-  let unit = String(product?.product_quantity_unit || '').toLowerCase();
+  let unit = String(product?.product_quantity_unit || '').normalize('NFKC').toLowerCase();
 
   if (Number.isFinite(amount) && amount > 0 && unit) {
-    if (unit === 'kg') {
-      amount *= 1000;
-      unit = 'g';
-    } else if (unit === 'l') {
-      amount *= 1000;
-      unit = 'ml';
-    }
-
-    if (['g','ml'].includes(unit)) return { amount, unit };
+    if (unit === 'kg') { amount *= 1000; unit = 'g'; }
+    if (unit === 'l') { amount *= 1000; unit = 'ml'; }
+    if (['g','ml','m'].includes(unit)) return { amount, unit };
   }
 
-  const raw = String(product?.quantity || '').toLowerCase().replace(',', '.');
-
-  let m = raw.match(/([\d.]+)\s*(kg|g|ml|l)\b/);
-  if (m) {
-    amount = Number(m[1]);
-    unit = m[2];
-
-    if (unit === 'kg') {
-      amount *= 1000;
-      unit = 'g';
-    } else if (unit === 'l') {
-      amount *= 1000;
-      unit = 'ml';
-    }
-
-    if (amount > 0) return { amount, unit };
-  }
-
-  m = raw.match(/(\d+)\s*(個|枚|本|袋|箱)/);
-  if (m) return { amount: Number(m[1]), unit: m[2] };
-
-  return null;
+  return parseQuantityFromText(product?.quantity || '');
 }
 
 function setBarcodeUnit(unit) {
@@ -2348,8 +2396,8 @@ function syncBarcodeChoiceLabels() {
   const exact = $('barcodeProductNameEdit').value.trim();
   const type = $('barcodeTypeNameEdit').value.trim();
 
-  $('barcodeProductName').textContent = exact || '商品名を入力';
-  $('barcodeTypeName').textContent = type || '種類を入力';
+  $('barcodeProductName').textContent = exact;
+  $('barcodeTypeName').textContent = type;
 
   const typeChoice = $('barcodeChoiceType');
   const typeLabel = typeChoice.closest('.barcode-choice');
@@ -2630,6 +2678,28 @@ function openProductDialog(id = null) {
 
   $('btnDeleteProduct').classList.toggle('hidden', !p);
 
+  productImageDeletePending = false;
+  const imageSetting = $('productImageSetting');
+  const imagePreview = $('productImageSettingPreview');
+  const deleteImageButton = $('btnDeleteProductImage');
+  const deleteImageNote = $('productImageDeleteNote');
+  const currentImageUrl = safeRemoteImageUrl(p?.imageUrl);
+
+  imageSetting.classList.toggle('hidden', !p || !currentImageUrl);
+  deleteImageButton.classList.remove('hidden');
+  deleteImageNote.classList.add('hidden');
+
+  if (p && currentImageUrl) {
+    imagePreview.src = currentImageUrl;
+    imagePreview.classList.remove('hidden');
+    imagePreview.onerror = () => {
+      imagePreview.classList.add('hidden');
+    };
+  } else {
+    imagePreview.removeAttribute('src');
+    imagePreview.classList.add('hidden');
+  }
+
   const dialog = $('productDialog');
   dialog.showModal();
 
@@ -2675,6 +2745,7 @@ function saveProductFromDialog() {
       p.amount = amount;
       p.unit = $('productUnit').value;
       p.defaultTax = Number($('productTax').value);
+      if (productImageDeletePending) p.imageUrl = '';
     }
   } else {
     const p = {
