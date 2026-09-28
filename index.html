@@ -9,12 +9,12 @@
   <title>PriceLog</title>
   <link rel="manifest" href="./manifest.webmanifest">
   <link rel="apple-touch-icon" href="./icon-192.png">
-  <link rel="stylesheet" href="./style.css?v=0.35">
+  <link rel="stylesheet" href="./style.css?v=0.36">
 </head>
 <body>
   <header class="topbar">
     <div>
-      <strong>PriceLog</strong> <small class="app-version">Ver.0.35</small>
+      <strong>PriceLog</strong> <small class="app-version">Ver.0.36</small>
     </div>
     <div class="top-actions">
       <button id="btnSettings" class="icon-btn" type="button" aria-label="設定">⚙</button>
@@ -55,14 +55,27 @@
       <a class="guide-start-link" href="./guide.html">初めて使う方：最初の設定と使い方を見る</a>
     </div>
 
-    <section class="mobile-ad-slot" aria-label="広告">
-      <div class="mobile-ad-label">広告</div>
-      <div class="mobile-ad-inner">
-        <script>
-          if (window.matchMedia('(max-width: 767px)').matches) {
-            document.write('<script src="https://adm.shinobi.jp/s/5e14a34b72d19d5d8f100b6006c72e62"><\\/script>');
-          }
-        </script>
+    <section class="ad-area" aria-label="広告">
+      <div class="ad-label">広告</div>
+
+      <div class="mobile-ad-slot">
+        <div class="mobile-ad-inner">
+          <script>
+            if (window.matchMedia('(max-width: 767px)').matches) {
+              document.write('<script src="https://adm.shinobi.jp/s/5e14a34b72d19d5d8f100b6006c72e62"><\\/script>');
+            }
+          </script>
+        </div>
+      </div>
+
+      <div class="pc-ad-slot">
+        <div class="pc-ad-inner">
+          <script>
+            if (window.matchMedia('(min-width: 768px)').matches) {
+              document.write('<script src="https://adm.shinobi.jp/s/c54f13af6329f1cf390e5570ecc8de27"><\\/script>');
+            }
+          </script>
+        </div>
       </div>
     </section>
 
@@ -458,6 +471,6 @@
     </div>
   </template>
 
-  <script src="./app.js?v=0.35"></script>
+  <script src="./app.js?v=0.36"></script>
 </body>
 </html>

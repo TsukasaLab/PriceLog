@@ -524,33 +524,48 @@ button:active,.primary:active,.ghost:active,.icon-btn:active{transform:translate
 }
 
 
-/* Ver.0.34: スマホ用広告枠 */
-.mobile-ad-slot{
+
+/* Ver.0.36: PC/SP広告出し分け */
+.ad-area{
+  width:100%;
+  margin:14px auto 18px;
+  text-align:center;
+}
+.ad-label{
+  margin:0 0 4px;
+  color:var(--muted);
+  font-size:10px;
+  line-height:1.2;
+}
+.mobile-ad-slot,
+.pc-ad-slot{
   display:none;
+  width:100%;
+}
+.mobile-ad-inner,
+.pc-ad-inner{
+  width:100%;
+  display:flex;
+  justify-content:center;
+  align-items:flex-start;
+  overflow:hidden;
+}
+.mobile-ad-inner{
+  min-height:100px;
+}
+.pc-ad-inner{
+  min-height:90px;
 }
 @media(max-width:767px){
   .mobile-ad-slot{
     display:block;
-    width:100%;
-    margin:14px auto 18px;
-    text-align:center;
-  }
-  .mobile-ad-label{
-    margin:0 0 4px;
-    color:var(--muted);
-    font-size:10px;
-    line-height:1.2;
-  }
-  .mobile-ad-inner{
-    width:100%;
-    min-height:100px;
-    display:flex;
-    justify-content:center;
-    align-items:flex-start;
-    overflow:hidden;
   }
 }
-
+@media(min-width:768px){
+  .pc-ad-slot{
+    display:block;
+  }
+}
 
 /* Ver.0.35: はじめに・使い方 */
 .link-button{
