@@ -1614,11 +1614,14 @@ async function lookupBarcodeProduct(code) {
   const existing = findProductByBarcode(code);
   if (existing) {
     status.textContent = `PriceLog内で「${existing.name}」が見つかったよ。`;
-    $('barcodeProductNameEdit').value = existing.name;
-    $('barcodeTypeNameEdit').value = '';
-    $('barcodeAmount').value = existing.amount || 1;
-    $('barcodeUnit').value = existing.unit || '個';
-    syncBarcodeChoiceLabels();
+    const existingType = deriveKnownBarcodeTypeFromText(existing.name || '');
+    applyResolvedBarcodeFields({
+      exactName: existing.name || '',
+      typeName: existingType,
+      quantity: (Number(existing.amount) > 0 && existing.unit)
+        ? { amount: Number(existing.amount), unit: existing.unit }
+        : null
+    });
     return;
   }
 
@@ -1773,8 +1776,95 @@ function yahooHitScore(hit) {
   return score;
 }
 
+
+function normalizeBarcodeNameForCompare(value) {
+  return String(value || '')
+    .normalize('NFKC')
+    .toLowerCase()
+    .replace(/[【】［］\[\]（）()「」『』"'`・:：\-‐‑‒–—―_,，.。\/\\]/g, '')
+    .replace(/\s+/g, '');
+}
+
+function cleanBarcodeProductNameCandidate(value) {
+  return cleanBarcodeText(
+    String(value || '')
+      .replace(/<[^>]*>/g, ' ')
+      .replace(/&nbsp;/gi, ' ')
+      .replace(/&amp;/gi, '&')
+  )
+    .replace(/[【［].*?[】］]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function chooseBarcodeProductName(candidates, typeName = '') {
+  const unique = [];
+  const seen = new Set();
+
+  for (const candidate of candidates || []) {
+    const cleaned = cleanBarcodeProductNameCandidate(candidate);
+    if (!cleaned) continue;
+
+    const key = normalizeBarcodeNameForCompare(cleaned);
+    if (!key || seen.has(key)) continue;
+
+    seen.add(key);
+    unique.push(cleaned);
+  }
+
+  if (!unique.length) return '';
+
+  const typeKey = normalizeBarcodeNameForCompare(typeName);
+  const primary = unique[0];
+  const primaryKey = normalizeBarcodeNameForCompare(primary);
+
+  // APIの正式商品名を最優先する。
+  // ただし「牛乳」「ガム」など種類名だけだった場合は、
+  // 同じAPIレスポンス内にある、より具体的な商品名へ切り替える。
+  if (!typeKey || primaryKey !== typeKey) return primary;
+
+  const richer = unique
+    .slice(1)
+    .filter(name => {
+      const key = normalizeBarcodeNameForCompare(name);
+      return key && key !== typeKey && name.length <= 120;
+    })
+    .sort((a, b) => b.length - a.length)[0];
+
+  return richer || primary;
+}
+
+function applyResolvedBarcodeFields({ exactName, typeName, quantity }) {
+  // 商品名・種類・内容量は完全に独立して反映する。
+  // 種類候補が商品名を上書きすることはない。
+  $('barcodeProductNameEdit').value = cleanBarcodeProductNameCandidate(exactName);
+  $('barcodeTypeNameEdit').value = cleanBarcodeText(typeName);
+
+  if (quantity && Number(quantity.amount) > 0 && quantity.unit) {
+    $('barcodeAmount').value = String(quantity.amount);
+    setBarcodeUnit(quantity.unit);
+  } else {
+    $('barcodeAmount').value = '';
+    setBarcodeUnit('');
+  }
+
+  // 検索結果が変わるたび、必ず「正式商品名」を初期選択に戻す。
+  $('barcodeChoiceProduct').checked = true;
+  $('barcodeChoiceType').checked = false;
+  syncBarcodeChoiceLabels();
+}
+
 function applyYahooShoppingResult(code, hit) {
-  const exactName = cleanYahooProductName(hit?.name || '');
+  const initialType = deriveYahooType(hit, hit?.name || '');
+  const exactName = chooseBarcodeProductName([
+    hit?.name || '',
+    hit?.headLine || '',
+    [
+      hit?.brand?.name || '',
+      hit?.name || ''
+    ].filter(Boolean).join(' ')
+  ], initialType);
+
   const typeName = deriveYahooType(hit, exactName);
   const quantity = parseQuantityFromYahoo(hit);
 
@@ -1786,19 +1876,7 @@ function applyYahooShoppingResult(code, hit) {
     product: { product_type: isYahooLikelyFood(hit) ? 'food' : 'other' }
   };
 
-  $('barcodeProductNameEdit').value = exactName;
-  $('barcodeTypeNameEdit').value = typeName;
-
-  if (quantity) {
-    $('barcodeAmount').value = String(quantity.amount);
-    setBarcodeUnit(quantity.unit);
-  } else {
-    $('barcodeAmount').value = '';
-    setBarcodeUnit('');
-  }
-
-  $('barcodeChoiceProduct').checked = true;
-  syncBarcodeChoiceLabels();
+  applyResolvedBarcodeFields({ exactName, typeName, quantity });
 }
 
 function safeRemoteImageUrl(value) {
@@ -1932,7 +2010,7 @@ function deriveKnownBarcodeTypeFromText(value) {
     [['パスタ','スパゲッティ'], 'パスタ'],
     [['チーズ'], 'チーズ'],
     [['バター'], 'バター'],
-    [['粒ガム','板ガム','ボトルガム','ガム','クロレッツ','リカルデント','ブラックブラック','グリーンガム','フィッツ','fits','acuo','アクオ','ポスカ'], 'ガム'],
+    [['粒ガム','板ガム','ボトルガム','チューインガム','chewing gum','ガム','クロレッツ','リカルデント','ブラックブラック','グリーンガム','フィッツ','fits','acuo','アクオ','ポスカ'], 'ガム'],
     [['チョコレート'], 'チョコレート'],
     [['アイスクリーム','アイス'], 'アイス'],
     [['米','こめ'], '米'],
@@ -2096,9 +2174,19 @@ async function lookupOpenFacts(code) {
 }
 
 function applyOpenFactsResult(code, product) {
-  const exactName = cleanBarcodeText(
+  const preliminaryName = cleanBarcodeProductNameCandidate(
     product.product_name_ja || product.product_name || product.brands || ''
   );
+  const initialType = deriveBarcodeType(product, preliminaryName);
+
+  const exactName = chooseBarcodeProductName([
+    product.product_name_ja || '',
+    product.product_name || '',
+    [
+      product.brands || '',
+      product.product_name_ja || product.product_name || ''
+    ].filter(Boolean).join(' ')
+  ], initialType);
 
   const typeName = deriveBarcodeType(product, exactName);
   const quantity = parseBarcodeQuantity(product);
@@ -2110,19 +2198,7 @@ function applyOpenFactsResult(code, product) {
     imageUrl: extractOpenFactsImageUrl(product)
   };
 
-  $('barcodeProductNameEdit').value = exactName;
-  $('barcodeTypeNameEdit').value = typeName;
-
-  if (quantity) {
-    $('barcodeAmount').value = String(quantity.amount);
-    setBarcodeUnit(quantity.unit);
-  } else {
-    $('barcodeAmount').value = '';
-    setBarcodeUnit('');
-  }
-
-  $('barcodeChoiceProduct').checked = true;
-  syncBarcodeChoiceLabels();
+  applyResolvedBarcodeFields({ exactName, typeName, quantity });
 }
 
 async function lookupUpcItemDb(code) {
@@ -2138,9 +2214,19 @@ async function lookupUpcItemDb(code) {
 }
 
 function applyUpcItemDbResult(code, item) {
-  const exactName = cleanBarcodeText(
+  const preliminaryName = cleanBarcodeProductNameCandidate(
     item.title || [item.brand, item.model].filter(Boolean).join(' ') || ''
   );
+  const initialType = deriveUpcItemType(item, preliminaryName);
+
+  const exactName = chooseBarcodeProductName([
+    item.title || '',
+    [item.brand, item.model].filter(Boolean).join(' '),
+    [
+      item.brand || '',
+      item.title || ''
+    ].filter(Boolean).join(' ')
+  ], initialType);
 
   const typeName = deriveUpcItemType(item, exactName);
   const quantity = parseQuantityFromUpcItem(item);
@@ -2153,19 +2239,7 @@ function applyUpcItemDbResult(code, item) {
     product: { product_type: 'food' }
   };
 
-  $('barcodeProductNameEdit').value = exactName;
-  $('barcodeTypeNameEdit').value = typeName;
-
-  if (quantity) {
-    $('barcodeAmount').value = String(quantity.amount);
-    setBarcodeUnit(quantity.unit);
-  } else {
-    $('barcodeAmount').value = '';
-    setBarcodeUnit('');
-  }
-
-  $('barcodeChoiceProduct').checked = true;
-  syncBarcodeChoiceLabels();
+  applyResolvedBarcodeFields({ exactName, typeName, quantity });
 }
 
 function deriveUpcItemType(item, exactName = '') {
