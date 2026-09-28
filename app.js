@@ -34,7 +34,6 @@ let barcodeDetector = null;
 let barcodeScanTimer = null;
 let barcodeScanning = false;
 let barcodeLookupData = null;
-let productImageDeletePending = false;
 let recommendedReadingMap = new Map();
 
 const $ = (id) => document.getElementById(id);
@@ -75,15 +74,6 @@ $('btnTestYahooApi').addEventListener('click', testYahooShoppingApi);
 $('productForm').addEventListener('submit', (e) => {
   e.preventDefault();
   saveProductFromDialog();
-});
-
-$('btnDeleteProductImage').addEventListener('click', () => {
-  if (!editProductId) return;
-
-  productImageDeletePending = true;
-  $('productImageSettingPreview').classList.add('hidden');
-  $('btnDeleteProductImage').classList.add('hidden');
-  $('productImageDeleteNote').classList.remove('hidden');
 });
 
 $('btnDeleteProduct').addEventListener('click', () => {
@@ -1762,6 +1752,7 @@ async function lookupYahooShopping(
   return hits[0] || data.hits[0] || null;
 }
 
+
 function yahooHitScore(hit) {
   let score = 0;
   if (hit?.name) score += 5;
@@ -1770,84 +1761,6 @@ function yahooHitScore(hit) {
   if (Array.isArray(hit?.parentGenreCategories)) score += hit.parentGenreCategories.length;
   if (hit?.description) score += 1;
   return score;
-}
-
-
-function normalizeBarcodeNameForCompare(value) {
-  return String(value || '')
-    .normalize('NFKC')
-    .toLowerCase()
-    .replace(/[【】［］\[\]（）()「」『』"'`・:：\-‐‑‒–—―_,，.。\/\\]/g, '')
-    .replace(/\s+/g, '');
-}
-
-function cleanBarcodeProductNameCandidate(value) {
-  return cleanBarcodeText(
-    String(value || '')
-      .replace(/<[^>]*>/g, ' ')
-      .replace(/&nbsp;/gi, ' ')
-      .replace(/&amp;/gi, '&')
-  )
-    .replace(/[【［].*?[】］]/g, ' ')
-    .replace(/\s+/g, ' ')
-    .trim();
-}
-
-function chooseBarcodeProductName(candidates, typeName = '') {
-  const unique = [];
-  const seen = new Set();
-
-  for (const candidate of candidates || []) {
-    const cleaned = cleanBarcodeProductNameCandidate(candidate);
-    if (!cleaned) continue;
-
-    const key = normalizeBarcodeNameForCompare(cleaned);
-    if (!key || seen.has(key)) continue;
-
-    seen.add(key);
-    unique.push(cleaned);
-  }
-
-  if (!unique.length) return '';
-
-  const typeKey = normalizeBarcodeNameForCompare(typeName);
-  const primary = unique[0];
-  const primaryKey = normalizeBarcodeNameForCompare(primary);
-
-  // APIの正式商品名を最優先する。
-  // ただし「牛乳」「ガム」など種類名だけだった場合は、
-  // 同じAPIレスポンス内にある、より具体的な商品名へ切り替える。
-  if (!typeKey || primaryKey !== typeKey) return primary;
-
-  const richer = unique
-    .slice(1)
-    .filter(name => {
-      const key = normalizeBarcodeNameForCompare(name);
-      return key && key !== typeKey && name.length <= 120;
-    })
-    .sort((a, b) => b.length - a.length)[0];
-
-  return richer || primary;
-}
-
-function applyResolvedBarcodeFields({ exactName, typeName, quantity }) {
-  // 商品名・種類・内容量は完全に独立して反映する。
-  // 種類候補が商品名を上書きすることはない。
-  $('barcodeProductNameEdit').value = cleanBarcodeProductNameCandidate(exactName);
-  $('barcodeTypeNameEdit').value = cleanBarcodeText(typeName);
-
-  if (quantity && Number(quantity.amount) > 0 && quantity.unit) {
-    $('barcodeAmount').value = String(quantity.amount);
-    setBarcodeUnit(quantity.unit);
-  } else {
-    $('barcodeAmount').value = '';
-    setBarcodeUnit('');
-  }
-
-  // 検索結果が変わるたび、必ず「正式商品名」を初期選択に戻す。
-  $('barcodeChoiceProduct').checked = true;
-  $('barcodeChoiceType').checked = false;
-  syncBarcodeChoiceLabels();
 }
 
 function applyYahooShoppingResult(code, hit) {
@@ -2009,7 +1922,6 @@ function deriveKnownBarcodeTypeFromText(value) {
     [['パスタ','スパゲッティ'], 'パスタ'],
     [['チーズ'], 'チーズ'],
     [['バター'], 'バター'],
-    [['粒ガム','板ガム','ボトルガム','チューインガム','chewing gum','ガム','クロレッツ','リカルデント','ブラックブラック','グリーンガム','フィッツ','fits','acuo','アクオ','ポスカ'], 'ガム'],
     [['チョコレート'], 'チョコレート'],
     [['アイスクリーム','アイス'], 'アイス'],
     [['米','こめ'], '米'],
@@ -2073,8 +1985,7 @@ function parseQuantityFromText(value) {
     if (amount > 0) return { amount, unit };
   }
 
-  // ガム・錠菓・小分け商品など。Yahooの商品名に「14粒」「9枚」のように入るケースを拾う。
-  m = text.match(/(\d+(?:\.\d+)?)\s*(粒|枚|個|本|袋|箱)(?:\s*(?:入|入り|セット))?/);
+  m = text.match(/(\d+)\s*(個|枚|本|袋|箱)(?:\s*(?:入|入り|セット))?/);
   if (m) return { amount: Number(m[1]), unit: m[2] };
 
   return null;
@@ -2656,28 +2567,6 @@ function openProductDialog(id = null) {
 
   $('btnDeleteProduct').classList.toggle('hidden', !p);
 
-  productImageDeletePending = false;
-  const imageSetting = $('productImageSetting');
-  const imagePreview = $('productImageSettingPreview');
-  const deleteImageButton = $('btnDeleteProductImage');
-  const deleteImageNote = $('productImageDeleteNote');
-  const currentImageUrl = safeRemoteImageUrl(p?.imageUrl);
-
-  imageSetting.classList.toggle('hidden', !p || !currentImageUrl);
-  deleteImageButton.classList.remove('hidden');
-  deleteImageNote.classList.add('hidden');
-
-  if (p && currentImageUrl) {
-    imagePreview.src = currentImageUrl;
-    imagePreview.classList.remove('hidden');
-    imagePreview.onerror = () => {
-      imagePreview.classList.add('hidden');
-    };
-  } else {
-    imagePreview.removeAttribute('src');
-    imagePreview.classList.add('hidden');
-  }
-
   const dialog = $('productDialog');
   dialog.showModal();
 
@@ -2723,7 +2612,6 @@ function saveProductFromDialog() {
       p.amount = amount;
       p.unit = $('productUnit').value;
       p.defaultTax = Number($('productTax').value);
-      if (productImageDeletePending) p.imageUrl = '';
     }
   } else {
     const p = {
