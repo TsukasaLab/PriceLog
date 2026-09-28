@@ -1,4 +1,4 @@
-PriceLog Ver.0.28
+PriceLog Ver.0.29
 
 買い物中の価格比較に特化したPWA試作版です。
 
@@ -211,3 +211,8 @@ Ver.0.28 changes
 - 未入力でも×で確実に閉じられるよう修正
 - ×クリック時にpreventDefault/stopPropagationを追加
 - ESCで閉じる場合も入力チェックを発生させない
+
+Ver.0.29 changes
+- スマホ表示でもバージョン番号を常時表示
+- PriceLogタイトル横に小さくVer表記を固定
+- スマホ用CSSでバージョンまで非表示になっていた問題を修正

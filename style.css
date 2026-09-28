@@ -249,7 +249,7 @@ button:active,.primary:active,.ghost:active,.icon-btn:active{transform:translate
   .top-actions{gap:3px}
   .top-actions .mini{min-height:32px;padding:0 6px;font-size:11px}
   .topbar strong{font-size:15px}
-  .topbar small{display:none}
+  .topbar small:not(.app-version){display:none}
   .store-purchase-note{font-size:9px}
 }
 
@@ -428,4 +428,22 @@ button:active,.primary:active,.ghost:active,.icon-btn:active{transform:translate
 }
 #productDialog .dialog-head{
   padding-right:38px;
+}
+
+/* Ver.0.29: スマホでもバージョン番号を常時表示 */
+.app-version{
+  display:inline-block!important;
+  margin-left:4px;
+  font-size:9px!important;
+  font-weight:600;
+  color:var(--muted);
+  white-space:nowrap;
+  vertical-align:middle;
+}
+@media(max-width:520px){
+  .app-version{
+    display:inline-block!important;
+    font-size:8px!important;
+    margin-left:3px;
+  }
 }
