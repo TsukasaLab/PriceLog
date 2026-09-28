@@ -40,6 +40,7 @@ let yahooLastRequestAt = 0;
 const YAHOO_MIN_REQUEST_INTERVAL_MS = 1200;
 const yahooLookupInflight = new Map();
 const yahooLookupCache = new Map();
+let lastYahooDiagnostic = '';
 
 let recommendedReadingMap = new Map();
 
@@ -139,13 +140,13 @@ $('btnBarcodeAdd').addEventListener('click', openBarcodeDialog);
 $('btnCloseBarcode').addEventListener('click', closeBarcodeDialog);
 $('btnStartBarcodeCamera').addEventListener('click', startBarcodeCamera);
 $('btnLookupBarcode').addEventListener('click', () => {
-  const code = $('barcodeManualCode').value.replace(/\D/g, '');
+  const code = normalizeBarcodeCode($('barcodeManualCode').value);
   if (code) lookupBarcodeProduct(code);
 });
 $('barcodeManualCode').addEventListener('keydown', (e) => {
   if (e.key === 'Enter') {
     e.preventDefault();
-    const code = $('barcodeManualCode').value.replace(/\D/g, '');
+    const code = normalizeBarcodeCode($('barcodeManualCode').value);
     if (code) lookupBarcodeProduct(code);
   }
 });
@@ -1481,6 +1482,7 @@ function openBarcodeDialog() {
   barcodeLookupData = null;
 
   $('barcodeResult').classList.add('hidden');
+  setBarcodeDiagnostic('');
   $('barcodeManualCode').value = '';
   $('barcodeCameraMessage').textContent = 'カメラを起動してね。';
   $('barcodeProductNameEdit').value = '';
@@ -1599,14 +1601,40 @@ function stopBarcodeCamera(clearVideo = true) {
   }
 }
 
+function normalizeBarcodeCode(value) {
+  let digits = String(value || '')
+    .normalize('NFKC')
+    .replace(/\D/g, '');
+
+  // 一部ブラウザがEAN-13をGTIN-14の先頭0付きで返す場合に補正。
+  if (digits.length === 14 && digits.startsWith('0')) {
+    digits = digits.slice(1);
+  }
+
+  return digits;
+}
+
+function setBarcodeDiagnostic(message = '') {
+  lastYahooDiagnostic = String(message || '');
+  const el = $('barcodeDiagnostic');
+  if (!el) return;
+
+  el.textContent = lastYahooDiagnostic;
+  el.classList.toggle('hidden', !lastYahooDiagnostic);
+}
+
 function findProductByBarcode(code) {
-  return products.find(product => String(product.barcode || '') === String(code || ''));
+  const normalized = normalizeBarcodeCode(code);
+  return products.find(
+    product => normalizeBarcodeCode(product.barcode || '') === normalized
+  );
 }
 
 async function lookupBarcodeProduct(code) {
-  code = String(code || '').replace(/\D/g, '');
+  code = normalizeBarcodeCode(code);
   if (!code) return;
 
+  setBarcodeDiagnostic('');
   stopBarcodeCamera(false);
 
   const result = $('barcodeResult');
@@ -1643,10 +1671,12 @@ async function lookupBarcodeProduct(code) {
       if (yahooHit) {
         applyYahooShoppingResult(code, yahooHit);
         status.textContent = 'Yahoo!ショッピングで商品が見つかったよ。登録する名前を選んでね。';
+        if (lastYahooDiagnostic) setBarcodeDiagnostic(lastYahooDiagnostic);
         return;
       }
 
       status.textContent = 'Yahoo!では未登録だったので、無料データベースも検索中…';
+      if (lastYahooDiagnostic) setBarcodeDiagnostic(lastYahooDiagnostic);
     } catch (err) {
       if (err?.code === 'YAHOO_RATE_LIMIT') {
         status.textContent =
@@ -1655,6 +1685,9 @@ async function lookupBarcodeProduct(code) {
         status.textContent =
           'Yahoo!検索に接続できなかったので、無料データベースも検索中…';
       }
+      setBarcodeDiagnostic(
+        `Ver.0.46 / JAN ${code} / Yahooエラー: ${err?.code || err?.message || 'unknown'}`
+      );
     }
   } else {
     status.textContent = 'Yahoo! Client ID未設定。無料データベースを検索中…';
@@ -1830,55 +1863,68 @@ async function lookupYahooShopping(
   clientId = settings.yahooClientId,
   workerUrl = YAHOO_WORKER_URL
 ) {
-  const jan = String(code || '').replace(/\D/g, '');
+  const jan = normalizeBarcodeCode(code);
   if (!jan) return null;
 
-  // 同じJANを短時間に何度も検索した場合はAPIへ再送しない。
+  // 成功した結果だけキャッシュする。0件はキャッシュしない。
   const cached = yahooLookupCache.get(jan);
-  if (cached && Date.now() - cached.time < 5 * 60 * 1000) {
-    return cached.hit || null;
+  if (cached && cached.hit && Date.now() - cached.time < 5 * 60 * 1000) {
+    lastYahooDiagnostic =
+      `Ver.0.46 / JAN ${jan} / Yahoo成功キャッシュ`;
+    return cached.hit;
   }
 
-  // カメラ読み取りと検索ボタンが重なっても同じJANは1本だけ実行。
   if (yahooLookupInflight.has(jan)) {
     return yahooLookupInflight.get(jan);
   }
 
   const promise = (async () => {
-    // 1回目: Yahoo!公式JAN検索
-    let data = await fetchYahooViaWorker(
+    let janHits = [];
+    let queryHits = [];
+
+    // 1) JAN検索
+    const janData = await fetchYahooViaWorker(
       { janCode: jan, results: 20 },
       clientId,
       workerUrl
     );
+    janHits = Array.isArray(janData?.hits) ? janData.hits : [];
 
-    let hits = Array.isArray(data?.hits) ? data.hits : [];
-
-    // JAN検索で0件ならキーワード検索も試す。
-    // fetchYahooViaWorker側で必ず1.2秒以上の間隔を空ける。
-    if (!hits.length) {
-      data = await fetchYahooViaWorker(
+    // 2) JAN検索が0件の時だけJAN文字列で検索
+    if (!janHits.length) {
+      const queryData = await fetchYahooViaWorker(
         { query: jan, results: 20 },
         clientId,
         workerUrl
       );
-      hits = Array.isArray(data?.hits) ? data.hits : [];
+      queryHits = Array.isArray(queryData?.hits) ? queryData.hits : [];
     }
 
+    const hits = janHits.length ? janHits : queryHits;
+
+    lastYahooDiagnostic =
+      `Ver.0.46 / JAN ${jan} / JAN検索 ${janHits.length}件 / 文字列検索 ${queryHits.length}件`;
+
     if (!hits.length) {
-      yahooLookupCache.set(jan, { time: Date.now(), hit: null });
+      // 0件は保存しない。次回は必ずAPIへ再問い合わせ。
       return null;
     }
 
     const exactJanHits = hits.filter(
-      hit => String(hit?.janCode || '').replace(/\D/g, '') === jan
+      hit => normalizeBarcodeCode(hit?.janCode || '') === jan
     );
 
     const candidates = exactJanHits.length ? exactJanHits : hits;
     candidates.sort((a, b) => yahooHitScore(b) - yahooHitScore(a));
 
     const hit = candidates[0] || null;
-    yahooLookupCache.set(jan, { time: Date.now(), hit });
+
+    if (hit) {
+      yahooLookupCache.set(jan, { time: Date.now(), hit });
+      lastYahooDiagnostic +=
+        ` / 採用 ${exactJanHits.length ? 'JAN一致' : '検索候補'}: ${String(hit.name || '').slice(0, 40)}`;
+    }
+
     return hit;
   })();
 
