@@ -1,5 +1,5 @@
-const CACHE='pricelog-v040';
-const ASSETS=['./','./index.html','./guide.html','./style.css?v=0.40','./app.js?v=0.40','./manifest.webmanifest','./template-products.json','./icon-192.png','./icon-512.png','./ads.js?v=0.40','./ad-pc.html','./ad-sp.html'];
+const CACHE='pricelog-v039';
+const ASSETS=['./','./index.html','./guide.html','./style.css?v=0.39','./app.js?v=0.39','./manifest.webmanifest','./template-products.json','./icon-192.png','./icon-512.png','./ads.js?v=0.39','./ad-pc.html','./ad-sp.html'];
 self.addEventListener('install',e=>{self.skipWaiting();e.waitUntil(caches.open(CACHE).then(c=>c.addAll(ASSETS)))});
 self.addEventListener('activate',e=>{e.waitUntil(Promise.all([caches.keys().then(keys=>Promise.all(keys.filter(k=>k!==CACHE).map(k=>caches.delete(k)))),self.clients.claim()]))});
 self.addEventListener('fetch',e=>{
