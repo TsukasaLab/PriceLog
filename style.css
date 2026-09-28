@@ -384,3 +384,48 @@ button:active,.primary:active,.ghost:active,.icon-btn:active{transform:translate
   .barcode-edit-grid label:nth-child(1),
   .barcode-edit-grid label:nth-child(2){grid-column:1/-1}
 }
+
+
+/* Ver.0.27: バーコード追加画面を白背景へ統一 */
+#barcodeDialog,
+.barcode-dialog,
+.barcode-wrap,
+.barcode-camera-section,
+.barcode-result,
+.barcode-manual,
+.barcode-edit-grid{
+  background:#fff;
+}
+#barcodeDialog{
+  color:var(--text);
+}
+#barcodeDialog .dialog-head{
+  background:#fff;
+}
+#barcodeDialog input,
+#barcodeDialog select,
+#barcodeDialog button{
+  background-color:#fff;
+}
+#barcodeDialog .primary{
+  background:var(--accent);
+  color:#fff;
+}
+#barcodeDialog .barcode-choice{
+  background:#fff;
+}
+#barcodeDialog .barcode-video{
+  background:#171717;
+}
+
+/* Ver.0.28: 商品追加ダイアログの×をフォーム外に固定 */
+#productDialog{position:relative}
+.product-dialog-close{
+  position:absolute;
+  top:8px;
+  right:8px;
+  z-index:20;
+}
+#productDialog .dialog-head{
+  padding-right:38px;
+}

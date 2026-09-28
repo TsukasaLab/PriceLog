@@ -9,13 +9,13 @@
   <title>PriceLog</title>
   <link rel="manifest" href="./manifest.webmanifest">
   <link rel="apple-touch-icon" href="./icon-192.png">
-  <link rel="stylesheet" href="./style.css?v=0.26">
+  <link rel="stylesheet" href="./style.css?v=0.28">
 </head>
 <body>
   <header class="topbar">
     <div>
       <strong>PriceLog</strong>
-      <small>Ver.0.26</small>
+      <small>Ver.0.28</small>
     </div>
     <div class="top-actions">
       <button id="btnSettings" class="icon-btn" type="button" aria-label="設定">⚙</button>
@@ -68,10 +68,10 @@
   </main>
 
   <dialog id="productDialog" class="dialog">
+    <button id="btnCloseProductDialog" class="product-dialog-close icon-btn" type="button" aria-label="閉じる">×</button>
     <form id="productForm" method="dialog">
       <div class="dialog-head">
         <strong id="productDialogTitle">商品追加</strong>
-        <button id="btnCloseProductDialog" class="icon-btn" type="button" aria-label="閉じる">×</button>
       </div>
 
       <button id="btnBarcodeAdd" class="barcode-launch" type="button">
@@ -421,6 +421,6 @@
     </div>
   </template>
 
-  <script src="./app.js?v=0.26"></script>
+  <script src="./app.js?v=0.28"></script>
 </body>
 </html>

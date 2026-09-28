@@ -99,9 +99,19 @@ $('btnImport').addEventListener('click', () => $('importFile').click());
 $('importFile').addEventListener('change', importBackup);
 $('btnCloseHistory').addEventListener('click', () => $('historyDialog').close());
 
-$('btnCloseProductDialog').addEventListener('click', () => {
-  if ($('productDialog').open) $('productDialog').close();
+$('btnCloseProductDialog').addEventListener('click', (e) => {
+  e.preventDefault();
+  e.stopPropagation();
+
+  const dialog = $('productDialog');
+  if (dialog.open) dialog.close();
 });
+
+$('productDialog').addEventListener('cancel', (e) => {
+  e.preventDefault();
+  $('productDialog').close();
+});
+
 
 $('btnBarcodeAdd').addEventListener('click', openBarcodeDialog);
 $('btnCloseBarcode').addEventListener('click', closeBarcodeDialog);
