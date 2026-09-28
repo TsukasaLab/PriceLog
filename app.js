@@ -24,6 +24,8 @@ let openStoreName = null;
 let customTemplate = normalizeTemplateData(loadJson(TEMPLATE_KEY, {version:1, products:[], stores:[]}));
 let templateDraft = null;
 let readingWasManuallyEdited = false;
+let productNameIsComposing = false;
+let compositionReadingCandidate = '';
 let recommendedReadingMap = new Map();
 
 const $ = (id) => document.getElementById(id);
@@ -92,15 +94,50 @@ $('btnImport').addEventListener('click', () => $('importFile').click());
 $('importFile').addEventListener('change', importBackup);
 $('btnCloseHistory').addEventListener('click', () => $('historyDialog').close());
 
-$('productName').addEventListener('input', () => {
-  // よみがなを手修正していても、商品名を書き換えた瞬間に
-  // 自動更新モードへ戻す。
+$('productName').addEventListener('compositionstart', () => {
+  productNameIsComposing = true;
   readingWasManuallyEdited = false;
+  compositionReadingCandidate = '';
+});
+
+$('productName').addEventListener('input', (e) => {
+  readingWasManuallyEdited = false;
+
+  const candidate = makeReadingCandidate($('productName').value);
+
+  if (productNameIsComposing || e.isComposing) {
+    // 変換前のかなを記憶しておく。
+    // 変換途中で漢字になっても、よみがな欄は消さない。
+    if (candidate) {
+      compositionReadingCandidate = candidate;
+      $('productReading').value = candidate;
+    }
+    return;
+  }
+
   autoFillProductReading();
 });
 
+$('productName').addEventListener('compositionend', () => {
+  productNameIsComposing = false;
+  readingWasManuallyEdited = false;
+
+  const finalCandidate = makeReadingCandidate($('productName').value);
+
+  if (finalCandidate) {
+    $('productReading').value = finalCandidate;
+  } else if (compositionReadingCandidate) {
+    $('productReading').value = compositionReadingCandidate;
+  }
+
+  compositionReadingCandidate = '';
+});
+
 $('productName').addEventListener('blur', () => {
-  if (!readingWasManuallyEdited) autoFillProductReading();
+  if (!readingWasManuallyEdited && !productNameIsComposing) {
+    const candidate = makeReadingCandidate($('productName').value);
+    if (candidate) $('productReading').value = candidate;
+  }
 });
 
 $('productReading').addEventListener('input', () => {
@@ -1418,9 +1455,10 @@ function makeReadingCandidate(name) {
 function autoFillProductReading() {
   const candidate = makeReadingCandidate($('productName').value);
 
-  // 商品名入力中は候補で強制更新する。
-  // 読みを作れない商品名なら、以前の読みを残さず一旦空欄にする。
-  $('productReading').value = candidate;
+  // 読みを作れる時だけ更新。
+  // IMEで漢字へ変換した場合は compositionend で
+  // 変換前のかな読みを残す。
+  if (candidate) $('productReading').value = candidate;
 }
 
 function normalizeReadingInput(value) {
@@ -1510,6 +1548,8 @@ function openProductDialog(id = null) {
   // 商品名を入力し始めたら、自動読みを強制更新する。
   // その後、よみがな欄を手修正した時だけ自動更新を停止する。
   readingWasManuallyEdited = false;
+  productNameIsComposing = false;
+  compositionReadingCandidate = '';
 
   $('productDialogTitle').textContent = p ? '商品設定' : '商品追加';
   $('productName').value = p?.name ?? '';
