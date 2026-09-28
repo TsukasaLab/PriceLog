@@ -1,4 +1,4 @@
-PriceLog Ver.0.36
+PriceLog Ver.0.37
 
 買い物中の価格比較に特化したPWA試作版です。
 
@@ -275,3 +275,12 @@ Ver.0.36 changes
 - 768px以上: PC用728x90広告
 - 端末幅に合わない広告タグは読み込まない
 - 広告は商品一覧の下に表示
+
+Ver.0.37 changes
+- PC広告追加後にPriceLog本体が操作できなくなる問題への対策
+- 忍者AdMaxタグをPriceLog本体HTMLから分離
+- PC広告は ad-pc.html (728x90) 内で読み込み
+- スマホ広告は ad-sp.html (320x100) 内で読み込み
+- PriceLog本体の app.js を先に実行し、その後 ads.js から広告iframeを生成
+- 広告領域を固定サイズ・overflow hidden・paint containmentで隔離
+- 広告側のDOMやdocument.writeがPriceLog本体へ干渉しにくい構成へ変更
