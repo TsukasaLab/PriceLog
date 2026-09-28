@@ -9,13 +9,13 @@
   <title>PriceLog</title>
   <link rel="manifest" href="./manifest.webmanifest">
   <link rel="apple-touch-icon" href="./icon-192.png">
-  <link rel="stylesheet" href="./style.css?v=0.23">
+  <link rel="stylesheet" href="./style.css?v=0.24">
 </head>
 <body>
   <header class="topbar">
     <div>
       <strong>PriceLog</strong>
-      <small>Ver.0.23</small>
+      <small>Ver.0.24</small>
     </div>
     <div class="top-actions">
       <button id="btnSettings" class="icon-btn" type="button" aria-label="設定">⚙</button>
@@ -73,6 +73,10 @@
         <strong id="productDialogTitle">商品追加</strong>
         <button class="icon-btn" value="cancel" type="submit" aria-label="閉じる">×</button>
       </div>
+
+      <button id="btnBarcodeAdd" class="barcode-launch" type="button">
+        📷 バーコードから追加
+      </button>
 
       <label>商品名
         <input id="productName" required maxlength="60" placeholder="例：ブレンディ">
@@ -176,6 +180,80 @@
         <button class="primary" value="default" type="submit">設定を保存</button>
       </div>
     </form>
+  </dialog>
+
+
+  <dialog id="barcodeDialog" class="dialog barcode-dialog">
+    <div class="barcode-wrap">
+      <div class="dialog-head">
+        <div>
+          <strong>バーコードから商品追加</strong>
+          <div class="barcode-sub">JAN/EANコードをカメラで読み取って商品情報を検索する。</div>
+        </div>
+        <button id="btnCloseBarcode" class="icon-btn" type="button" aria-label="閉じる">×</button>
+      </div>
+
+      <section id="barcodeCameraSection" class="barcode-camera-section">
+        <video id="barcodeVideo" class="barcode-video" playsinline muted></video>
+        <div class="barcode-guide">
+          <span></span>
+        </div>
+        <div id="barcodeCameraMessage" class="barcode-message">カメラを起動してね。</div>
+        <button id="btnStartBarcodeCamera" class="primary backup-btn" type="button">カメラで読み取る</button>
+      </section>
+
+      <div class="barcode-manual">
+        <input id="barcodeManualCode" type="text" inputmode="numeric" maxlength="20" placeholder="JANコードを直接入力">
+        <button id="btnLookupBarcode" class="ghost mini" type="button">検索</button>
+      </div>
+
+      <section id="barcodeResult" class="barcode-result hidden">
+        <div class="barcode-result-code">バーコード: <strong id="barcodeResultCode"></strong></div>
+        <div id="barcodeLookupStatus" class="barcode-message"></div>
+
+        <div class="barcode-choice-title">登録する名前</div>
+        <label class="barcode-choice">
+          <input id="barcodeChoiceProduct" type="radio" name="barcodeNameChoice" value="product" checked>
+          <span>
+            <small>商品名</small>
+            <strong id="barcodeProductName"></strong>
+          </span>
+        </label>
+
+        <label class="barcode-choice">
+          <input id="barcodeChoiceType" type="radio" name="barcodeNameChoice" value="type">
+          <span>
+            <small>種類</small>
+            <strong id="barcodeTypeName"></strong>
+          </span>
+        </label>
+
+        <div class="barcode-edit-grid">
+          <label>商品名候補
+            <input id="barcodeProductNameEdit" type="text" maxlength="80">
+          </label>
+          <label>種類候補
+            <input id="barcodeTypeNameEdit" type="text" maxlength="60" placeholder="例：牛乳">
+          </label>
+          <label>内容量
+            <input id="barcodeAmount" type="text" inputmode="decimal" value="1">
+          </label>
+          <label>単位
+            <select id="barcodeUnit">
+              <option value="g">g</option>
+              <option value="ml">ml</option>
+              <option value="個">個</option>
+              <option value="枚">枚</option>
+              <option value="本">本</option>
+              <option value="袋">袋</option>
+              <option value="箱">箱</option>
+            </select>
+          </label>
+        </div>
+
+        <button id="btnRegisterBarcodeProduct" class="primary backup-btn" type="button">この内容で商品登録</button>
+      </section>
+    </div>
   </dialog>
 
 
@@ -343,6 +421,6 @@
     </div>
   </template>
 
-  <script src="./app.js?v=0.23"></script>
+  <script src="./app.js?v=0.24"></script>
 </body>
 </html>

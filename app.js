@@ -26,6 +26,11 @@ let templateDraft = null;
 let readingWasManuallyEdited = false;
 let productNameIsComposing = false;
 let compositionReadingCandidate = '';
+let barcodeStream = null;
+let barcodeDetector = null;
+let barcodeScanTimer = null;
+let barcodeScanning = false;
+let barcodeLookupData = null;
 let recommendedReadingMap = new Map();
 
 const $ = (id) => document.getElementById(id);
@@ -93,6 +98,25 @@ $('btnExport').addEventListener('click', exportBackup);
 $('btnImport').addEventListener('click', () => $('importFile').click());
 $('importFile').addEventListener('change', importBackup);
 $('btnCloseHistory').addEventListener('click', () => $('historyDialog').close());
+
+$('btnBarcodeAdd').addEventListener('click', openBarcodeDialog);
+$('btnCloseBarcode').addEventListener('click', closeBarcodeDialog);
+$('btnStartBarcodeCamera').addEventListener('click', startBarcodeCamera);
+$('btnLookupBarcode').addEventListener('click', () => {
+  const code = $('barcodeManualCode').value.replace(/\D/g, '');
+  if (code) lookupBarcodeProduct(code);
+});
+$('barcodeManualCode').addEventListener('keydown', (e) => {
+  if (e.key === 'Enter') {
+    e.preventDefault();
+    const code = $('barcodeManualCode').value.replace(/\D/g, '');
+    if (code) lookupBarcodeProduct(code);
+  }
+});
+$('barcodeProductNameEdit').addEventListener('input', syncBarcodeChoiceLabels);
+$('barcodeTypeNameEdit').addEventListener('input', syncBarcodeChoiceLabels);
+$('btnRegisterBarcodeProduct').addEventListener('click', registerBarcodeProduct);
+$('barcodeDialog').addEventListener('close', stopBarcodeCamera);
 
 $('productName').addEventListener('compositionstart', () => {
   productNameIsComposing = true;
@@ -1397,6 +1421,486 @@ function productTemplateKey(product) {
   const amount = Number(product.amount);
 
   return `${name}|${Number.isFinite(amount) ? amount : ''}|${unit}`;
+}
+
+function openBarcodeDialog() {
+  stopBarcodeCamera();
+  barcodeLookupData = null;
+
+  $('barcodeResult').classList.add('hidden');
+  $('barcodeManualCode').value = '';
+  $('barcodeCameraMessage').textContent = 'カメラを起動してね。';
+  $('barcodeProductNameEdit').value = '';
+  $('barcodeTypeNameEdit').value = '';
+  $('barcodeAmount').value = '1';
+  $('barcodeUnit').value = '個';
+
+  if ($('productDialog').open) $('productDialog').close();
+  $('barcodeDialog').showModal();
+}
+
+function closeBarcodeDialog() {
+  stopBarcodeCamera();
+  if ($('barcodeDialog').open) $('barcodeDialog').close();
+}
+
+async function createBarcodeDetector() {
+  if (!('BarcodeDetector' in globalThis)) return null;
+
+  try {
+    const supported = await BarcodeDetector.getSupportedFormats();
+    const wanted = ['ean_13', 'ean_8', 'upc_a', 'upc_e'];
+    const formats = wanted.filter(f => supported.includes(f));
+    return new BarcodeDetector(formats.length ? { formats } : undefined);
+  } catch {
+    try {
+      return new BarcodeDetector({ formats: ['ean_13', 'ean_8'] });
+    } catch {
+      return null;
+    }
+  }
+}
+
+async function startBarcodeCamera() {
+  stopBarcodeCamera();
+
+  const msg = $('barcodeCameraMessage');
+  msg.textContent = 'カメラを起動中…';
+
+  if (!navigator.mediaDevices?.getUserMedia) {
+    msg.textContent = 'このブラウザーではカメラを使えないよ。JANコードを直接入力してね。';
+    return;
+  }
+
+  barcodeDetector = await createBarcodeDetector();
+  if (!barcodeDetector) {
+    msg.textContent = 'このブラウザーはバーコード自動検出に未対応。JANコードを直接入力してね。';
+    return;
+  }
+
+  try {
+    barcodeStream = await navigator.mediaDevices.getUserMedia({
+      video: {
+        facingMode: { ideal: 'environment' },
+        width: { ideal: 1280 },
+        height: { ideal: 720 }
+      },
+      audio: false
+    });
+
+    const video = $('barcodeVideo');
+    video.srcObject = barcodeStream;
+    await video.play();
+
+    barcodeScanning = true;
+    msg.textContent = 'バーコードを枠の中央に合わせてね。';
+    scanBarcodeFrame();
+  } catch (err) {
+    msg.textContent = 'カメラを起動できなかったよ。権限を確認するか、JANコードを直接入力してね。';
+  }
+}
+
+async function scanBarcodeFrame() {
+  if (!barcodeScanning || !barcodeDetector) return;
+
+  const video = $('barcodeVideo');
+
+  try {
+    if (video.readyState >= 2) {
+      const codes = await barcodeDetector.detect(video);
+
+      if (codes?.length) {
+        const raw = String(codes[0].rawValue || '').replace(/\D/g, '');
+
+        if (raw) {
+          barcodeScanning = false;
+          $('barcodeManualCode').value = raw;
+          $('barcodeCameraMessage').textContent = `読み取り成功: ${raw}`;
+          stopBarcodeCamera(false);
+          await lookupBarcodeProduct(raw);
+          return;
+        }
+      }
+    }
+  } catch {}
+
+  barcodeScanTimer = setTimeout(scanBarcodeFrame, 180);
+}
+
+function stopBarcodeCamera(clearVideo = true) {
+  barcodeScanning = false;
+
+  if (barcodeScanTimer) {
+    clearTimeout(barcodeScanTimer);
+    barcodeScanTimer = null;
+  }
+
+  if (barcodeStream) {
+    barcodeStream.getTracks().forEach(track => track.stop());
+    barcodeStream = null;
+  }
+
+  if (clearVideo) {
+    const video = $('barcodeVideo');
+    if (video) video.srcObject = null;
+  }
+}
+
+function findProductByBarcode(code) {
+  return products.find(product => String(product.barcode || '') === String(code || ''));
+}
+
+async function lookupBarcodeProduct(code) {
+  code = String(code || '').replace(/\D/g, '');
+  if (!code) return;
+
+  stopBarcodeCamera(false);
+
+  const result = $('barcodeResult');
+  const status = $('barcodeLookupStatus');
+
+  result.classList.remove('hidden');
+  $('barcodeResultCode').textContent = code;
+  status.textContent = '商品情報を検索中…';
+
+  const existing = findProductByBarcode(code);
+  if (existing) {
+    status.textContent = `このバーコードは「${existing.name}」として登録済みだよ。`;
+    $('barcodeProductNameEdit').value = existing.name;
+    $('barcodeTypeNameEdit').value = '';
+    $('barcodeAmount').value = existing.amount || 1;
+    $('barcodeUnit').value = existing.unit || '個';
+    syncBarcodeChoiceLabels();
+    return;
+  }
+
+  barcodeLookupData = { code };
+
+  try {
+    const fields = [
+      'code',
+      'product_type',
+      'product_name',
+      'product_name_ja',
+      'generic_name',
+      'generic_name_ja',
+      'brands',
+      'quantity',
+      'product_quantity',
+      'product_quantity_unit',
+      'categories',
+      'categories_tags'
+    ].join(',');
+
+    const url =
+      `https://world.openfoodfacts.org/api/v2/product/${encodeURIComponent(code)}.json` +
+      `?product_type=all&cc=jp&lc=ja&fields=${encodeURIComponent(fields)}`;
+
+    const response = await fetch(url, {
+      headers: { 'Accept': 'application/json' }
+    });
+
+    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+
+    const data = await response.json();
+    const product = data?.product;
+
+    if (!product) {
+      prepareBarcodeManualResult(code);
+      status.textContent = '商品データが見つからなかったよ。商品名と種類を入力して登録できる。';
+      return;
+    }
+
+    const exactName = cleanBarcodeText(
+      product.product_name_ja ||
+      product.product_name ||
+      product.brands ||
+      ''
+    );
+
+    const typeName = deriveBarcodeType(product, exactName);
+    const quantity = parseBarcodeQuantity(product);
+
+    barcodeLookupData = { code, product };
+
+    $('barcodeProductNameEdit').value = exactName;
+    $('barcodeTypeNameEdit').value = typeName;
+
+    if (quantity) {
+      $('barcodeAmount').value = String(quantity.amount);
+      setBarcodeUnit(quantity.unit);
+    } else {
+      $('barcodeAmount').value = '1';
+      setBarcodeUnit('個');
+    }
+
+    $('barcodeChoiceProduct').checked = true;
+    syncBarcodeChoiceLabels();
+
+    status.textContent = exactName
+      ? '商品情報が見つかったよ。登録する名前を選んでね。'
+      : '商品名が登録されていなかったよ。名前を入力して登録できる。';
+  } catch (err) {
+    prepareBarcodeManualResult(code);
+    status.textContent = '商品情報の取得に失敗したよ。名前を手入力して登録できる。';
+  }
+}
+
+function prepareBarcodeManualResult(code) {
+  barcodeLookupData = { code };
+  $('barcodeProductNameEdit').value = '';
+  $('barcodeTypeNameEdit').value = '';
+  $('barcodeAmount').value = '1';
+  setBarcodeUnit('個');
+  $('barcodeChoiceProduct').checked = true;
+  syncBarcodeChoiceLabels();
+}
+
+function cleanBarcodeText(value) {
+  return String(value || '')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function deriveBarcodeType(product, exactName = '') {
+  const generic = cleanBarcodeText(
+    product?.generic_name_ja ||
+    product?.generic_name ||
+    ''
+  );
+
+  if (generic && generic.length <= 30) {
+    return simplifyGenericType(generic);
+  }
+
+  const haystack = [
+    exactName,
+    product?.categories || '',
+    ...(Array.isArray(product?.categories_tags) ? product.categories_tags : [])
+  ].join(' ').toLowerCase();
+
+  const rules = [
+    [['牛乳','milk','milks'], '牛乳'],
+    [['低脂肪乳','low-fat milk'], '低脂肪乳'],
+    [['ヨーグルト','yogurt','yoghurt'], 'ヨーグルト'],
+    [['豆乳','soy milk','soya milk'], '豆乳'],
+    [['コーヒー','coffee'], 'コーヒー'],
+    [['紅茶','black tea'], '紅茶'],
+    [['緑茶','green tea'], '緑茶'],
+    [['炭酸水','sparkling water'], '炭酸水'],
+    [['ミネラルウォーター','mineral water','waters'], '水'],
+    [['食パン','sandwich bread','sliced bread'], '食パン'],
+    [['パン','bread'], 'パン'],
+    [['卵','たまご','eggs'], '卵'],
+    [['納豆','natto'], '納豆'],
+    [['豆腐','tofu'], '豆腐'],
+    [['味噌','miso'], '味噌'],
+    [['醤油','しょうゆ','soy sauce'], '醤油'],
+    [['マヨネーズ','mayonnaise'], 'マヨネーズ'],
+    [['ケチャップ','ketchup'], 'ケチャップ'],
+    [['うどん','udon'], 'うどん'],
+    [['ラーメン','ramen'], 'ラーメン'],
+    [['パスタ','pasta'], 'パスタ'],
+    [['チーズ','cheese'], 'チーズ'],
+    [['バター','butter'], 'バター'],
+    [['ジュース','juice'], 'ジュース'],
+    [['チョコレート','chocolate'], 'チョコレート'],
+    [['アイス','ice cream'], 'アイス'],
+    [['米','rice'], '米']
+  ];
+
+  for (const [keywords, label] of rules) {
+    if (keywords.some(keyword => haystack.includes(keyword.toLowerCase()))) {
+      return label;
+    }
+  }
+
+  return '';
+}
+
+function simplifyGenericType(value) {
+  const text = cleanBarcodeText(value);
+
+  const known = deriveBarcodeType({
+    categories: text,
+    categories_tags: []
+  }, text);
+
+  return known || text;
+}
+
+function parseBarcodeQuantity(product) {
+  let amount = Number(product?.product_quantity);
+  let unit = String(product?.product_quantity_unit || '').toLowerCase();
+
+  if (Number.isFinite(amount) && amount > 0 && unit) {
+    if (unit === 'kg') {
+      amount *= 1000;
+      unit = 'g';
+    } else if (unit === 'l') {
+      amount *= 1000;
+      unit = 'ml';
+    }
+
+    if (['g','ml'].includes(unit)) return { amount, unit };
+  }
+
+  const raw = String(product?.quantity || '').toLowerCase().replace(',', '.');
+
+  let m = raw.match(/([\d.]+)\s*(kg|g|ml|l)\b/);
+  if (m) {
+    amount = Number(m[1]);
+    unit = m[2];
+
+    if (unit === 'kg') {
+      amount *= 1000;
+      unit = 'g';
+    } else if (unit === 'l') {
+      amount *= 1000;
+      unit = 'ml';
+    }
+
+    if (amount > 0) return { amount, unit };
+  }
+
+  m = raw.match(/(\d+)\s*(個|枚|本|袋|箱)/);
+  if (m) return { amount: Number(m[1]), unit: m[2] };
+
+  return null;
+}
+
+function setBarcodeUnit(unit) {
+  const select = $('barcodeUnit');
+  const exists = Array.from(select.options).some(option => option.value === unit);
+
+  if (!exists) {
+    const option = document.createElement('option');
+    option.value = unit;
+    option.textContent = unit;
+    select.appendChild(option);
+  }
+
+  select.value = unit;
+}
+
+function syncBarcodeChoiceLabels() {
+  const exact = $('barcodeProductNameEdit').value.trim();
+  const type = $('barcodeTypeNameEdit').value.trim();
+
+  $('barcodeProductName').textContent = exact || '商品名を入力';
+  $('barcodeTypeName').textContent = type || '種類を入力';
+
+  const typeChoice = $('barcodeChoiceType');
+  const typeLabel = typeChoice.closest('.barcode-choice');
+
+  typeChoice.disabled = !type;
+  typeLabel.classList.toggle('disabled', !type);
+
+  if (!type && typeChoice.checked) {
+    $('barcodeChoiceProduct').checked = true;
+  }
+}
+
+function barcodeReadingForName(name) {
+  const known = findKnownReading(name);
+  if (known) return known;
+
+  const map = new Map([
+    ['牛乳','ぎゅうにゅう'],
+    ['低脂肪乳','ていしぼうにゅう'],
+    ['豆乳','とうにゅう'],
+    ['ヨーグルト','よーぐると'],
+    ['コーヒー','こーひー'],
+    ['紅茶','こうちゃ'],
+    ['緑茶','りょくちゃ'],
+    ['炭酸水','たんさんすい'],
+    ['水','みず'],
+    ['食パン','しょくぱん'],
+    ['パン','ぱん'],
+    ['卵','たまご'],
+    ['納豆','なっとう'],
+    ['豆腐','とうふ'],
+    ['味噌','みそ'],
+    ['醤油','しょうゆ'],
+    ['マヨネーズ','まよねーず'],
+    ['ケチャップ','けちゃっぷ'],
+    ['うどん','うどん'],
+    ['ラーメン','らーめん'],
+    ['パスタ','ぱすた'],
+    ['チーズ','ちーず'],
+    ['バター','ばたー'],
+    ['ジュース','じゅーす'],
+    ['チョコレート','ちょこれーと'],
+    ['アイス','あいす'],
+    ['米','こめ']
+  ]);
+
+  if (map.has(name)) return map.get(name);
+
+  return makeReadingCandidate(name);
+}
+
+function registerBarcodeProduct() {
+  const code = String(barcodeLookupData?.code || $('barcodeManualCode').value || '')
+    .replace(/\D/g, '');
+
+  if (!code) {
+    $('barcodeLookupStatus').textContent = 'バーコードを読み取るか入力してね。';
+    return;
+  }
+
+  const existing = findProductByBarcode(code);
+  if (existing) {
+    $('barcodeLookupStatus').textContent = `「${existing.name}」として登録済みだよ。`;
+    return;
+  }
+
+  const choice = document.querySelector('input[name="barcodeNameChoice"]:checked')?.value || 'product';
+  const exactName = $('barcodeProductNameEdit').value.trim();
+  const typeName = $('barcodeTypeNameEdit').value.trim();
+  const name = choice === 'type' ? typeName : exactName;
+
+  const amount = Number($('barcodeAmount').value);
+  const unit = $('barcodeUnit').value;
+
+  if (!name) {
+    $('barcodeLookupStatus').textContent = '登録する商品名を入力してね。';
+    return;
+  }
+
+  if (!(amount > 0) || !unit) {
+    $('barcodeLookupStatus').textContent = '内容量と単位を確認してね。';
+    return;
+  }
+
+  const reading = barcodeReadingForName(name);
+  const productType = barcodeLookupData?.product?.product_type || 'food';
+  const defaultTax = productType === 'food'
+    ? Number(settings.reducedTax)
+    : Number(settings.standardTax);
+
+  const product = {
+    id: makeId('p'),
+    barcode: code,
+    name,
+    reading,
+    amount,
+    unit,
+    defaultTax,
+    history: [],
+    stores: []
+  };
+
+  products.push(product);
+  persistNow();
+  openProductId = product.id;
+  closeBarcodeDialog();
+  render();
+
+  requestAnimationFrame(() => {
+    const card = listEl.querySelector(`[data-id="${cssEscape(product.id)}"]`);
+    if (card) card.scrollIntoView({behavior:'smooth', block:'center'});
+  });
 }
 
 function normalizeProductNameKey(value) {
