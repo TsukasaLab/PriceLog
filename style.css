@@ -314,7 +314,8 @@ button:active,.primary:active,.ghost:active,.icon-btn:active{transform:translate
   display:block;
   object-fit:cover;
   border-radius:10px;
-  background:#171717;
+  border:1px solid var(--line);
+  background:#fff;
 }
 .barcode-guide{
   position:absolute;
@@ -322,10 +323,10 @@ button:active,.primary:active,.ghost:active,.icon-btn:active{transform:translate
   right:10%;
   top:27%;
   height:32%;
-  border:2px solid rgba(255,255,255,.85);
+  border:2px solid rgba(80,80,80,.75);
   border-radius:10px;
   pointer-events:none;
-  box-shadow:0 0 0 999px rgba(0,0,0,.16);
+  box-shadow:0 0 0 999px rgba(255,255,255,.12);
 }
 .barcode-guide span{
   position:absolute;
@@ -333,7 +334,7 @@ button:active,.primary:active,.ghost:active,.icon-btn:active{transform:translate
   right:8%;
   top:50%;
   height:2px;
-  background:rgba(255,255,255,.9);
+  background:rgba(80,80,80,.8);
 }
 .barcode-message{margin:6px 0;font-size:11px;color:var(--muted)}
 .barcode-manual{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:5px;margin-top:10px}
@@ -415,7 +416,13 @@ button:active,.primary:active,.ghost:active,.icon-btn:active{transform:translate
   background:#fff;
 }
 #barcodeDialog .barcode-video{
-  background:#171717;
+  background:#fff;
+}
+#barcodeDialog .barcode-camera-section{
+  background:#fff;
+}
+#barcodeDialog .barcode-message{
+  color:var(--muted);
 }
 
 /* Ver.0.28: 商品追加ダイアログの×をフォーム外に固定 */
@@ -875,3 +882,5 @@ button:active,.primary:active,.ghost:active,.icon-btn:active{transform:translate
     min-height:0;
   }
 }
+
+/* Ver.0.39: バーコード追加画面の初期表示を白背景へ */
