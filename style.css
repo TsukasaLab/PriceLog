@@ -918,15 +918,3 @@ button:active,.primary:active,.ghost:active,.icon-btn:active{transform:translate
 }
 
 
-/* Ver.0.46: バーコード検索診断 */
-.barcode-diagnostic{
-  margin:5px 0 8px;
-  padding:7px 8px;
-  border:1px solid var(--line);
-  border-radius:7px;
-  background:#f7f7f5;
-  color:#666;
-  font-size:10px;
-  line-height:1.5;
-  overflow-wrap:anywhere;
-}

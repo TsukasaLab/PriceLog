@@ -40,7 +40,6 @@ let yahooLastRequestAt = 0;
 const YAHOO_MIN_REQUEST_INTERVAL_MS = 1200;
 const yahooLookupInflight = new Map();
 const yahooLookupCache = new Map();
-let lastYahooDiagnostic = '';
 
 let recommendedReadingMap = new Map();
 
@@ -1482,7 +1481,6 @@ function openBarcodeDialog() {
   barcodeLookupData = null;
 
   $('barcodeResult').classList.add('hidden');
-  setBarcodeDiagnostic('');
   $('barcodeManualCode').value = '';
   $('barcodeCameraMessage').textContent = 'カメラを起動してね。';
   $('barcodeProductNameEdit').value = '';
@@ -1614,14 +1612,6 @@ function normalizeBarcodeCode(value) {
   return digits;
 }
 
-function setBarcodeDiagnostic(message = '') {
-  lastYahooDiagnostic = String(message || '');
-  const el = $('barcodeDiagnostic');
-  if (!el) return;
-
-  el.textContent = lastYahooDiagnostic;
-  el.classList.toggle('hidden', !lastYahooDiagnostic);
-}
 
 function findProductByBarcode(code) {
   const normalized = normalizeBarcodeCode(code);
@@ -1634,7 +1624,6 @@ async function lookupBarcodeProduct(code) {
   code = normalizeBarcodeCode(code);
   if (!code) return;
 
-  setBarcodeDiagnostic('');
   stopBarcodeCamera(false);
 
   const result = $('barcodeResult');
@@ -1671,12 +1660,10 @@ async function lookupBarcodeProduct(code) {
       if (yahooHit) {
         applyYahooShoppingResult(code, yahooHit);
         status.textContent = 'Yahoo!ショッピングで商品が見つかったよ。登録する名前を選んでね。';
-        if (lastYahooDiagnostic) setBarcodeDiagnostic(lastYahooDiagnostic);
         return;
       }
 
       status.textContent = 'Yahoo!では未登録だったので、無料データベースも検索中…';
-      if (lastYahooDiagnostic) setBarcodeDiagnostic(lastYahooDiagnostic);
     } catch (err) {
       if (err?.code === 'YAHOO_RATE_LIMIT') {
         status.textContent =
@@ -1685,9 +1672,6 @@ async function lookupBarcodeProduct(code) {
         status.textContent =
           'Yahoo!検索に接続できなかったので、無料データベースも検索中…';
       }
-      setBarcodeDiagnostic(
-        `Ver.0.46 / JAN ${code} / Yahooエラー: ${err?.code || err?.message || 'unknown'}`
-      );
     }
   } else {
     status.textContent = 'Yahoo! Client ID未設定。無料データベースを検索中…';
@@ -1869,8 +1853,6 @@ async function lookupYahooShopping(
   // 成功した結果だけキャッシュする。0件はキャッシュしない。
   const cached = yahooLookupCache.get(jan);
   if (cached && cached.hit && Date.now() - cached.time < 5 * 60 * 1000) {
-    lastYahooDiagnostic =
-      `Ver.0.46 / JAN ${jan} / Yahoo成功キャッシュ`;
     return cached.hit;
   }
 
@@ -1902,9 +1884,6 @@ async function lookupYahooShopping(
 
     const hits = janHits.length ? janHits : queryHits;
 
-    lastYahooDiagnostic =
-      `Ver.0.46 / JAN ${jan} / JAN検索 ${janHits.length}件 / 文字列検索 ${queryHits.length}件`;
-
     if (!hits.length) {
       // 0件は保存しない。次回は必ずAPIへ再問い合わせ。
       return null;
@@ -1921,8 +1900,6 @@ async function lookupYahooShopping(
 
     if (hit) {
       yahooLookupCache.set(jan, { time: Date.now(), hit });
-      lastYahooDiagnostic +=
-        ` / 採用 ${exactJanHits.length ? 'JAN一致' : '検索候補'}: ${String(hit.name || '').slice(0, 40)}`;
     }
 
     return hit;
@@ -2603,21 +2580,32 @@ function barcodeReadingForName(name) {
 }
 
 function registerBarcodeProduct() {
-  const code = String(barcodeLookupData?.code || $('barcodeManualCode').value || '')
-    .replace(/\D/g, '');
+  const code = normalizeBarcodeCode(
+    barcodeLookupData?.code || $('barcodeManualCode').value || ''
+  );
 
   if (!code) {
     $('barcodeLookupStatus').textContent = 'バーコードを読み取るか入力してね。';
     return;
   }
 
-  const existing = findProductByBarcode(code);
-  if (existing) {
-    $('barcodeLookupStatus').textContent = `「${existing.name}」として登録済みだよ。`;
-    return;
+  const choice =
+    document.querySelector('input[name="barcodeNameChoice"]:checked')?.value ||
+    'product';
+
+  // 正式商品名で登録する場合だけJANを商品へ紐づける。
+  // 種類候補で登録する場合は、特定商品のJANと汎用カテゴリを結び付けない。
+  const barcodeForProduct = choice === 'product' ? code : '';
+
+  if (barcodeForProduct) {
+    const existing = findProductByBarcode(barcodeForProduct);
+    if (existing) {
+      $('barcodeLookupStatus').textContent =
+        `「${existing.name}」として登録済みだよ。`;
+      return;
+    }
   }
 
-  const choice = document.querySelector('input[name="barcodeNameChoice"]:checked')?.value || 'product';
   const exactName = $('barcodeProductNameEdit').value.trim();
   const typeName = $('barcodeTypeNameEdit').value.trim();
   const name = choice === 'type' ? typeName : exactName;
@@ -2643,7 +2631,7 @@ function registerBarcodeProduct() {
 
   const product = {
     id: makeId('p'),
-    barcode: code,
+    barcode: barcodeForProduct,
     imageUrl: safeRemoteImageUrl(barcodeLookupData?.imageUrl),
     name,
     reading,
