@@ -34,6 +34,7 @@ let barcodeDetector = null;
 let barcodeScanTimer = null;
 let barcodeScanning = false;
 let barcodeLookupData = null;
+let productImageDeletePending = false;
 let recommendedReadingMap = new Map();
 
 const $ = (id) => document.getElementById(id);
@@ -74,6 +75,15 @@ $('btnTestYahooApi').addEventListener('click', testYahooShoppingApi);
 $('productForm').addEventListener('submit', (e) => {
   e.preventDefault();
   saveProductFromDialog();
+});
+
+$('btnDeleteProductImage').addEventListener('click', () => {
+  if (!editProductId) return;
+
+  productImageDeletePending = true;
+  $('productImageSettingPreview').classList.add('hidden');
+  $('btnDeleteProductImage').classList.add('hidden');
+  $('productImageDeleteNote').classList.remove('hidden');
 });
 
 $('btnDeleteProduct').addEventListener('click', () => {
@@ -1922,6 +1932,7 @@ function deriveKnownBarcodeTypeFromText(value) {
     [['パスタ','スパゲッティ'], 'パスタ'],
     [['チーズ'], 'チーズ'],
     [['バター'], 'バター'],
+    [['粒ガム','板ガム','ボトルガム','ガム','クロレッツ','リカルデント','ブラックブラック','グリーンガム','フィッツ','fits','acuo','アクオ','ポスカ'], 'ガム'],
     [['チョコレート'], 'チョコレート'],
     [['アイスクリーム','アイス'], 'アイス'],
     [['米','こめ'], '米'],
@@ -1985,7 +1996,8 @@ function parseQuantityFromText(value) {
     if (amount > 0) return { amount, unit };
   }
 
-  m = text.match(/(\d+)\s*(個|枚|本|袋|箱)(?:\s*(?:入|入り|セット))?/);
+  // ガム・錠菓・小分け商品など。Yahooの商品名に「14粒」「9枚」のように入るケースを拾う。
+  m = text.match(/(\d+(?:\.\d+)?)\s*(粒|枚|個|本|袋|箱)(?:\s*(?:入|入り|セット))?/);
   if (m) return { amount: Number(m[1]), unit: m[2] };
 
   return null;
@@ -2567,6 +2579,28 @@ function openProductDialog(id = null) {
 
   $('btnDeleteProduct').classList.toggle('hidden', !p);
 
+  productImageDeletePending = false;
+  const imageSetting = $('productImageSetting');
+  const imagePreview = $('productImageSettingPreview');
+  const deleteImageButton = $('btnDeleteProductImage');
+  const deleteImageNote = $('productImageDeleteNote');
+  const currentImageUrl = safeRemoteImageUrl(p?.imageUrl);
+
+  imageSetting.classList.toggle('hidden', !p || !currentImageUrl);
+  deleteImageButton.classList.remove('hidden');
+  deleteImageNote.classList.add('hidden');
+
+  if (p && currentImageUrl) {
+    imagePreview.src = currentImageUrl;
+    imagePreview.classList.remove('hidden');
+    imagePreview.onerror = () => {
+      imagePreview.classList.add('hidden');
+    };
+  } else {
+    imagePreview.removeAttribute('src');
+    imagePreview.classList.add('hidden');
+  }
+
   const dialog = $('productDialog');
   dialog.showModal();
 
@@ -2612,6 +2646,7 @@ function saveProductFromDialog() {
       p.amount = amount;
       p.unit = $('productUnit').value;
       p.defaultTax = Number($('productTax').value);
+      if (productImageDeletePending) p.imageUrl = '';
     }
   } else {
     const p = {

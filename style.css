@@ -884,3 +884,35 @@ button:active,.primary:active,.ghost:active,.icon-btn:active{transform:translate
 }
 
 /* Ver.0.39: バーコード追加画面の初期表示を白背景へ */
+
+
+/* Ver.0.41: 商品設定の商品画像管理 */
+.product-image-setting{
+  margin-top:12px;
+  padding:10px;
+  border:1px solid var(--line);
+  border-radius:10px;
+  background:#fff;
+}
+.product-image-setting-title{
+  margin-bottom:8px;
+  font-size:12px;
+  font-weight:700;
+}
+.product-image-setting-body{
+  display:flex;
+  align-items:center;
+  gap:10px;
+}
+.product-image-setting-preview{
+  width:72px;
+  height:72px;
+  object-fit:contain;
+  flex:0 0 72px;
+  border:1px solid var(--line);
+  border-radius:8px;
+  background:#fff;
+}
+.product-image-setting .danger{
+  min-height:38px;
+}
