@@ -99,6 +99,10 @@ $('btnImport').addEventListener('click', () => $('importFile').click());
 $('importFile').addEventListener('change', importBackup);
 $('btnCloseHistory').addEventListener('click', () => $('historyDialog').close());
 
+$('btnCloseProductDialog').addEventListener('click', () => {
+  if ($('productDialog').open) $('productDialog').close();
+});
+
 $('btnBarcodeAdd').addEventListener('click', openBarcodeDialog);
 $('btnCloseBarcode').addEventListener('click', closeBarcodeDialog);
 $('btnStartBarcodeCamera').addEventListener('click', startBarcodeCamera);
@@ -1576,74 +1580,256 @@ async function lookupBarcodeProduct(code) {
 
   barcodeLookupData = { code };
 
+  let firstNetworkError = false;
+  let product = null;
+
   try {
-    const fields = [
-      'code',
-      'product_type',
-      'product_name',
-      'product_name_ja',
-      'generic_name',
-      'generic_name_ja',
-      'brands',
-      'quantity',
-      'product_quantity',
-      'product_quantity_unit',
-      'categories',
-      'categories_tags'
-    ].join(',');
+    product = await lookupOpenFacts(code);
+  } catch {
+    firstNetworkError = true;
+  }
 
-    const url =
-      `https://world.openfoodfacts.org/api/v2/product/${encodeURIComponent(code)}.json` +
-      `?product_type=all&cc=jp&lc=ja&fields=${encodeURIComponent(fields)}`;
+  if (product) {
+    applyOpenFactsResult(code, product);
+    status.textContent = '商品情報が見つかったよ。登録する名前を選んでね。';
+    return;
+  }
 
+  status.textContent = firstNetworkError
+    ? '1つ目のデータベースに接続できなかったので、別のデータベースを検索中…'
+    : '1つ目では未登録だったので、別のデータベースを検索中…';
+
+  let secondNetworkError = false;
+  let item = null;
+
+  try {
+    item = await lookupUpcItemDb(code);
+  } catch {
+    secondNetworkError = true;
+  }
+
+  if (item) {
+    applyUpcItemDbResult(code, item);
+    status.textContent = '別のデータベースで商品情報が見つかったよ。登録する名前を選んでね。';
+    return;
+  }
+
+  prepareBarcodeManualResult(code);
+
+  if (firstNetworkError && secondNetworkError) {
+    status.textContent =
+      '商品データベースへ接続できなかったよ。通信状態を確認するか、商品名を手入力して登録してね。';
+  } else {
+    status.textContent =
+      'このバーコードの商品情報はデータベースに未登録みたい。商品名と種類を手入力して登録できるよ。';
+  }
+}
+
+async function fetchJsonWithTimeout(url, timeoutMs = 7000) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+
+  try {
     const response = await fetch(url, {
-      headers: { 'Accept': 'application/json' }
+      method: 'GET',
+      headers: { 'Accept': 'application/json' },
+      signal: controller.signal,
+      cache: 'no-store'
     });
 
+    if (response.status === 404) return { found: false, data: null };
     if (!response.ok) throw new Error(`HTTP ${response.status}`);
 
-    const data = await response.json();
-    const product = data?.product;
-
-    if (!product) {
-      prepareBarcodeManualResult(code);
-      status.textContent = '商品データが見つからなかったよ。商品名と種類を入力して登録できる。';
-      return;
-    }
-
-    const exactName = cleanBarcodeText(
-      product.product_name_ja ||
-      product.product_name ||
-      product.brands ||
-      ''
-    );
-
-    const typeName = deriveBarcodeType(product, exactName);
-    const quantity = parseBarcodeQuantity(product);
-
-    barcodeLookupData = { code, product };
-
-    $('barcodeProductNameEdit').value = exactName;
-    $('barcodeTypeNameEdit').value = typeName;
-
-    if (quantity) {
-      $('barcodeAmount').value = String(quantity.amount);
-      setBarcodeUnit(quantity.unit);
-    } else {
-      $('barcodeAmount').value = '1';
-      setBarcodeUnit('個');
-    }
-
-    $('barcodeChoiceProduct').checked = true;
-    syncBarcodeChoiceLabels();
-
-    status.textContent = exactName
-      ? '商品情報が見つかったよ。登録する名前を選んでね。'
-      : '商品名が登録されていなかったよ。名前を入力して登録できる。';
-  } catch (err) {
-    prepareBarcodeManualResult(code);
-    status.textContent = '商品情報の取得に失敗したよ。名前を手入力して登録できる。';
+    return { found: true, data: await response.json() };
+  } finally {
+    clearTimeout(timer);
   }
+}
+
+async function lookupOpenFacts(code) {
+  const fields = [
+    'code','product_name','product_name_ja','generic_name','generic_name_ja',
+    'brands','quantity','product_quantity','product_quantity_unit',
+    'categories','categories_tags'
+  ].join(',');
+
+  const domains = [
+    'world.openfoodfacts.org',
+    'world.openproductsfacts.org',
+    'world.openbeautyfacts.org',
+    'world.openpetfoodfacts.org'
+  ];
+
+  let gotResponse = false;
+  let lastError = null;
+
+  for (const domain of domains) {
+    const url =
+      `https://${domain}/api/v2/product/${encodeURIComponent(code)}.json` +
+      `?cc=jp&lc=ja&fields=${encodeURIComponent(fields)}`;
+
+    try {
+      const res = await fetchJsonWithTimeout(url);
+
+      if (!res.found) {
+        gotResponse = true;
+        continue;
+      }
+
+      gotResponse = true;
+      const data = res.data;
+
+      if (data?.status === 0 || !data?.product) continue;
+      return data.product;
+    } catch (err) {
+      lastError = err;
+    }
+  }
+
+  if (!gotResponse && lastError) throw lastError;
+  return null;
+}
+
+function applyOpenFactsResult(code, product) {
+  const exactName = cleanBarcodeText(
+    product.product_name_ja || product.product_name || product.brands || ''
+  );
+
+  const typeName = deriveBarcodeType(product, exactName);
+  const quantity = parseBarcodeQuantity(product);
+
+  barcodeLookupData = { code, product, source: 'openfacts' };
+
+  $('barcodeProductNameEdit').value = exactName;
+  $('barcodeTypeNameEdit').value = typeName;
+
+  if (quantity) {
+    $('barcodeAmount').value = String(quantity.amount);
+    setBarcodeUnit(quantity.unit);
+  } else {
+    $('barcodeAmount').value = '1';
+    setBarcodeUnit('個');
+  }
+
+  $('barcodeChoiceProduct').checked = true;
+  syncBarcodeChoiceLabels();
+}
+
+async function lookupUpcItemDb(code) {
+  const url = `https://api.upcitemdb.com/prod/trial/lookup?upc=${encodeURIComponent(code)}`;
+  const res = await fetchJsonWithTimeout(url);
+
+  if (!res.found) return null;
+
+  const data = res.data;
+  if (!data || !Array.isArray(data.items) || !data.items.length) return null;
+
+  return data.items[0];
+}
+
+function applyUpcItemDbResult(code, item) {
+  const exactName = cleanBarcodeText(
+    item.title || [item.brand, item.model].filter(Boolean).join(' ') || ''
+  );
+
+  const typeName = deriveUpcItemType(item, exactName);
+  const quantity = parseQuantityFromUpcItem(item);
+
+  barcodeLookupData = {
+    code,
+    source: 'upcitemdb',
+    upcItem: item,
+    product: { product_type: 'food' }
+  };
+
+  $('barcodeProductNameEdit').value = exactName;
+  $('barcodeTypeNameEdit').value = typeName;
+
+  if (quantity) {
+    $('barcodeAmount').value = String(quantity.amount);
+    setBarcodeUnit(quantity.unit);
+  } else {
+    $('barcodeAmount').value = '1';
+    setBarcodeUnit('個');
+  }
+
+  $('barcodeChoiceProduct').checked = true;
+  syncBarcodeChoiceLabels();
+}
+
+function deriveUpcItemType(item, exactName = '') {
+  const haystack = [
+    exactName,
+    item?.category || '',
+    item?.description || ''
+  ].join(' ').toLowerCase();
+
+  const rules = [
+    [['牛乳','milk'], '牛乳'],
+    [['低脂肪乳','low fat milk','low-fat milk'], '低脂肪乳'],
+    [['豆乳','soy milk','soya milk'], '豆乳'],
+    [['ヨーグルト','yogurt','yoghurt'], 'ヨーグルト'],
+    [['コーヒー','coffee'], 'コーヒー'],
+    [['紅茶','black tea'], '紅茶'],
+    [['緑茶','green tea'], '緑茶'],
+    [['炭酸水','sparkling water'], '炭酸水'],
+    [['水','mineral water','water'], '水'],
+    [['食パン','sliced bread','sandwich bread'], '食パン'],
+    [['パン','bread'], 'パン'],
+    [['卵','egg'], '卵'],
+    [['納豆','natto'], '納豆'],
+    [['豆腐','tofu'], '豆腐'],
+    [['味噌','miso'], '味噌'],
+    [['醤油','soy sauce'], '醤油'],
+    [['マヨネーズ','mayonnaise'], 'マヨネーズ'],
+    [['ケチャップ','ketchup'], 'ケチャップ'],
+    [['うどん','udon'], 'うどん'],
+    [['ラーメン','ramen'], 'ラーメン'],
+    [['パスタ','pasta'], 'パスタ'],
+    [['チーズ','cheese'], 'チーズ'],
+    [['バター','butter'], 'バター'],
+    [['ジュース','juice'], 'ジュース'],
+    [['チョコレート','chocolate'], 'チョコレート'],
+    [['アイス','ice cream'], 'アイス'],
+    [['米','rice'], '米']
+  ];
+
+  for (const [keywords, label] of rules) {
+    if (keywords.some(keyword => haystack.includes(keyword.toLowerCase()))) {
+      return label;
+    }
+  }
+  return '';
+}
+
+function parseQuantityFromUpcItem(item) {
+  const text = [
+    item?.title || '',
+    item?.description || '',
+    item?.size || '',
+    item?.weight || ''
+  ].join(' ').toLowerCase().replace(/,/g, '.');
+
+  let m = text.match(/(\d+(?:\.\d+)?)\s*(kg|g|ml|l)\b/);
+  if (m) {
+    let amount = Number(m[1]);
+    let unit = m[2];
+
+    if (unit === 'kg') {
+      amount *= 1000;
+      unit = 'g';
+    } else if (unit === 'l') {
+      amount *= 1000;
+      unit = 'ml';
+    }
+
+    if (amount > 0) return { amount, unit };
+  }
+
+  m = text.match(/(\d+)\s*(個|枚|本|袋|箱)/);
+  if (m) return { amount: Number(m[1]), unit: m[2] };
+
+  return null;
 }
 
 function prepareBarcodeManualResult(code) {
