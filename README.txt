@@ -1,4 +1,4 @@
-PriceLog Ver.0.37
+PriceLog Ver.0.38
 
 買い物中の価格比較に特化したPWA試作版です。
 
@@ -284,3 +284,10 @@ Ver.0.37 changes
 - PriceLog本体の app.js を先に実行し、その後 ads.js から広告iframeを生成
 - 広告領域を固定サイズ・overflow hidden・paint containmentで隔離
 - 広告側のDOMやdocument.writeがPriceLog本体へ干渉しにくい構成へ変更
+
+Ver.0.38 changes
+- スマホで商品追加ダイアログを画面上部に表示
+- 商品追加を開いた時にダイアログ内スクロール位置を先頭へリセット
+- 商品名へ自動フォーカスする際 preventScroll を使用
+- キーボード表示後にもダイアログ先頭位置を再適用
+- 画面の高さに合わせて商品追加ダイアログをスクロール可能に調整

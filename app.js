@@ -2629,8 +2629,31 @@ function openProductDialog(id = null) {
   taxSelect.value = String(selectedTax);
 
   $('btnDeleteProduct').classList.toggle('hidden', !p);
-  $('productDialog').showModal();
-  requestAnimationFrame(() => $('productName').focus());
+
+  const dialog = $('productDialog');
+  dialog.showModal();
+
+  requestAnimationFrame(() => {
+    // スマホでは商品追加画面を必ず先頭から表示する。
+    dialog.scrollTop = 0;
+    $('productForm').scrollTop = 0;
+
+    const nameInput = $('productName');
+
+    try {
+      // キーボードを開いてもブラウザ側の自動スクロールで
+      // ダイアログ中央へ移動しないようにする。
+      nameInput.focus({ preventScroll: true });
+    } catch {
+      nameInput.focus();
+    }
+
+    // キーボード表示直後にも先頭位置へ戻す。
+    requestAnimationFrame(() => {
+      dialog.scrollTop = 0;
+      $('productForm').scrollTop = 0;
+    });
+  });
 }
 
 function saveProductFromDialog() {

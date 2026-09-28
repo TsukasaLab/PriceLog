@@ -851,3 +851,27 @@ button:active,.primary:active,.ghost:active,.icon-btn:active{transform:translate
     text-align:right;
   }
 }
+
+
+/* Ver.0.38: スマホの商品追加ダイアログを画面上部へ固定 */
+@media(max-width:650px){
+  #productDialog.dialog[open]{
+    position:fixed;
+    top:max(6px, env(safe-area-inset-top));
+    bottom:auto;
+    left:50%;
+    right:auto;
+    transform:translateX(-50%);
+    margin:0;
+    width:min(94vw,560px);
+    max-height:calc(100dvh - 12px - env(safe-area-inset-top));
+    overflow-x:hidden;
+    overflow-y:auto;
+    overscroll-behavior:contain;
+    -webkit-overflow-scrolling:touch;
+  }
+
+  #productDialog form{
+    min-height:0;
+  }
+}
