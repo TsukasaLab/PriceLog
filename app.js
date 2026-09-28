@@ -35,6 +35,12 @@ let barcodeScanTimer = null;
 let barcodeScanning = false;
 let barcodeLookupData = null;
 let productImageDeletePending = false;
+let yahooRequestChain = Promise.resolve();
+let yahooLastRequestAt = 0;
+const YAHOO_MIN_REQUEST_INTERVAL_MS = 1200;
+const yahooLookupInflight = new Map();
+const yahooLookupCache = new Map();
+
 let recommendedReadingMap = new Map();
 
 const $ = (id) => document.getElementById(id);
@@ -1642,7 +1648,13 @@ async function lookupBarcodeProduct(code) {
 
       status.textContent = 'Yahoo!では未登録だったので、無料データベースも検索中…';
     } catch (err) {
-      status.textContent = 'Yahoo!検索に接続できなかったので、無料データベースも検索中…';
+      if (err?.code === 'YAHOO_RATE_LIMIT') {
+        status.textContent =
+          'Yahoo! APIの利用制限中。自動再試行でも通らなかったので、無料データベースも検索中…';
+      } else {
+        status.textContent =
+          'Yahoo!検索に接続できなかったので、無料データベースも検索中…';
+      }
     }
   } else {
     status.textContent = 'Yahoo! Client ID未設定。無料データベースを検索中…';
@@ -1702,44 +1714,115 @@ function normalizeWorkerUrl(value) {
     .replace(/\/+$/, '');
 }
 
+function sleep(ms) {
+  return new Promise(resolve => setTimeout(resolve, ms));
+}
+
+function makeYahooError(message, code = '') {
+  const err = new Error(message);
+  if (code) err.code = code;
+  return err;
+}
+
+async function runYahooRateLimited(task) {
+  const run = yahooRequestChain.then(async () => {
+    const elapsed = Date.now() - yahooLastRequestAt;
+    const waitMs = Math.max(0, YAHOO_MIN_REQUEST_INTERVAL_MS - elapsed);
+
+    if (waitMs > 0) {
+      await sleep(waitMs);
+    }
+
+    try {
+      return await task();
+    } finally {
+      yahooLastRequestAt = Date.now();
+    }
+  });
+
+  // 失敗しても次のリクエストキューは止めない。
+  yahooRequestChain = run.catch(() => {});
+  return run;
+}
+
 async function fetchYahooViaWorker(payload, clientId, workerUrl) {
   clientId = String(clientId || '').trim();
   workerUrl = normalizeWorkerUrl(workerUrl);
 
-  if (!clientId) throw new Error('Yahoo Client ID is missing');
-  if (!workerUrl) throw new Error('Yahoo Worker URL is missing');
+  if (!clientId) throw makeYahooError('Yahoo Client ID is missing');
+  if (!workerUrl) throw makeYahooError('Yahoo Worker URL is missing');
 
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), 10000);
+  return runYahooRateLimited(async () => {
+    let lastError = null;
 
-  try {
-    const response = await fetch(`${workerUrl}/yahoo`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json'
-      },
-      cache: 'no-store',
-      signal: controller.signal,
-      body: JSON.stringify({
-        clientId,
-        ...payload
-      })
-    });
+    for (let attempt = 0; attempt < 2; attempt++) {
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), 10000);
 
-    let data = null;
-    try {
-      data = await response.json();
-    } catch {}
+      try {
+        const response = await fetch(`${workerUrl}/yahoo`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json'
+          },
+          cache: 'no-store',
+          signal: controller.signal,
+          body: JSON.stringify({
+            clientId,
+            ...payload
+          })
+        });
 
-    if (!response.ok) {
-      const detail = data?.error || data?.message || `HTTP ${response.status}`;
-      throw new Error(detail);
+        let data = null;
+        try {
+          data = await response.json();
+        } catch {}
+
+        if (response.status === 429) {
+          lastError = makeYahooError(
+            'Yahoo API rate limit',
+            'YAHOO_RATE_LIMIT'
+          );
+
+          // 1回だけ自動で待って再試行。
+          if (attempt === 0) {
+            await sleep(1800);
+            continue;
+          }
+
+          throw lastError;
+        }
+
+        if (!response.ok) {
+          const detail =
+            data?.detail ||
+            data?.error ||
+            data?.message ||
+            `HTTP ${response.status}`;
+
+          throw makeYahooError(String(detail));
+        }
+
+        return data;
+      } catch (err) {
+        if (err?.name === 'AbortError') {
+          lastError = makeYahooError('Yahoo request timeout', 'YAHOO_TIMEOUT');
+        } else {
+          lastError = err;
+        }
+
+        if (attempt === 0 && err?.code === 'YAHOO_RATE_LIMIT') {
+          continue;
+        }
+
+        throw lastError;
+      } finally {
+        clearTimeout(timer);
+      }
     }
 
-    return data;
-  } finally {
-    clearTimeout(timer);
-  }
+    throw lastError || makeYahooError('Yahoo request failed');
+  });
 }
 
 async function lookupYahooShopping(
@@ -1748,40 +1831,64 @@ async function lookupYahooShopping(
   workerUrl = YAHOO_WORKER_URL
 ) {
   const jan = String(code || '').replace(/\D/g, '');
+  if (!jan) return null;
 
-  // 1回目: Yahoo!公式のJAN検索
-  let data = await fetchYahooViaWorker(
-    { janCode: jan },
-    clientId,
-    workerUrl
-  );
+  // 同じJANを短時間に何度も検索した場合はAPIへ再送しない。
+  const cached = yahooLookupCache.get(jan);
+  if (cached && Date.now() - cached.time < 5 * 60 * 1000) {
+    return cached.hit || null;
+  }
 
-  let hits = Array.isArray(data?.hits) ? data.hits : [];
+  // カメラ読み取りと検索ボタンが重なっても同じJANは1本だけ実行。
+  if (yahooLookupInflight.has(jan)) {
+    return yahooLookupInflight.get(jan);
+  }
 
-  // Yahoo!の商品ページにはJANが存在していても、
-  // JAN検索側で0件になるケースがあるため、
-  // 2回目は同じJANコードをキーワードとして再検索する。
-  if (!hits.length && jan) {
-    data = await fetchYahooViaWorker(
-      { query: jan, results: 10 },
+  const promise = (async () => {
+    // 1回目: Yahoo!公式JAN検索
+    let data = await fetchYahooViaWorker(
+      { janCode: jan, results: 20 },
       clientId,
       workerUrl
     );
-    hits = Array.isArray(data?.hits) ? data.hits : [];
+
+    let hits = Array.isArray(data?.hits) ? data.hits : [];
+
+    // JAN検索で0件ならキーワード検索も試す。
+    // fetchYahooViaWorker側で必ず1.2秒以上の間隔を空ける。
+    if (!hits.length) {
+      data = await fetchYahooViaWorker(
+        { query: jan, results: 20 },
+        clientId,
+        workerUrl
+      );
+      hits = Array.isArray(data?.hits) ? data.hits : [];
+    }
+
+    if (!hits.length) {
+      yahooLookupCache.set(jan, { time: Date.now(), hit: null });
+      return null;
+    }
+
+    const exactJanHits = hits.filter(
+      hit => String(hit?.janCode || '').replace(/\D/g, '') === jan
+    );
+
+    const candidates = exactJanHits.length ? exactJanHits : hits;
+    candidates.sort((a, b) => yahooHitScore(b) - yahooHitScore(a));
+
+    const hit = candidates[0] || null;
+    yahooLookupCache.set(jan, { time: Date.now(), hit });
+    return hit;
+  })();
+
+  yahooLookupInflight.set(jan, promise);
+
+  try {
+    return await promise;
+  } finally {
+    yahooLookupInflight.delete(jan);
   }
-
-  if (!hits.length) return null;
-
-  // JANが返っている商品を最優先。
-  const exactJanHits = hits.filter(
-    hit => String(hit?.janCode || '').replace(/\D/g, '') === jan
-  );
-
-  const candidates = exactJanHits.length ? exactJanHits : hits;
-
-  candidates.sort((a, b) => yahooHitScore(b) - yahooHitScore(a));
-
-  return candidates[0] || null;
 }
 
 function yahooHitScore(hit) {
