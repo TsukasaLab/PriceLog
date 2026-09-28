@@ -9,12 +9,12 @@
   <title>PriceLog</title>
   <link rel="manifest" href="./manifest.webmanifest">
   <link rel="apple-touch-icon" href="./icon-192.png">
-  <link rel="stylesheet" href="./style.css?v=0.33">
+  <link rel="stylesheet" href="./style.css?v=0.35">
 </head>
 <body>
   <header class="topbar">
     <div>
-      <strong>PriceLog</strong> <small class="app-version">Ver.0.33</small>
+      <strong>PriceLog</strong> <small class="app-version">Ver.0.35</small>
     </div>
     <div class="top-actions">
       <button id="btnSettings" class="icon-btn" type="button" aria-label="設定">⚙</button>
@@ -50,7 +50,21 @@
     </section>
 
     <section id="productList" class="product-list"></section>
-    <div id="emptyState" class="empty hidden">商品がまだないよ。「＋商品」から追加してね。</div>
+    <div id="emptyState" class="empty hidden">
+      <div>商品がまだないよ。「＋商品」から追加してね。</div>
+      <a class="guide-start-link" href="./guide.html">初めて使う方：最初の設定と使い方を見る</a>
+    </div>
+
+    <section class="mobile-ad-slot" aria-label="広告">
+      <div class="mobile-ad-label">広告</div>
+      <div class="mobile-ad-inner">
+        <script>
+          if (window.matchMedia('(max-width: 767px)').matches) {
+            document.write('<script src="https://adm.shinobi.jp/s/5e14a34b72d19d5d8f100b6006c72e62"><\\/script>');
+          }
+        </script>
+      </div>
+    </section>
 
     <section id="storePurchaseView" class="store-purchase-view hidden">
       <div class="store-purchase-head">
@@ -118,6 +132,11 @@
       <div class="dialog-head">
         <strong>設定</strong>
         <button class="icon-btn" value="cancel" type="submit" aria-label="閉じる">×</button>
+      </div>
+
+      <div class="settings-block guide-settings-block">
+        <div class="settings-title">ヘルプ</div>
+        <a class="ghost backup-btn link-button" href="./guide.html">はじめに・使い方</a>
       </div>
 
       <div class="settings-block">
@@ -439,6 +458,6 @@
     </div>
   </template>
 
-  <script src="./app.js?v=0.33"></script>
+  <script src="./app.js?v=0.35"></script>
 </body>
 </html>

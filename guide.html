@@ -1,0 +1,303 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+  <meta name="theme-color" content="#f7f7f5">
+  <title>はじめに・使い方 | PriceLog</title>
+  <link rel="manifest" href="./manifest.webmanifest">
+  <link rel="apple-touch-icon" href="./icon-192.png">
+  <link rel="stylesheet" href="./style.css?v=0.35">
+</head>
+<body class="guide-body">
+  <header class="guide-topbar">
+    <a class="guide-back" href="./index.html">← PriceLogへ戻る</a>
+    <strong>はじめに・使い方</strong>
+  </header>
+
+  <main class="guide-main">
+    <section class="guide-hero">
+      <div class="guide-kicker">PriceLog GUIDE</div>
+      <h1>買う前に「どこが安い？」を<br>すぐ確認できるようにする</h1>
+      <p>
+        PriceLogは、商品ごとの価格を店舗別に記録して、
+        通常時の買い場所やクーポン使用時のお得な店を確認するための価格管理ツールです。
+      </p>
+      <a class="primary guide-primary" href="#first-setup">最初の設定から始める</a>
+    </section>
+
+    <section class="guide-card guide-important">
+      <h2>最初に知っておくこと</h2>
+      <p>
+        商品・店舗・価格・履歴などのデータは、この端末のブラウザ内に保存されます。
+        別のスマホやPCへ自動では引き継がれません。
+      </p>
+      <p>
+        機種変更やブラウザ変更に備えて、定期的に
+        <strong>設定 → バックアップを書き出す</strong>
+        を使ってください。
+      </p>
+    </section>
+
+    <section id="first-setup" class="guide-section">
+      <div class="guide-section-no">01</div>
+      <h2>初めて使う時の設定</h2>
+
+      <div class="guide-step">
+        <div class="guide-step-no">1</div>
+        <div>
+          <h3>PriceLogを開く</h3>
+          <p>
+            受け取ったPriceLogのURLをChromeやSafariで開きます。
+            そのままブラウザで使用できます。
+          </p>
+        </div>
+      </div>
+
+      <div class="guide-step">
+        <div class="guide-step-no">2</div>
+        <div>
+          <h3>ホーム画面に追加する（任意）</h3>
+          <p>
+            頻繁に使う場合はホーム画面へ追加すると、普通のアプリに近い感覚で起動できます。
+          </p>
+          <div class="guide-device-grid">
+            <div>
+              <strong>Android / Chrome</strong>
+              <p>ブラウザのメニューから「ホーム画面に追加」または「アプリをインストール」を選びます。</p>
+            </div>
+            <div>
+              <strong>iPhone / Safari</strong>
+              <p>共有ボタンから「ホーム画面に追加」を選びます。</p>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="guide-step">
+        <div class="guide-step-no">3</div>
+        <div>
+          <h3>バーコード検索を使う場合はYahoo! Client IDを取得</h3>
+          <p>
+            手入力だけで使う場合、この設定は不要です。
+            バーコードから商品名や商品画像を検索したい場合は、
+            Yahoo!デベロッパーネットワークでClient ID（アプリケーションID）を取得します。
+          </p>
+          <ol class="guide-mini-list">
+            <li>Yahoo! JAPAN IDでYahoo!デベロッパーネットワークへログイン</li>
+            <li>アプリケーションを登録してClient IDを発行</li>
+            <li>発行されたClient IDをコピー</li>
+          </ol>
+          <a class="guide-external" href="https://developer.yahoo.co.jp/start/" target="_blank" rel="noopener noreferrer">
+            Yahoo!デベロッパーネットワーク ご利用ガイド ↗
+          </a>
+          <p class="guide-note">
+            Client IDはYahoo!のWeb APIを利用するために必要な識別子です。
+            「アプリケーションID」と表示される場合もあります。
+          </p>
+        </div>
+      </div>
+
+      <div class="guide-step">
+        <div class="guide-step-no">4</div>
+        <div>
+          <h3>Client IDをPriceLogへ登録</h3>
+          <ol class="guide-mini-list">
+            <li>PriceLog右上の「⚙」を開く</li>
+            <li>「バーコード検索」のYahoo!ショッピング Client IDへ貼り付ける</li>
+            <li>「接続テスト」を押す</li>
+            <li>「接続できたよ」と表示されたら、一番下の「設定を保存」を押す</li>
+          </ol>
+          <p class="guide-note">
+            PriceLog専用の中継サーバーは設定済みなので、中継URLを利用者が入力する必要はありません。
+          </p>
+        </div>
+      </div>
+    </section>
+
+    <section class="guide-section">
+      <div class="guide-section-no">02</div>
+      <h2>商品を登録する</h2>
+
+      <div class="guide-feature-grid">
+        <article class="guide-feature">
+          <h3>バーコードから登録</h3>
+          <p>
+            「＋商品」→「📷 バーコードから追加」を押し、
+            カメラでJANコードを読み取ります。
+          </p>
+          <p>
+            カメラで読めない時はJANコードを直接入力して検索できます。
+            商品情報が見つかれば、商品名・内容量・単位などを確認して登録します。
+          </p>
+        </article>
+
+        <article class="guide-feature">
+          <h3>手入力で登録</h3>
+          <p>
+            「＋商品」から商品名・よみがな・内容量・単位・税率を入力して保存します。
+          </p>
+          <p>
+            よみがなを入れておくと、五十音順で並びやすくなり、検索もしやすくなります。
+          </p>
+        </article>
+      </div>
+    </section>
+
+    <section class="guide-section">
+      <div class="guide-section-no">03</div>
+      <h2>店舗と価格を登録する</h2>
+
+      <div class="guide-step">
+        <div class="guide-step-no">1</div>
+        <div>
+          <h3>商品をタップして展開</h3>
+          <p>
+            商品を展開すると、その商品に登録している店舗と価格を編集できます。
+            バーコード検索で商品画像を取得できた場合は、展開時に画像も表示されます。
+          </p>
+        </div>
+      </div>
+
+      <div class="guide-step">
+        <div class="guide-step-no">2</div>
+        <div>
+          <h3>店舗を追加して価格を入力</h3>
+          <p>
+            店舗名、価格、税込・税抜、税率、クーポン情報などを入力します。
+            入力した内容から単価を自動計算します。
+          </p>
+        </div>
+      </div>
+
+      <div class="guide-step">
+        <div class="guide-step-no">3</div>
+        <div>
+          <h3>★と◆で買う店を判断</h3>
+          <div class="guide-symbols">
+            <div><strong>★</strong><span>通常価格で最も安く、普段買う候補の店</span></div>
+            <div><strong>◆</strong><span>クーポンを使うと★の店より安くなる別の店</span></div>
+          </div>
+          <p>
+            商品一覧では★の店の通常価格を基準に表示します。
+            ◆がある商品は、クーポンが使える時だけ別店舗を選ぶ目安になります。
+          </p>
+        </div>
+      </div>
+    </section>
+
+    <section class="guide-section">
+      <div class="guide-section-no">04</div>
+      <h2>買い物前に使う機能</h2>
+
+      <div class="guide-feature-grid">
+        <article class="guide-feature">
+          <h3>検索</h3>
+          <p>商品名やよみがなから登録商品を絞り込めます。</p>
+        </article>
+        <article class="guide-feature">
+          <h3>店舗購入品</h3>
+          <p>
+            店舗ごとに「その店で買う候補の商品」を一覧表示します。
+            ★と◆の件数も確認できます。
+          </p>
+        </article>
+        <article class="guide-feature">
+          <h3>一括店舗</h3>
+          <p>
+            複数の商品を選び、同じ店舗をまとめて追加できます。
+            新しいスーパーを登録した時に便利です。
+          </p>
+        </article>
+        <article class="guide-feature">
+          <h3>価格履歴</h3>
+          <p>
+            価格を変更すると履歴が残ります。
+            値上げ・値下げの確認に使えます。
+          </p>
+        </article>
+      </div>
+    </section>
+
+    <section class="guide-section">
+      <div class="guide-section-no">05</div>
+      <h2>データのバックアップ</h2>
+
+      <div class="guide-card">
+        <h3>書き出す</h3>
+        <p>
+          「⚙ 設定 → バックアップを書き出す」でJSONファイルを保存します。
+          商品・店舗・価格・履歴・設定・テンプレートがバックアップされます。
+        </p>
+      </div>
+
+      <div class="guide-card">
+        <h3>別端末へ移す</h3>
+        <p>
+          新しい端末でPriceLogを開き、
+          「⚙ 設定 → バックアップを読み込む」から保存したJSONファイルを選びます。
+        </p>
+      </div>
+
+      <p class="guide-warning">
+        ブラウザのデータ削除、端末初期化、ブラウザ変更などでPriceLogのデータが消える場合があります。
+        大事なデータは定期的にバックアップしてください。
+      </p>
+    </section>
+
+    <section class="guide-section">
+      <div class="guide-section-no">06</div>
+      <h2>うまくいかない時</h2>
+
+      <details class="guide-faq">
+        <summary>バーコード検索で商品が見つからない</summary>
+        <p>
+          Yahoo! Client IDの接続テストを確認してください。
+          接続できていても商品データが登録されていないJANコードはあります。
+          その場合は商品名などを手入力して登録できます。
+        </p>
+      </details>
+
+      <details class="guide-faq">
+        <summary>別のスマホで商品が表示されない</summary>
+        <p>
+          PriceLogのデータは端末ごとのブラウザに保存されます。
+          元の端末でバックアップを書き出し、新しい端末で読み込んでください。
+        </p>
+      </details>
+
+      <details class="guide-faq">
+        <summary>画面が最新版にならない</summary>
+        <p>
+          ブラウザを再読み込みしてください。
+          ホーム画面から起動している場合は、一度閉じてから再起動すると更新されることがあります。
+        </p>
+      </details>
+    </section>
+
+    <section class="guide-section guide-privacy">
+      <div class="guide-section-no">07</div>
+      <h2>通信と広告について</h2>
+      <p>
+        PriceLogの商品・価格データは基本的に端末内へ保存されます。
+        バーコードの商品検索を行う時は、JANコードなどの検索情報がPriceLog専用の中継サーバーを経由して
+        Yahoo!ショッピングAPI等へ送信されます。
+      </p>
+      <p>
+        PriceLogは無料運営のため、一部画面に広告が表示されます。
+        広告を利用する必要はなく、通常の操作は広告をクリックしなくても行えます。
+      </p>
+    </section>
+
+    <section class="guide-cta">
+      <h2>準備できたらPriceLogへ</h2>
+      <p>まず1商品だけ登録して、よく行く店の価格を入れてみると使い方がすぐ掴めます。</p>
+      <a class="primary guide-primary" href="./index.html">PriceLogを開く</a>
+    </section>
+
+    <footer class="guide-footer">
+      PriceLog Ver.0.35
+    </footer>
+  </main>
+</body>
+</html>
