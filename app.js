@@ -6,12 +6,13 @@ const SETTINGS_KEY = 'pricelog_v02_settings';
 const INITIALIZED_KEY = 'pricelog_initialized_v1';
 const TEMPLATE_KEY = 'pricelog_custom_template_v1';
 
+const YAHOO_WORKER_URL = 'https://pricelog-yahoo.pricelog-api.workers.dev';
+
 const defaultSettings = {
   standardTax: 10,
   reducedTax: 8,
   defaultPriceType: 'inc',
-  yahooClientId: '',
-  yahooWorkerUrl: ''
+  yahooClientId: ''
 };
 
 let settings = loadJson(SETTINGS_KEY, defaultSettings);
@@ -92,8 +93,7 @@ $('settingsForm').addEventListener('submit', (e) => {
     standardTax: st,
     reducedTax: rt,
     defaultPriceType: $('defaultPriceType').value === 'ex' ? 'ex' : 'inc',
-    yahooClientId: $('yahooClientId').value.trim(),
-    yahooWorkerUrl: normalizeWorkerUrl($('yahooWorkerUrl').value)
+    yahooClientId: $('yahooClientId').value.trim()
   };
   localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings));
   $('settingsDialog').close();
@@ -1616,9 +1616,9 @@ async function lookupBarcodeProduct(code) {
 
   // 2) Yahoo!ショッピング
   const yahooClientId = String(settings.yahooClientId || '').trim();
-  const yahooWorkerUrl = normalizeWorkerUrl(settings.yahooWorkerUrl || '');
+  const yahooWorkerUrl = YAHOO_WORKER_URL;
 
-  if (yahooClientId && yahooWorkerUrl) {
+  if (yahooClientId) {
     status.textContent = 'Yahoo!ショッピングで検索中…';
 
     try {
@@ -1635,9 +1635,7 @@ async function lookupBarcodeProduct(code) {
       status.textContent = 'Yahoo!検索に接続できなかったので、無料データベースも検索中…';
     }
   } else {
-    status.textContent = yahooClientId
-      ? 'Yahoo!中継URL未設定。無料データベースを検索中…'
-      : 'Yahoo! Client ID未設定。無料データベースを検索中…';
+    status.textContent = 'Yahoo! Client ID未設定。無料データベースを検索中…';
   }
 
   // 3) Open Facts
@@ -1737,7 +1735,7 @@ async function fetchYahooViaWorker(payload, clientId, workerUrl) {
 async function lookupYahooShopping(
   code,
   clientId = settings.yahooClientId,
-  workerUrl = settings.yahooWorkerUrl
+  workerUrl = YAHOO_WORKER_URL
 ) {
   const data = await fetchYahooViaWorker(
     { janCode: String(code || '').replace(/\D/g, '') },
@@ -2692,7 +2690,7 @@ function toggleYahooClientIdVisibility() {
 
 async function testYahooShoppingApi() {
   const clientId = $('yahooClientId').value.trim();
-  const workerUrl = normalizeWorkerUrl($('yahooWorkerUrl').value);
+  const workerUrl = YAHOO_WORKER_URL;
   const status = $('yahooApiStatus');
 
   if (!clientId) {
@@ -2700,14 +2698,9 @@ async function testYahooShoppingApi() {
     return;
   }
 
-  if (!workerUrl) {
-    status.textContent = 'Yahoo!中継URLを入力してね。';
-    return;
-  }
-
   const btn = $('btnTestYahooApi');
   btn.disabled = true;
-  status.textContent = 'Cloudflare Worker経由でYahoo!へ接続中…';
+  status.textContent = 'PriceLog専用サーバー経由でYahoo!へ接続中…';
 
   try {
     const data = await fetchYahooViaWorker(
@@ -2723,7 +2716,7 @@ async function testYahooShoppingApi() {
     status.textContent = '接続できたよ。設定を保存すればバーコード検索で使える。';
   } catch (err) {
     status.textContent =
-      `接続できなかったよ。中継URL・Client ID・Worker設定を確認してね。${err?.message ? ` (${err.message})` : ''}`;
+      `接続できなかったよ。Client IDまたは中継サーバーの状態を確認してね。${err?.message ? ` (${err.message})` : ''}`;
   } finally {
     btn.disabled = false;
   }
@@ -2735,7 +2728,6 @@ function openSettings() {
   $('reducedTax').value = settings.reducedTax;
   $('defaultPriceType').value = settings.defaultPriceType;
   $('yahooClientId').value = settings.yahooClientId || '';
-  $('yahooWorkerUrl').value = settings.yahooWorkerUrl || '';
   $('yahooClientId').type = 'password';
   $('btnToggleYahooClientId').textContent = '表示';
   $('yahooApiStatus').textContent = '';

@@ -1,4 +1,4 @@
-PriceLog Ver.0.32
+PriceLog Ver.0.33
 
 買い物中の価格比較に特化したPWA試作版です。
 
@@ -245,3 +245,11 @@ Ver.0.32 changes
 - バーコード登録商品で画像が取得できた場合、タブ展開時に商品画像を表示
 - imageUrlは商品データに含まれるため通常バックアップ対象
 - 画像読み込みに失敗した場合は画像領域を自動で非表示
+
+Ver.0.33 changes
+- Yahoo!中継URLをPriceLog内部の固定値へ変更
+- 固定中継URL: https://pricelog-yahoo.pricelog-api.workers.dev/
+- 設定画面からYahoo!中継URL入力欄を削除
+- ユーザーはYahoo!ショッピング Client IDのみ設定すれば利用可能
+- 接続テストも固定中継URLを使用
+- バーコード検索も固定中継URLを使用
