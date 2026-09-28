@@ -10,7 +10,8 @@ const defaultSettings = {
   standardTax: 10,
   reducedTax: 8,
   defaultPriceType: 'inc',
-  yahooClientId: ''
+  yahooClientId: '',
+  yahooWorkerUrl: ''
 };
 
 let settings = loadJson(SETTINGS_KEY, defaultSettings);
@@ -91,7 +92,8 @@ $('settingsForm').addEventListener('submit', (e) => {
     standardTax: st,
     reducedTax: rt,
     defaultPriceType: $('defaultPriceType').value === 'ex' ? 'ex' : 'inc',
-    yahooClientId: $('yahooClientId').value.trim()
+    yahooClientId: $('yahooClientId').value.trim(),
+    yahooWorkerUrl: normalizeWorkerUrl($('yahooWorkerUrl').value)
   };
   localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings));
   $('settingsDialog').close();
@@ -1597,12 +1599,13 @@ async function lookupBarcodeProduct(code) {
 
   // 2) Yahoo!ショッピング
   const yahooClientId = String(settings.yahooClientId || '').trim();
+  const yahooWorkerUrl = normalizeWorkerUrl(settings.yahooWorkerUrl || '');
 
-  if (yahooClientId) {
+  if (yahooClientId && yahooWorkerUrl) {
     status.textContent = 'Yahoo!ショッピングで検索中…';
 
     try {
-      const yahooHit = await lookupYahooShopping(code, yahooClientId);
+      const yahooHit = await lookupYahooShopping(code, yahooClientId, yahooWorkerUrl);
 
       if (yahooHit) {
         applyYahooShoppingResult(code, yahooHit);
@@ -1615,7 +1618,9 @@ async function lookupBarcodeProduct(code) {
       status.textContent = 'Yahoo!検索に接続できなかったので、無料データベースも検索中…';
     }
   } else {
-    status.textContent = 'Yahoo! Client ID未設定。無料データベースを検索中…';
+    status.textContent = yahooClientId
+      ? 'Yahoo!中継URL未設定。無料データベースを検索中…'
+      : 'Yahoo! Client ID未設定。無料データベースを検索中…';
   }
 
   // 3) Open Facts
@@ -1666,29 +1671,72 @@ async function lookupBarcodeProduct(code) {
   }
 }
 
-async function lookupYahooShopping(code, clientId = settings.yahooClientId) {
+function normalizeWorkerUrl(value) {
+  return String(value || '')
+    .trim()
+    .replace(/\/+$/, '');
+}
+
+async function fetchYahooViaWorker(payload, clientId, workerUrl) {
   clientId = String(clientId || '').trim();
-  if (!clientId) return null;
+  workerUrl = normalizeWorkerUrl(workerUrl);
 
-  const url =
-    'https://shopping.yahooapis.jp/ShoppingWebService/V3/itemSearch' +
-    `?appid=${encodeURIComponent(clientId)}` +
-    `&jan_code=${encodeURIComponent(code)}` +
-    '&results=10&condition=new';
+  if (!clientId) throw new Error('Yahoo Client ID is missing');
+  if (!workerUrl) throw new Error('Yahoo Worker URL is missing');
 
-  const res = await fetchJsonWithTimeout(url, 8000);
-  if (!res.found) return null;
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 10000);
 
-  const data = res.data;
+  try {
+    const response = await fetch(`${workerUrl}/yahoo`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json'
+      },
+      cache: 'no-store',
+      signal: controller.signal,
+      body: JSON.stringify({
+        clientId,
+        ...payload
+      })
+    });
+
+    let data = null;
+    try {
+      data = await response.json();
+    } catch {}
+
+    if (!response.ok) {
+      const detail = data?.error || data?.message || `HTTP ${response.status}`;
+      throw new Error(detail);
+    }
+
+    return data;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+async function lookupYahooShopping(
+  code,
+  clientId = settings.yahooClientId,
+  workerUrl = settings.yahooWorkerUrl
+) {
+  const data = await fetchYahooViaWorker(
+    { janCode: String(code || '').replace(/\D/g, '') },
+    clientId,
+    workerUrl
+  );
+
   if (!data || !Array.isArray(data.hits) || !data.hits.length) return null;
 
-  // 同JANでも複数ショップの商品が返るので、名前情報が多い候補を優先
   const hits = data.hits
     .filter(hit => String(hit.janCode || code) === String(code))
     .sort((a, b) => yahooHitScore(b) - yahooHitScore(a));
 
   return hits[0] || data.hits[0] || null;
 }
+
 
 function yahooHitScore(hit) {
   let score = 0;
@@ -2552,6 +2600,7 @@ function toggleYahooClientIdVisibility() {
 
 async function testYahooShoppingApi() {
   const clientId = $('yahooClientId').value.trim();
+  const workerUrl = normalizeWorkerUrl($('yahooWorkerUrl').value);
   const status = $('yahooApiStatus');
 
   if (!clientId) {
@@ -2559,27 +2608,42 @@ async function testYahooShoppingApi() {
     return;
   }
 
+  if (!workerUrl) {
+    status.textContent = 'Yahoo!中継URLを入力してね。';
+    return;
+  }
+
   const btn = $('btnTestYahooApi');
   btn.disabled = true;
-  status.textContent = 'Yahoo!ショッピングAPIへ接続中…';
+  status.textContent = 'Cloudflare Worker経由でYahoo!へ接続中…';
 
   try {
-    // Yahoo公式ドキュメントに掲載されているJAN例で接続確認
-    await lookupYahooShopping('4905524535815', clientId);
-    status.textContent = '接続できたよ。Client IDを保存すればバーコード検索で使える。';
+    const data = await fetchYahooViaWorker(
+      { query: '牛乳', results: 1 },
+      clientId,
+      workerUrl
+    );
+
+    if (!data || !Array.isArray(data.hits)) {
+      throw new Error('Unexpected Yahoo response');
+    }
+
+    status.textContent = '接続できたよ。設定を保存すればバーコード検索で使える。';
   } catch (err) {
     status.textContent =
-      '接続できなかったよ。Client ID、Yahoo!側のアプリ登録、通信状態を確認してね。';
+      `接続できなかったよ。中継URL・Client ID・Worker設定を確認してね。${err?.message ? ` (${err.message})` : ''}`;
   } finally {
     btn.disabled = false;
   }
 }
+
 
 function openSettings() {
   $('standardTax').value = settings.standardTax;
   $('reducedTax').value = settings.reducedTax;
   $('defaultPriceType').value = settings.defaultPriceType;
   $('yahooClientId').value = settings.yahooClientId || '';
+  $('yahooWorkerUrl').value = settings.yahooWorkerUrl || '';
   $('yahooClientId').type = 'password';
   $('btnToggleYahooClientId').textContent = '表示';
   $('yahooApiStatus').textContent = '';

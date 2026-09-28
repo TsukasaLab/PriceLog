@@ -1,4 +1,4 @@
-PriceLog Ver.0.30
+PriceLog Ver.0.31
 
 買い物中の価格比較に特化したPWA試作版です。
 
@@ -226,3 +226,11 @@ Ver.0.30 changes
 - 商品名から種類候補と内容量候補を生成
 - Yahoo Client IDは設定データとして端末内に保存
 - 既存の設定バックアップにもYahoo Client IDを含む
+
+Ver.0.31 changes
+- Yahoo!ショッピング検索をCloudflare Worker経由へ変更
+- 設定にYahoo!中継URLを追加
+- Yahoo Client IDはURLクエリではなくPOST JSONでWorkerへ送信
+- 接続テストもWorker経由へ変更
+- 中継URLは設定・バックアップ対象
+- Yahoo検索順は PriceLog内 → Yahoo! Worker → Open Facts → UPCitemdb → 手入力

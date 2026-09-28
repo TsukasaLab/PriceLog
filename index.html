@@ -9,12 +9,12 @@
   <title>PriceLog</title>
   <link rel="manifest" href="./manifest.webmanifest">
   <link rel="apple-touch-icon" href="./icon-192.png">
-  <link rel="stylesheet" href="./style.css?v=0.30">
+  <link rel="stylesheet" href="./style.css?v=0.31">
 </head>
 <body>
   <header class="topbar">
     <div>
-      <strong>PriceLog</strong> <small class="app-version">Ver.0.30</small>
+      <strong>PriceLog</strong> <small class="app-version">Ver.0.31</small>
     </div>
     <div class="top-actions">
       <button id="btnSettings" class="icon-btn" type="button" aria-label="設定">⚙</button>
@@ -153,12 +153,15 @@
         <label>Yahoo!ショッピング Client ID
           <input id="yahooClientId" type="password" autocomplete="off" placeholder="取得したClient IDを貼り付け">
         </label>
+        <label>Yahoo!中継URL
+          <input id="yahooWorkerUrl" type="url" autocomplete="off" placeholder="https://xxxx.xxxx.workers.dev">
+        </label>
         <div class="barcode-api-actions">
           <button id="btnToggleYahooClientId" class="ghost mini" type="button">表示</button>
           <button id="btnTestYahooApi" class="ghost mini" type="button">接続テスト</button>
         </div>
         <div class="template-note">
-          Client IDはこの端末内に保存。設定するとYahoo!ショッピングを最優先でJAN検索する。
+          Client IDと中継URLはこの端末内に保存。Yahoo!検索はCloudflare Worker経由で行う。
         </div>
         <div id="yahooApiStatus" class="template-message"></div>
       </div>
@@ -435,6 +438,6 @@
     </div>
   </template>
 
-  <script src="./app.js?v=0.30"></script>
+  <script src="./app.js?v=0.31"></script>
 </body>
 </html>
