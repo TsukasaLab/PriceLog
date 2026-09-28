@@ -9,12 +9,12 @@
   <title>PriceLog</title>
   <link rel="manifest" href="./manifest.webmanifest">
   <link rel="apple-touch-icon" href="./icon-192.png">
-  <link rel="stylesheet" href="./style.css?v=0.29">
+  <link rel="stylesheet" href="./style.css?v=0.30">
 </head>
 <body>
   <header class="topbar">
     <div>
-      <strong>PriceLog</strong> <small class="app-version">Ver.0.29</small>
+      <strong>PriceLog</strong> <small class="app-version">Ver.0.30</small>
     </div>
     <div class="top-actions">
       <button id="btnSettings" class="icon-btn" type="button" aria-label="設定">⚙</button>
@@ -146,6 +146,21 @@
             <option value="ex">税抜</option>
           </select>
         </label>
+      </div>
+
+      <div class="settings-block">
+        <div class="settings-title">バーコード検索</div>
+        <label>Yahoo!ショッピング Client ID
+          <input id="yahooClientId" type="password" autocomplete="off" placeholder="取得したClient IDを貼り付け">
+        </label>
+        <div class="barcode-api-actions">
+          <button id="btnToggleYahooClientId" class="ghost mini" type="button">表示</button>
+          <button id="btnTestYahooApi" class="ghost mini" type="button">接続テスト</button>
+        </div>
+        <div class="template-note">
+          Client IDはこの端末内に保存。設定するとYahoo!ショッピングを最優先でJAN検索する。
+        </div>
+        <div id="yahooApiStatus" class="template-message"></div>
       </div>
 
       <div class="settings-block">
@@ -420,6 +435,6 @@
     </div>
   </template>
 
-  <script src="./app.js?v=0.29"></script>
+  <script src="./app.js?v=0.30"></script>
 </body>
 </html>

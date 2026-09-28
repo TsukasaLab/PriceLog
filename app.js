@@ -9,7 +9,8 @@ const TEMPLATE_KEY = 'pricelog_custom_template_v1';
 const defaultSettings = {
   standardTax: 10,
   reducedTax: 8,
-  defaultPriceType: 'inc'
+  defaultPriceType: 'inc',
+  yahooClientId: ''
 };
 
 let settings = loadJson(SETTINGS_KEY, defaultSettings);
@@ -65,6 +66,8 @@ $('btnCloseStorePurchase').addEventListener('click', () => setStorePurchaseMode(
 $('storePurchaseSearch').addEventListener('input', renderStorePurchaseView);
 $('btnDeleteAllProducts').addEventListener('click', deleteAllProducts);
 $('btnSettings').addEventListener('click', openSettings);
+$('btnToggleYahooClientId').addEventListener('click', toggleYahooClientIdVisibility);
+$('btnTestYahooApi').addEventListener('click', testYahooShoppingApi);
 
 $('productForm').addEventListener('submit', (e) => {
   e.preventDefault();
@@ -87,7 +90,8 @@ $('settingsForm').addEventListener('submit', (e) => {
   settings = {
     standardTax: st,
     reducedTax: rt,
-    defaultPriceType: $('defaultPriceType').value === 'ex' ? 'ex' : 'inc'
+    defaultPriceType: $('defaultPriceType').value === 'ex' ? 'ex' : 'inc',
+    yahooClientId: $('yahooClientId').value.trim()
   };
   localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings));
   $('settingsDialog').close();
@@ -1577,9 +1581,10 @@ async function lookupBarcodeProduct(code) {
   $('barcodeResultCode').textContent = code;
   status.textContent = '商品情報を検索中…';
 
+  // 1) PriceLog内の登録済みJAN
   const existing = findProductByBarcode(code);
   if (existing) {
-    status.textContent = `このバーコードは「${existing.name}」として登録済みだよ。`;
+    status.textContent = `PriceLog内で「${existing.name}」が見つかったよ。`;
     $('barcodeProductNameEdit').value = existing.name;
     $('barcodeTypeNameEdit').value = '';
     $('barcodeAmount').value = existing.amount || 1;
@@ -1590,6 +1595,30 @@ async function lookupBarcodeProduct(code) {
 
   barcodeLookupData = { code };
 
+  // 2) Yahoo!ショッピング
+  const yahooClientId = String(settings.yahooClientId || '').trim();
+
+  if (yahooClientId) {
+    status.textContent = 'Yahoo!ショッピングで検索中…';
+
+    try {
+      const yahooHit = await lookupYahooShopping(code, yahooClientId);
+
+      if (yahooHit) {
+        applyYahooShoppingResult(code, yahooHit);
+        status.textContent = 'Yahoo!ショッピングで商品が見つかったよ。登録する名前を選んでね。';
+        return;
+      }
+
+      status.textContent = 'Yahoo!では未登録だったので、無料データベースも検索中…';
+    } catch (err) {
+      status.textContent = 'Yahoo!検索に接続できなかったので、無料データベースも検索中…';
+    }
+  } else {
+    status.textContent = 'Yahoo! Client ID未設定。無料データベースを検索中…';
+  }
+
+  // 3) Open Facts
   let firstNetworkError = false;
   let product = null;
 
@@ -1601,14 +1630,15 @@ async function lookupBarcodeProduct(code) {
 
   if (product) {
     applyOpenFactsResult(code, product);
-    status.textContent = '商品情報が見つかったよ。登録する名前を選んでね。';
+    status.textContent = 'Open Factsで商品情報が見つかったよ。登録する名前を選んでね。';
     return;
   }
 
   status.textContent = firstNetworkError
-    ? '1つ目のデータベースに接続できなかったので、別のデータベースを検索中…'
-    : '1つ目では未登録だったので、別のデータベースを検索中…';
+    ? 'Open Factsに接続できなかったので、別のデータベースを検索中…'
+    : 'Open Factsでは未登録だったので、別のデータベースを検索中…';
 
+  // 4) UPCitemdb
   let secondNetworkError = false;
   let item = null;
 
@@ -1620,20 +1650,218 @@ async function lookupBarcodeProduct(code) {
 
   if (item) {
     applyUpcItemDbResult(code, item);
-    status.textContent = '別のデータベースで商品情報が見つかったよ。登録する名前を選んでね。';
+    status.textContent = 'UPCitemdbで商品情報が見つかったよ。登録する名前を選んでね。';
     return;
   }
 
+  // 5) 手入力
   prepareBarcodeManualResult(code);
 
   if (firstNetworkError && secondNetworkError) {
     status.textContent =
-      '商品データベースへ接続できなかったよ。通信状態を確認するか、商品名を手入力して登録してね。';
+      '無料データベースへ接続できなかったよ。商品名を手入力して登録してね。';
   } else {
     status.textContent =
-      'このバーコードの商品情報はデータベースに未登録みたい。商品名と種類を手入力して登録できるよ。';
+      '商品情報が見つからなかったよ。商品名と種類を手入力して登録できるよ。';
   }
 }
+
+async function lookupYahooShopping(code, clientId = settings.yahooClientId) {
+  clientId = String(clientId || '').trim();
+  if (!clientId) return null;
+
+  const url =
+    'https://shopping.yahooapis.jp/ShoppingWebService/V3/itemSearch' +
+    `?appid=${encodeURIComponent(clientId)}` +
+    `&jan_code=${encodeURIComponent(code)}` +
+    '&results=10&condition=new';
+
+  const res = await fetchJsonWithTimeout(url, 8000);
+  if (!res.found) return null;
+
+  const data = res.data;
+  if (!data || !Array.isArray(data.hits) || !data.hits.length) return null;
+
+  // 同JANでも複数ショップの商品が返るので、名前情報が多い候補を優先
+  const hits = data.hits
+    .filter(hit => String(hit.janCode || code) === String(code))
+    .sort((a, b) => yahooHitScore(b) - yahooHitScore(a));
+
+  return hits[0] || data.hits[0] || null;
+}
+
+function yahooHitScore(hit) {
+  let score = 0;
+  if (hit?.name) score += 5;
+  if (hit?.brand?.name) score += 2;
+  if (hit?.genreCategory?.name) score += 2;
+  if (Array.isArray(hit?.parentGenreCategories)) score += hit.parentGenreCategories.length;
+  if (hit?.description) score += 1;
+  return score;
+}
+
+function applyYahooShoppingResult(code, hit) {
+  const exactName = cleanYahooProductName(hit?.name || '');
+  const typeName = deriveYahooType(hit, exactName);
+  const quantity = parseQuantityFromYahoo(hit);
+
+  barcodeLookupData = {
+    code,
+    source: 'yahoo',
+    yahooHit: hit,
+    product: { product_type: isYahooLikelyFood(hit) ? 'food' : 'other' }
+  };
+
+  $('barcodeProductNameEdit').value = exactName;
+  $('barcodeTypeNameEdit').value = typeName;
+
+  if (quantity) {
+    $('barcodeAmount').value = String(quantity.amount);
+    setBarcodeUnit(quantity.unit);
+  } else {
+    $('barcodeAmount').value = '1';
+    setBarcodeUnit('個');
+  }
+
+  $('barcodeChoiceProduct').checked = true;
+  syncBarcodeChoiceLabels();
+}
+
+function cleanYahooProductName(value) {
+  return cleanBarcodeText(value)
+    .replace(/[【［].*?[】］]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function yahooSearchText(hit, exactName = '') {
+  return [
+    exactName,
+    hit?.name || '',
+    hit?.description || '',
+    hit?.headLine || '',
+    hit?.brand?.name || '',
+    hit?.genreCategory?.name || '',
+    ...(Array.isArray(hit?.parentGenreCategories)
+      ? hit.parentGenreCategories.map(x => x?.name || '')
+      : [])
+  ].join(' ').toLowerCase();
+}
+
+function deriveYahooType(hit, exactName = '') {
+  const haystack = yahooSearchText(hit, exactName);
+
+  const rules = [
+    [['低脂肪乳'], '低脂肪乳'],
+    [['牛乳','ミルク'], '牛乳'],
+    [['豆乳'], '豆乳'],
+    [['ヨーグルト'], 'ヨーグルト'],
+    [['インスタントコーヒー'], 'インスタントコーヒー'],
+    [['コーヒー'], 'コーヒー'],
+    [['紅茶'], '紅茶'],
+    [['緑茶'], '緑茶'],
+    [['炭酸水'], '炭酸水'],
+    [['ミネラルウォーター'], '水'],
+    [['食パン'], '食パン'],
+    [['パン'], 'パン'],
+    [['たまご','卵'], '卵'],
+    [['納豆'], '納豆'],
+    [['豆腐'], '豆腐'],
+    [['味噌'], '味噌'],
+    [['醤油','しょうゆ'], '醤油'],
+    [['マヨネーズ'], 'マヨネーズ'],
+    [['ケチャップ'], 'ケチャップ'],
+    [['うどん'], 'うどん'],
+    [['ラーメン'], 'ラーメン'],
+    [['パスタ'], 'パスタ'],
+    [['チーズ'], 'チーズ'],
+    [['バター'], 'バター'],
+    [['ジュース'], 'ジュース'],
+    [['チョコレート'], 'チョコレート'],
+    [['アイスクリーム','アイス'], 'アイス'],
+    [['ティッシュ'], 'ティッシュ'],
+    [['トイレットペーパー'], 'トイレットペーパー'],
+    [['洗濯洗剤'], '洗濯洗剤'],
+    [['食器用洗剤'], '食器用洗剤'],
+    [['シャンプー'], 'シャンプー'],
+    [['米','こめ'], '米']
+  ];
+
+  for (const [keywords, label] of rules) {
+    if (keywords.some(keyword => haystack.includes(keyword.toLowerCase()))) {
+      return label;
+    }
+  }
+
+  const genre = cleanBarcodeText(hit?.genreCategory?.name || '');
+  return genre.length <= 18 ? genre : '';
+}
+
+function parseQuantityFromYahoo(hit) {
+  const text = [
+    hit?.name || '',
+    hit?.headLine || '',
+    hit?.description || ''
+  ].join(' ')
+    .replace(/,/g, '.')
+    .replace(/[×xX＊*]\s*(\d+)/g, ' x$1 ')
+    .toLowerCase();
+
+  const multi = text.match(/(\d+(?:\.\d+)?)\s*(kg|g|ml|l)\s*(?:x|×)\s*(\d+)/i);
+  if (multi) {
+    let amount = Number(multi[1]) * Number(multi[3]);
+    let unit = multi[2].toLowerCase();
+
+    if (unit === 'kg') {
+      amount *= 1000;
+      unit = 'g';
+    } else if (unit === 'l') {
+      amount *= 1000;
+      unit = 'ml';
+    }
+
+    if (amount > 0) return { amount, unit };
+  }
+
+  let m = text.match(/(\d+(?:\.\d+)?)\s*(kg|g|ml|l)\b/i);
+  if (m) {
+    let amount = Number(m[1]);
+    let unit = m[2].toLowerCase();
+
+    if (unit === 'kg') {
+      amount *= 1000;
+      unit = 'g';
+    } else if (unit === 'l') {
+      amount *= 1000;
+      unit = 'ml';
+    }
+
+    if (amount > 0) return { amount, unit };
+  }
+
+  m = text.match(/(\d+)\s*(個|枚|本|袋|箱)\b/);
+  if (m) return { amount: Number(m[1]), unit: m[2] };
+
+  return null;
+}
+
+function isYahooLikelyFood(hit) {
+  const text = yahooSearchText(hit);
+  const nonFood = [
+    '日用品','ティッシュ','トイレットペーパー','洗剤','シャンプー',
+    'ボディソープ','歯磨き','化粧品','コスメ','ペット','家電','ファッション'
+  ];
+
+  if (nonFood.some(word => text.includes(word))) return false;
+
+  const food = [
+    '食品','飲料','牛乳','乳製品','コーヒー','お茶','水','菓子','米',
+    '調味料','麺','パン','卵','豆腐','納豆','ヨーグルト'
+  ];
+
+  return food.some(word => text.includes(word));
+}
+
 
 async function fetchJsonWithTimeout(url, timeoutMs = 7000) {
   const controller = new AbortController();
@@ -2315,10 +2543,46 @@ function saveProductFromDialog() {
   render();
 }
 
+function toggleYahooClientIdVisibility() {
+  const input = $('yahooClientId');
+  const visible = input.type === 'text';
+  input.type = visible ? 'password' : 'text';
+  $('btnToggleYahooClientId').textContent = visible ? '表示' : '隠す';
+}
+
+async function testYahooShoppingApi() {
+  const clientId = $('yahooClientId').value.trim();
+  const status = $('yahooApiStatus');
+
+  if (!clientId) {
+    status.textContent = 'Client IDを入力してね。';
+    return;
+  }
+
+  const btn = $('btnTestYahooApi');
+  btn.disabled = true;
+  status.textContent = 'Yahoo!ショッピングAPIへ接続中…';
+
+  try {
+    // Yahoo公式ドキュメントに掲載されているJAN例で接続確認
+    await lookupYahooShopping('4905524535815', clientId);
+    status.textContent = '接続できたよ。Client IDを保存すればバーコード検索で使える。';
+  } catch (err) {
+    status.textContent =
+      '接続できなかったよ。Client ID、Yahoo!側のアプリ登録、通信状態を確認してね。';
+  } finally {
+    btn.disabled = false;
+  }
+}
+
 function openSettings() {
   $('standardTax').value = settings.standardTax;
   $('reducedTax').value = settings.reducedTax;
   $('defaultPriceType').value = settings.defaultPriceType;
+  $('yahooClientId').value = settings.yahooClientId || '';
+  $('yahooClientId').type = 'password';
+  $('btnToggleYahooClientId').textContent = '表示';
+  $('yahooApiStatus').textContent = '';
   updateTemplateSummary();
   $('templateMessage').textContent = '';
   $('settingsDialog').showModal();

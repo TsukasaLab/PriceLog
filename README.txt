@@ -1,4 +1,4 @@
-PriceLog Ver.0.29
+PriceLog Ver.0.30
 
 買い物中の価格比較に特化したPWA試作版です。
 
@@ -216,3 +216,13 @@ Ver.0.29 changes
 - スマホ表示でもバージョン番号を常時表示
 - PriceLogタイトル横に小さくVer表記を固定
 - スマホ用CSSでバージョンまで非表示になっていた問題を修正
+
+Ver.0.30 changes
+- 設定画面にYahoo!ショッピング Client ID入力欄を追加
+- Client IDの表示/非表示切替と接続テストを追加
+- バーコード検索順を PriceLog内 → Yahoo!ショッピング → Open Facts → UPCitemdb → 手入力 に変更
+- Yahoo!商品検索APIをJANコード(jan_code)で検索
+- Yahoo!から商品名・ブランド・カテゴリ情報を取得
+- 商品名から種類候補と内容量候補を生成
+- Yahoo Client IDは設定データとして端末内に保存
+- 既存の設定バックアップにもYahoo Client IDを含む
