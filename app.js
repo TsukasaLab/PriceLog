@@ -1614,14 +1614,11 @@ async function lookupBarcodeProduct(code) {
   const existing = findProductByBarcode(code);
   if (existing) {
     status.textContent = `PriceLog内で「${existing.name}」が見つかったよ。`;
-    const existingType = deriveKnownBarcodeTypeFromText(existing.name || '');
-    applyResolvedBarcodeFields({
-      exactName: existing.name || '',
-      typeName: existingType,
-      quantity: (Number(existing.amount) > 0 && existing.unit)
-        ? { amount: Number(existing.amount), unit: existing.unit }
-        : null
-    });
+    $('barcodeProductNameEdit').value = existing.name;
+    $('barcodeTypeNameEdit').value = '';
+    $('barcodeAmount').value = existing.amount || 1;
+    $('barcodeUnit').value = existing.unit || '個';
+    syncBarcodeChoiceLabels();
     return;
   }
 
@@ -1765,7 +1762,6 @@ async function lookupYahooShopping(
   return hits[0] || data.hits[0] || null;
 }
 
-
 function yahooHitScore(hit) {
   let score = 0;
   if (hit?.name) score += 5;
@@ -1855,16 +1851,7 @@ function applyResolvedBarcodeFields({ exactName, typeName, quantity }) {
 }
 
 function applyYahooShoppingResult(code, hit) {
-  const initialType = deriveYahooType(hit, hit?.name || '');
-  const exactName = chooseBarcodeProductName([
-    hit?.name || '',
-    hit?.headLine || '',
-    [
-      hit?.brand?.name || '',
-      hit?.name || ''
-    ].filter(Boolean).join(' ')
-  ], initialType);
-
+  const exactName = cleanYahooProductName(hit?.name || '');
   const typeName = deriveYahooType(hit, exactName);
   const quantity = parseQuantityFromYahoo(hit);
 
@@ -1876,7 +1863,19 @@ function applyYahooShoppingResult(code, hit) {
     product: { product_type: isYahooLikelyFood(hit) ? 'food' : 'other' }
   };
 
-  applyResolvedBarcodeFields({ exactName, typeName, quantity });
+  $('barcodeProductNameEdit').value = exactName;
+  $('barcodeTypeNameEdit').value = typeName;
+
+  if (quantity) {
+    $('barcodeAmount').value = String(quantity.amount);
+    setBarcodeUnit(quantity.unit);
+  } else {
+    $('barcodeAmount').value = '';
+    setBarcodeUnit('');
+  }
+
+  $('barcodeChoiceProduct').checked = true;
+  syncBarcodeChoiceLabels();
 }
 
 function safeRemoteImageUrl(value) {
@@ -2174,19 +2173,9 @@ async function lookupOpenFacts(code) {
 }
 
 function applyOpenFactsResult(code, product) {
-  const preliminaryName = cleanBarcodeProductNameCandidate(
+  const exactName = cleanBarcodeText(
     product.product_name_ja || product.product_name || product.brands || ''
   );
-  const initialType = deriveBarcodeType(product, preliminaryName);
-
-  const exactName = chooseBarcodeProductName([
-    product.product_name_ja || '',
-    product.product_name || '',
-    [
-      product.brands || '',
-      product.product_name_ja || product.product_name || ''
-    ].filter(Boolean).join(' ')
-  ], initialType);
 
   const typeName = deriveBarcodeType(product, exactName);
   const quantity = parseBarcodeQuantity(product);
@@ -2198,7 +2187,19 @@ function applyOpenFactsResult(code, product) {
     imageUrl: extractOpenFactsImageUrl(product)
   };
 
-  applyResolvedBarcodeFields({ exactName, typeName, quantity });
+  $('barcodeProductNameEdit').value = exactName;
+  $('barcodeTypeNameEdit').value = typeName;
+
+  if (quantity) {
+    $('barcodeAmount').value = String(quantity.amount);
+    setBarcodeUnit(quantity.unit);
+  } else {
+    $('barcodeAmount').value = '';
+    setBarcodeUnit('');
+  }
+
+  $('barcodeChoiceProduct').checked = true;
+  syncBarcodeChoiceLabels();
 }
 
 async function lookupUpcItemDb(code) {
@@ -2214,19 +2215,9 @@ async function lookupUpcItemDb(code) {
 }
 
 function applyUpcItemDbResult(code, item) {
-  const preliminaryName = cleanBarcodeProductNameCandidate(
+  const exactName = cleanBarcodeText(
     item.title || [item.brand, item.model].filter(Boolean).join(' ') || ''
   );
-  const initialType = deriveUpcItemType(item, preliminaryName);
-
-  const exactName = chooseBarcodeProductName([
-    item.title || '',
-    [item.brand, item.model].filter(Boolean).join(' '),
-    [
-      item.brand || '',
-      item.title || ''
-    ].filter(Boolean).join(' ')
-  ], initialType);
 
   const typeName = deriveUpcItemType(item, exactName);
   const quantity = parseQuantityFromUpcItem(item);
@@ -2239,7 +2230,19 @@ function applyUpcItemDbResult(code, item) {
     product: { product_type: 'food' }
   };
 
-  applyResolvedBarcodeFields({ exactName, typeName, quantity });
+  $('barcodeProductNameEdit').value = exactName;
+  $('barcodeTypeNameEdit').value = typeName;
+
+  if (quantity) {
+    $('barcodeAmount').value = String(quantity.amount);
+    setBarcodeUnit(quantity.unit);
+  } else {
+    $('barcodeAmount').value = '';
+    setBarcodeUnit('');
+  }
+
+  $('barcodeChoiceProduct').checked = true;
+  syncBarcodeChoiceLabels();
 }
 
 function deriveUpcItemType(item, exactName = '') {
