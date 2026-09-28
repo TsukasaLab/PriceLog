@@ -383,6 +383,23 @@ function render() {
     node.classList.toggle('open', isOpen);
 
     if (isOpen) {
+      const imageWrap = node.querySelector('.product-image-wrap');
+      const imageEl = node.querySelector('.product-image');
+      const imageUrl = safeRemoteImageUrl(product.imageUrl);
+
+      if (imageUrl) {
+        imageEl.src = imageUrl;
+        imageEl.alt = `${product.name}の商品画像`;
+        imageWrap.classList.remove('hidden');
+        imageEl.addEventListener('error', () => {
+          imageWrap.classList.add('hidden');
+          imageEl.removeAttribute('src');
+        }, { once: true });
+      } else {
+        imageWrap.classList.add('hidden');
+        imageEl.removeAttribute('src');
+      }
+
       node.querySelector('.btn-edit-product').addEventListener('click', () => openProductDialog(product.id));
       node.querySelector('.btn-history').addEventListener('click', () => openHistoryDialog(product.id));
       node.querySelector('.btn-add-store').addEventListener('click', () => {
@@ -1757,6 +1774,7 @@ function applyYahooShoppingResult(code, hit) {
     code,
     source: 'yahoo',
     yahooHit: hit,
+    imageUrl: extractYahooImageUrl(hit),
     product: { product_type: isYahooLikelyFood(hit) ? 'food' : 'other' }
   };
 
@@ -1773,6 +1791,72 @@ function applyYahooShoppingResult(code, hit) {
 
   $('barcodeChoiceProduct').checked = true;
   syncBarcodeChoiceLabels();
+}
+
+function safeRemoteImageUrl(value) {
+  const raw = String(value || '').trim();
+  if (!raw) return '';
+
+  try {
+    const url = new URL(raw);
+    if (url.protocol !== 'https:' && url.protocol !== 'http:') return '';
+    return url.toString();
+  } catch {
+    return '';
+  }
+}
+
+function extractYahooImageUrl(hit) {
+  const candidates = [
+    hit?.image?.medium,
+    hit?.image?.small,
+    hit?.image?.large,
+    hit?.imageUrl,
+    hit?.image?.url
+  ];
+
+  for (const candidate of candidates) {
+    const safe = safeRemoteImageUrl(candidate);
+    if (safe) return safe;
+  }
+
+  const imageId = String(hit?.imageId || '').trim();
+  if (imageId) {
+    return `https://item-shopping.c.yimg.jp/i/g/${encodeURIComponent(imageId)}`;
+  }
+
+  return '';
+}
+
+function extractOpenFactsImageUrl(product) {
+  const candidates = [
+    product?.image_front_url,
+    product?.image_url,
+    product?.image_front_small_url,
+    product?.image_small_url
+  ];
+
+  for (const candidate of candidates) {
+    const safe = safeRemoteImageUrl(candidate);
+    if (safe) return safe;
+  }
+
+  return '';
+}
+
+function extractUpcItemImageUrl(item) {
+  const candidates = [
+    ...(Array.isArray(item?.images) ? item.images : []),
+    item?.image,
+    item?.thumbnail
+  ];
+
+  for (const candidate of candidates) {
+    const safe = safeRemoteImageUrl(candidate);
+    if (safe) return safe;
+  }
+
+  return '';
 }
 
 function cleanYahooProductName(value) {
@@ -1936,7 +2020,8 @@ async function lookupOpenFacts(code) {
   const fields = [
     'code','product_name','product_name_ja','generic_name','generic_name_ja',
     'brands','quantity','product_quantity','product_quantity_unit',
-    'categories','categories_tags'
+    'categories','categories_tags','image_front_url','image_url',
+    'image_front_small_url','image_small_url'
   ].join(',');
 
   const domains = [
@@ -1984,7 +2069,12 @@ function applyOpenFactsResult(code, product) {
   const typeName = deriveBarcodeType(product, exactName);
   const quantity = parseBarcodeQuantity(product);
 
-  barcodeLookupData = { code, product, source: 'openfacts' };
+  barcodeLookupData = {
+    code,
+    product,
+    source: 'openfacts',
+    imageUrl: extractOpenFactsImageUrl(product)
+  };
 
   $('barcodeProductNameEdit').value = exactName;
   $('barcodeTypeNameEdit').value = typeName;
@@ -2025,6 +2115,7 @@ function applyUpcItemDbResult(code, item) {
     code,
     source: 'upcitemdb',
     upcItem: item,
+    imageUrl: extractUpcItemImageUrl(item),
     product: { product_type: 'food' }
   };
 
@@ -2354,6 +2445,7 @@ function registerBarcodeProduct() {
   const product = {
     id: makeId('p'),
     barcode: code,
+    imageUrl: safeRemoteImageUrl(barcodeLookupData?.imageUrl),
     name,
     reading,
     amount,

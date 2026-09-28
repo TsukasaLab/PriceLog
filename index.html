@@ -9,12 +9,12 @@
   <title>PriceLog</title>
   <link rel="manifest" href="./manifest.webmanifest">
   <link rel="apple-touch-icon" href="./icon-192.png">
-  <link rel="stylesheet" href="./style.css?v=0.31">
+  <link rel="stylesheet" href="./style.css?v=0.32">
 </head>
 <body>
   <header class="topbar">
     <div>
-      <strong>PriceLog</strong> <small class="app-version">Ver.0.31</small>
+      <strong>PriceLog</strong> <small class="app-version">Ver.0.32</small>
     </div>
     <div class="top-actions">
       <button id="btnSettings" class="icon-btn" type="button" aria-label="設定">⚙</button>
@@ -398,6 +398,10 @@
       </div>
 
       <div class="product-detail hidden">
+        <div class="product-image-wrap hidden">
+          <img class="product-image" alt="商品画像" loading="lazy" referrerpolicy="no-referrer">
+        </div>
+
         <div class="detail-toolbar">
           <button class="btn-edit-product ghost mini" type="button">商品設定</button>
           <button class="btn-history ghost mini" type="button">変更履歴</button>
@@ -438,6 +442,6 @@
     </div>
   </template>
 
-  <script src="./app.js?v=0.31"></script>
+  <script src="./app.js?v=0.32"></script>
 </body>
 </html>

@@ -475,3 +475,60 @@ button:active,.primary:active,.ghost:active,.icon-btn:active{transform:translate
   padding:0 9px;
   font-size:14px;
 }
+
+
+/* Ver.0.32: 展開時は商品名を優先 */
+.product-card.open .best-wrap{
+  display:none;
+}
+.product-card.open .product-summary{
+  grid-template-columns:minmax(0,1fr) 14px;
+}
+.product-card.open .summary-main{
+  width:100%;
+  min-width:0;
+}
+.product-card.open .product-name{
+  display:block;
+  overflow:visible;
+  white-space:normal;
+  -webkit-line-clamp:unset;
+  line-clamp:unset;
+  overflow-wrap:anywhere;
+  word-break:break-word;
+}
+.product-card.open .product-size{
+  margin-top:2px;
+}
+
+/* バーコード検索で取得できた商品画像 */
+.product-image-wrap{
+  display:flex;
+  justify-content:center;
+  align-items:center;
+  padding:7px 6px 5px;
+  border-bottom:1px solid var(--line);
+  background:#fff;
+}
+.product-image-wrap.hidden{
+  display:none;
+}
+.product-image{
+  display:block;
+  width:auto;
+  height:auto;
+  max-width:min(180px,55vw);
+  max-height:150px;
+  object-fit:contain;
+  border-radius:8px;
+  background:#fff;
+}
+@media(max-width:520px){
+  .product-card.open .product-summary{
+    grid-template-columns:minmax(0,1fr) 12px;
+  }
+  .product-image{
+    max-width:48vw;
+    max-height:130px;
+  }
+}
