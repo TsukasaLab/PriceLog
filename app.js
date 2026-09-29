@@ -12,10 +12,31 @@ const defaultSettings = {
   standardTax: 10,
   reducedTax: 8,
   defaultPriceType: 'inc',
-  yahooClientId: ''
+  yahooClientId: '',
+  barcodeNameDefault: 'product',
+  barcodeUseImageDefault: true
 };
 
-let settings = loadJson(SETTINGS_KEY, defaultSettings);
+function normalizeSettingsData(raw = {}) {
+  const value = raw && typeof raw === 'object' ? raw : {};
+
+  return {
+    ...defaultSettings,
+    ...value,
+    standardTax: Number.isFinite(Number(value.standardTax))
+      ? Number(value.standardTax)
+      : defaultSettings.standardTax,
+    reducedTax: Number.isFinite(Number(value.reducedTax))
+      ? Number(value.reducedTax)
+      : defaultSettings.reducedTax,
+    defaultPriceType: value.defaultPriceType === 'ex' ? 'ex' : 'inc',
+    yahooClientId: String(value.yahooClientId || ''),
+    barcodeNameDefault: value.barcodeNameDefault === 'type' ? 'type' : 'product',
+    barcodeUseImageDefault: value.barcodeUseImageDefault !== false
+  };
+}
+
+let settings = normalizeSettingsData(loadJson(SETTINGS_KEY, defaultSettings));
 let products = loadJson(STORAGE_KEY, []);
 let openProductId = null;
 let editProductId = null;
@@ -34,6 +55,7 @@ let barcodeDetector = null;
 let barcodeScanTimer = null;
 let barcodeScanning = false;
 let barcodeLookupData = null;
+let barcodeReadingManuallyEdited = false;
 let productImageDeletePending = false;
 let yahooRequestChain = Promise.resolve();
 let yahooLastRequestAt = 0;
@@ -105,12 +127,16 @@ $('settingsForm').addEventListener('submit', (e) => {
   e.preventDefault();
   const st = clampNumber($('standardTax').value, 0, 100, 10);
   const rt = clampNumber($('reducedTax').value, 0, 100, 8);
-  settings = {
+
+  settings = normalizeSettingsData({
     standardTax: st,
     reducedTax: rt,
     defaultPriceType: $('defaultPriceType').value === 'ex' ? 'ex' : 'inc',
-    yahooClientId: $('yahooClientId').value.trim()
-  };
+    yahooClientId: $('yahooClientId').value.trim(),
+    barcodeNameDefault: $('barcodeNameDefault').value === 'type' ? 'type' : 'product',
+    barcodeUseImageDefault: $('barcodeUseImageDefault').checked
+  });
+
   localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings));
   $('settingsDialog').close();
   render();
@@ -149,8 +175,32 @@ $('barcodeManualCode').addEventListener('keydown', (e) => {
     if (code) lookupBarcodeProduct(code);
   }
 });
-$('barcodeProductNameEdit').addEventListener('input', syncBarcodeChoiceLabels);
-$('barcodeTypeNameEdit').addEventListener('input', syncBarcodeChoiceLabels);
+$('barcodeProductNameEdit').addEventListener('input', () => {
+  syncBarcodeChoiceLabels();
+  if ($('barcodeChoiceProduct').checked && !barcodeReadingManuallyEdited) {
+    updateBarcodeReadingFromChoice();
+  }
+});
+$('barcodeTypeNameEdit').addEventListener('input', () => {
+  syncBarcodeChoiceLabels();
+  if ($('barcodeChoiceType').checked && !barcodeReadingManuallyEdited) {
+    updateBarcodeReadingFromChoice();
+  }
+});
+$('barcodeChoiceProduct').addEventListener('change', () => {
+  if (!$('barcodeChoiceProduct').checked) return;
+  barcodeReadingManuallyEdited = false;
+  updateBarcodeReadingFromChoice();
+});
+$('barcodeChoiceType').addEventListener('change', () => {
+  if (!$('barcodeChoiceType').checked) return;
+  barcodeReadingManuallyEdited = false;
+  updateBarcodeReadingFromChoice();
+});
+$('barcodeReading').addEventListener('input', () => {
+  barcodeReadingManuallyEdited = true;
+});
+$('barcodeUseImage').addEventListener('change', refreshBarcodeImageOption);
 $('btnRegisterBarcodeProduct').addEventListener('click', registerBarcodeProduct);
 $('barcodeDialog').addEventListener('close', stopBarcodeCamera);
 
@@ -1479,14 +1529,23 @@ function productTemplateKey(product) {
 function openBarcodeDialog() {
   stopBarcodeCamera();
   barcodeLookupData = null;
+  barcodeReadingManuallyEdited = false;
 
   $('barcodeResult').classList.add('hidden');
   $('barcodeManualCode').value = '';
   $('barcodeCameraMessage').textContent = 'カメラを起動してね。';
   $('barcodeProductNameEdit').value = '';
   $('barcodeTypeNameEdit').value = '';
+  $('barcodeReading').value = '';
   $('barcodeAmount').value = '';
   $('barcodeUnit').value = '';
+
+  $('barcodeChoiceProduct').checked = settings.barcodeNameDefault !== 'type';
+  $('barcodeChoiceType').checked = settings.barcodeNameDefault === 'type';
+
+  $('barcodeUseImage').checked = !!settings.barcodeUseImageDefault;
+  $('barcodeUseImage').disabled = true;
+  $('barcodeImageOptionNote').textContent = '商品画像が見つかると使用有無を選べるよ。';
 
   if ($('productDialog').open) $('productDialog').close();
   $('barcodeDialog').showModal();
@@ -1563,7 +1622,7 @@ async function scanBarcodeFrame() {
       const codes = await barcodeDetector.detect(video);
 
       if (codes?.length) {
-        const raw = String(codes[0].rawValue || '').replace(/\D/g, '');
+        const raw = normalizeBarcodeCode(codes[0].rawValue || '');
 
         if (raw) {
           barcodeScanning = false;
@@ -1636,12 +1695,18 @@ async function lookupBarcodeProduct(code) {
   // 1) PriceLog内の登録済みJAN
   const existing = findProductByBarcode(code);
   if (existing) {
+    barcodeLookupData = {
+      code,
+      source: 'pricelog',
+      imageUrl: safeRemoteImageUrl(existing.imageUrl)
+    };
+
     status.textContent = `PriceLog内で「${existing.name}」が見つかったよ。`;
     $('barcodeProductNameEdit').value = existing.name;
-    $('barcodeTypeNameEdit').value = '';
-    $('barcodeAmount').value = existing.amount || 1;
-    $('barcodeUnit').value = existing.unit || '個';
-    syncBarcodeChoiceLabels();
+    $('barcodeTypeNameEdit').value = deriveKnownBarcodeTypeFromText(existing.name || '');
+    $('barcodeAmount').value = existing.amount || '';
+    $('barcodeUnit').value = existing.unit || '';
+    applyBarcodeRegisterDefaults();
     return;
   }
 
@@ -2026,8 +2091,7 @@ function applyYahooShoppingResult(code, hit) {
     setBarcodeUnit('');
   }
 
-  $('barcodeChoiceProduct').checked = true;
-  syncBarcodeChoiceLabels();
+  applyBarcodeRegisterDefaults();
 }
 
 function safeRemoteImageUrl(value) {
@@ -2350,8 +2414,7 @@ function applyOpenFactsResult(code, product) {
     setBarcodeUnit('');
   }
 
-  $('barcodeChoiceProduct').checked = true;
-  syncBarcodeChoiceLabels();
+  applyBarcodeRegisterDefaults();
 }
 
 async function lookupUpcItemDb(code) {
@@ -2393,8 +2456,7 @@ function applyUpcItemDbResult(code, item) {
     setBarcodeUnit('');
   }
 
-  $('barcodeChoiceProduct').checked = true;
-  syncBarcodeChoiceLabels();
+  applyBarcodeRegisterDefaults();
 }
 
 function deriveUpcItemType(item, exactName = '') {
@@ -2459,13 +2521,18 @@ function parseQuantityFromUpcItem(item) {
 }
 
 function prepareBarcodeManualResult(code) {
-  barcodeLookupData = { code };
+  barcodeLookupData = {
+    code,
+    imageUrl: ''
+  };
+
   $('barcodeProductNameEdit').value = '';
   $('barcodeTypeNameEdit').value = '';
+  $('barcodeReading').value = '';
   $('barcodeAmount').value = '';
   setBarcodeUnit('');
-  $('barcodeChoiceProduct').checked = true;
-  syncBarcodeChoiceLabels();
+
+  applyBarcodeRegisterDefaults();
 }
 
 function cleanBarcodeText(value) {
@@ -2522,6 +2589,70 @@ function setBarcodeUnit(unit) {
   select.value = unit;
 }
 
+function refreshBarcodeImageOption() {
+  const input = $('barcodeUseImage');
+  const note = $('barcodeImageOptionNote');
+  const imageUrl = safeRemoteImageUrl(barcodeLookupData?.imageUrl);
+  const hasImage = !!imageUrl;
+
+  input.disabled = !hasImage;
+
+  if (!hasImage) {
+    input.checked = false;
+    note.textContent = 'この商品では使える画像が見つからなかったよ。';
+    return;
+  }
+
+  note.textContent = input.checked
+    ? '登録時に商品画像も保存する。'
+    : '商品画像は保存しない。';
+}
+
+function updateBarcodeReadingFromChoice() {
+  if (barcodeReadingManuallyEdited) return;
+
+  const choice =
+    document.querySelector('input[name="barcodeNameChoice"]:checked')?.value ||
+    'product';
+
+  const name = choice === 'type'
+    ? $('barcodeTypeNameEdit').value.trim()
+    : $('barcodeProductNameEdit').value.trim();
+
+  $('barcodeReading').value = barcodeReadingForName(name);
+}
+
+function applyBarcodeRegisterDefaults() {
+  barcodeReadingManuallyEdited = false;
+
+  const hasProduct = !!$('barcodeProductNameEdit').value.trim();
+  const hasType = !!$('barcodeTypeNameEdit').value.trim();
+  const preferType = settings.barcodeNameDefault === 'type';
+
+  if (preferType && hasType) {
+    $('barcodeChoiceType').checked = true;
+    $('barcodeChoiceProduct').checked = false;
+  } else {
+    $('barcodeChoiceProduct').checked = true;
+    $('barcodeChoiceType').checked = false;
+  }
+
+  // 商品名がなく、種類だけ取れた場合は種類へフォールバック。
+  if (!hasProduct && hasType) {
+    $('barcodeChoiceType').checked = true;
+    $('barcodeChoiceProduct').checked = false;
+  }
+
+  $('barcodeUseImage').checked =
+    !!settings.barcodeUseImageDefault &&
+    !!safeRemoteImageUrl(barcodeLookupData?.imageUrl);
+
+  syncBarcodeChoiceLabels();
+  refreshBarcodeImageOption();
+  updateBarcodeReadingFromChoice();
+}
+
+
 function syncBarcodeChoiceLabels() {
   const exact = $('barcodeProductNameEdit').value.trim();
   const type = $('barcodeTypeNameEdit').value.trim();
@@ -2541,17 +2672,23 @@ function syncBarcodeChoiceLabels() {
 }
 
 function barcodeReadingForName(name) {
-  const known = findKnownReading(name);
+  const raw = String(name || '').trim();
+  if (!raw) return '';
+
+  const known = findKnownReading(raw);
   if (known) return known;
 
-  const map = new Map([
+  const exactMap = new Map([
     ['牛乳','ぎゅうにゅう'],
     ['低脂肪乳','ていしぼうにゅう'],
+    ['加工乳','かこうにゅう'],
     ['豆乳','とうにゅう'],
     ['ヨーグルト','よーぐると'],
+    ['インスタントコーヒー','いんすたんとこーひー'],
     ['コーヒー','こーひー'],
     ['紅茶','こうちゃ'],
     ['緑茶','りょくちゃ'],
+    ['麦茶','むぎちゃ'],
     ['炭酸水','たんさんすい'],
     ['水','みず'],
     ['食パン','しょくぱん'],
@@ -2569,14 +2706,109 @@ function barcodeReadingForName(name) {
     ['チーズ','ちーず'],
     ['バター','ばたー'],
     ['ジュース','じゅーす'],
+    ['ガム','がむ'],
     ['チョコレート','ちょこれーと'],
     ['アイス','あいす'],
-    ['米','こめ']
+    ['米','こめ'],
+    ['歯磨き粉','はみがきこ'],
+    ['歯ブラシ','はぶらし'],
+    ['アルミホイル','あるみほいる'],
+    ['ラップ','らっぷ'],
+    ['キッチンペーパー','きっちんぺーぱー'],
+    ['トイレットペーパー','といれっとぺーぱー'],
+    ['ティッシュ','てぃっしゅ'],
+    ['食器用洗剤','しょっきようせんざい'],
+    ['洗濯洗剤','せんたくせんざい'],
+    ['柔軟剤','じゅうなんざい'],
+    ['シャンプー','しゃんぷー'],
+    ['コンディショナー','こんでぃしょなー'],
+    ['ボディソープ','ぼでぃそーぷ'],
+    ['ハンドソープ','はんどそーぷ'],
+    ['ゴミ袋','ごみぶくろ'],
+    ['電池','でんち']
   ]);
 
-  if (map.has(name)) return map.get(name);
+  if (exactMap.has(raw)) return exactMap.get(raw);
 
-  return makeReadingCandidate(name);
+  // 漢字を含まない商品名は、カタカナをひらがなへ変換すればそのまま読みとして使える。
+  if (!hasKanji(raw)) {
+    return katakanaToHiragana(raw).normalize('NFKC').toLowerCase();
+  }
+
+  // バーコードの商品名で頻出するブランド名・商品語だけローカル辞書で変換する。
+  // 未知の漢字が残る場合は誤読を作らず空欄にして、手修正できるようにする。
+  const replacements = [
+    ['江崎グリコ','えざきぐりこ'],
+    ['雪印メグミルク','ゆきじるしめぐみるく'],
+    ['雪印','ゆきじるし'],
+    ['森永乳業','もりながにゅうぎょう'],
+    ['森永製菓','もりながせいか'],
+    ['明治','めいじ'],
+    ['味の素','あじのもと'],
+    ['日清食品','にっしんしょくひん'],
+    ['日清','にっしん'],
+    ['東洋水産','とうようすいさん'],
+    ['伊藤園','いとうえん'],
+    ['山崎製パン','やまざきせいぱん'],
+    ['旭化成','あさひかせい'],
+    ['大王製紙','だいおうせいし'],
+    ['日本製紙','にっぽんせいし'],
+    ['王子ネピア','おうじねぴあ'],
+    ['牛乳石鹸','ぎゅうにゅうせっけん'],
+    ['低脂肪乳','ていしぼうにゅう'],
+    ['加工乳','かこうにゅう'],
+    ['牛乳','ぎゅうにゅう'],
+    ['豆乳','とうにゅう'],
+    ['無糖','むとう'],
+    ['微糖','びとう'],
+    ['加糖','かとう'],
+    ['濃厚','のうこう'],
+    ['無添加','むてんか'],
+    ['国産','こくさん'],
+    ['北海道','ほっかいどう'],
+    ['食パン','しょくぱん'],
+    ['薄力粉','はくりきこ'],
+    ['強力粉','きょうりきこ'],
+    ['小麦粉','こむぎこ'],
+    ['砂糖','さとう'],
+    ['食塩','しょくえん'],
+    ['料理酒','りょうりしゅ'],
+    ['醤油','しょうゆ'],
+    ['味噌','みそ'],
+    ['緑茶','りょくちゃ'],
+    ['麦茶','むぎちゃ'],
+    ['紅茶','こうちゃ'],
+    ['炭酸水','たんさんすい'],
+    ['食器用','しょっきよう'],
+    ['洗濯','せんたく'],
+    ['衣料用','いりょうよう'],
+    ['洗剤','せんざい'],
+    ['柔軟剤','じゅうなんざい'],
+    ['歯磨き粉','はみがきこ'],
+    ['歯磨き','はみがき'],
+    ['歯ブラシ','はぶらし'],
+    ['箱','はこ'],
+    ['袋','ふくろ'],
+    ['種','しゅ'],
+    ['粒','つぶ'],
+    ['枚','まい'],
+    ['個','こ'],
+    ['本','ほん'],
+    ['入','いり']
+  ].sort((a, b) => b[0].length - a[0].length);
+
+  let converted = raw.normalize('NFKC');
+
+  for (const [from, to] of replacements) {
+    converted = converted.split(from).join(to);
+  }
+
+  converted = katakanaToHiragana(converted).toLowerCase();
+
+  // 漢字が残るなら読みを推測しない。
+  if (hasKanji(converted)) return '';
+
+  return converted.replace(/\s+/g, ' ').trim();
 }
 
 function registerBarcodeProduct() {
@@ -2594,7 +2826,7 @@ function registerBarcodeProduct() {
     'product';
 
   // 正式商品名で登録する場合だけJANを商品へ紐づける。
-  // 種類候補で登録する場合は、特定商品のJANと汎用カテゴリを結び付けない。
+  // 種類で登録する場合は、汎用カテゴリに特定商品のJANを持たせない。
   const barcodeForProduct = choice === 'product' ? code : '';
 
   if (barcodeForProduct) {
@@ -2623,7 +2855,16 @@ function registerBarcodeProduct() {
     return;
   }
 
-  const reading = barcodeReadingForName(name);
+  let reading = normalizeReadingInput($('barcodeReading').value);
+  if (!reading) {
+    reading = barcodeReadingForName(name);
+  }
+
+  const useImage = $('barcodeUseImage').checked;
+  const imageUrl = useImage
+    ? safeRemoteImageUrl(barcodeLookupData?.imageUrl)
+    : '';
+
   const productType = barcodeLookupData?.product?.product_type || 'food';
   const defaultTax = productType === 'food'
     ? Number(settings.reducedTax)
@@ -2632,7 +2873,7 @@ function registerBarcodeProduct() {
   const product = {
     id: makeId('p'),
     barcode: barcodeForProduct,
-    imageUrl: safeRemoteImageUrl(barcodeLookupData?.imageUrl),
+    imageUrl,
     name,
     reading,
     amount,
@@ -2962,6 +3203,9 @@ function openSettings() {
   $('standardTax').value = settings.standardTax;
   $('reducedTax').value = settings.reducedTax;
   $('defaultPriceType').value = settings.defaultPriceType;
+  $('barcodeNameDefault').value =
+    settings.barcodeNameDefault === 'type' ? 'type' : 'product';
+  $('barcodeUseImageDefault').checked = !!settings.barcodeUseImageDefault;
   $('yahooClientId').value = settings.yahooClientId || '';
   $('yahooClientId').type = 'password';
   $('btnToggleYahooClientId').textContent = '表示';
@@ -3000,7 +3244,7 @@ function importBackup(e) {
       const data = JSON.parse(String(reader.result));
       if (!Array.isArray(data.products)) throw new Error('invalid');
       products = data.products;
-      settings = {...defaultSettings, ...(data.settings || {})};
+      settings = normalizeSettingsData(data.settings || {});
 
       if (data.customTemplate) {
         customTemplate = normalizeTemplateData(data.customTemplate);

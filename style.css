@@ -918,3 +918,35 @@ button:active,.primary:active,.ghost:active,.icon-btn:active{transform:translate
 }
 
 
+
+
+/* Ver.0.48: バーコード登録の初期値・画像使用選択 */
+.setting-check-row{
+  display:flex;
+  align-items:center;
+  gap:8px;
+  margin-top:10px;
+}
+.setting-check-row input,
+.barcode-image-option input{
+  width:auto;
+  min-width:18px;
+  height:18px;
+  margin:0;
+}
+.barcode-register-options{
+  margin:12px 0 10px;
+  padding:10px;
+  border:1px solid var(--line);
+  border-radius:9px;
+  background:#fff;
+}
+.barcode-image-option{
+  display:flex;
+  align-items:center;
+  gap:8px;
+  font-weight:600;
+}
+.barcode-image-option:has(input:disabled){
+  opacity:.55;
+}

@@ -9,12 +9,12 @@
   <title>PriceLog</title>
   <link rel="manifest" href="./manifest.webmanifest">
   <link rel="apple-touch-icon" href="./icon-192.png">
-  <link rel="stylesheet" href="./style.css?v=0.47">
+  <link rel="stylesheet" href="./style.css?v=0.48">
 </head>
 <body>
   <header class="topbar">
     <div>
-      <strong>PriceLog</strong> <small class="app-version">Ver.0.47</small>
+      <strong>PriceLog</strong> <small class="app-version">Ver.0.48</small>
     </div>
     <div class="top-actions">
       <button id="btnSettings" class="icon-btn" type="button" aria-label="設定">⚙</button>
@@ -173,6 +173,23 @@
       </div>
 
       <div class="settings-block">
+        <div class="settings-title">バーコード登録の初期値</div>
+        <label>登録する名前
+          <select id="barcodeNameDefault">
+            <option value="product">商品名</option>
+            <option value="type">種類</option>
+          </select>
+        </label>
+        <label class="setting-check-row">
+          <input id="barcodeUseImageDefault" type="checkbox">
+          <span>商品画像を使う</span>
+        </label>
+        <div class="template-note">
+          種類を選んだ場合、そのJANコードは商品に紐づけない。
+        </div>
+      </div>
+
+      <div class="settings-block">
         <div class="settings-title">バーコード検索</div>
         <label>Yahoo!ショッピング Client ID
           <input id="yahooClientId" type="password" autocomplete="off" placeholder="取得したClient IDを貼り付け">
@@ -273,6 +290,9 @@
           <label>種類候補
             <input id="barcodeTypeNameEdit" type="text" maxlength="60">
           </label>
+          <label>よみがな
+            <input id="barcodeReading" type="text" maxlength="100">
+          </label>
           <label>内容量
             <input id="barcodeAmount" type="text" inputmode="decimal">
           </label>
@@ -290,6 +310,14 @@
               <option value="箱">箱</option>
             </select>
           </label>
+        </div>
+
+        <div class="barcode-register-options">
+          <label class="barcode-image-option">
+            <input id="barcodeUseImage" type="checkbox">
+            <span>商品画像を使う</span>
+          </label>
+          <div id="barcodeImageOptionNote" class="field-hint"></div>
         </div>
 
         <button id="btnRegisterBarcodeProduct" class="primary backup-btn" type="button">この内容で商品登録</button>
@@ -466,7 +494,7 @@
     </div>
   </template>
 
-  <script src="./app.js?v=0.47"></script>
-  <script src="./ads.js?v=0.47"></script>
+  <script src="./app.js?v=0.48"></script>
+  <script src="./ads.js?v=0.48"></script>
 </body>
 </html>
