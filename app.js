@@ -5,6 +5,7 @@ const STORAGE_KEY = 'pricelog_v02_data';
 const SETTINGS_KEY = 'pricelog_v02_settings';
 const INITIALIZED_KEY = 'pricelog_initialized_v1';
 const TEMPLATE_KEY = 'pricelog_custom_template_v1';
+const YAHOO_PRODUCT_CACHE_KEY = 'pricelog_yahoo_product_cache_v1';
 
 const YAHOO_WORKER_URL = 'https://pricelog-yahoo.pricelog-api.workers.dev';
 
@@ -62,6 +63,65 @@ let yahooLastRequestAt = 0;
 const YAHOO_MIN_REQUEST_INTERVAL_MS = 1200;
 const yahooLookupInflight = new Map();
 const yahooLookupCache = new Map();
+const YAHOO_PRODUCT_CACHE_TTL_MS = 30 * 24 * 60 * 60 * 1000;
+const YAHOO_PRODUCT_CACHE_MAX = 50;
+
+function loadPersistentYahooProductCache() {
+  try {
+    const raw = JSON.parse(localStorage.getItem(YAHOO_PRODUCT_CACHE_KEY) || '{}');
+    const now = Date.now();
+    const entries = Object.entries(raw || {})
+      .filter(([, item]) =>
+        item &&
+        item.hit &&
+        Number(item.time) > 0 &&
+        now - Number(item.time) < YAHOO_PRODUCT_CACHE_TTL_MS
+      )
+      .sort((a, b) => Number(b[1].time) - Number(a[1].time))
+      .slice(0, YAHOO_PRODUCT_CACHE_MAX);
+
+    return new Map(entries);
+  } catch {
+    return new Map();
+  }
+}
+
+let persistentYahooProductCache = loadPersistentYahooProductCache();
+
+function savePersistentYahooProduct(jan, hit) {
+  if (!jan || !hit) return;
+
+  persistentYahooProductCache.set(jan, {
+    time: Date.now(),
+    hit
+  });
+
+  const entries = Array.from(persistentYahooProductCache.entries())
+    .sort((a, b) => Number(b[1]?.time || 0) - Number(a[1]?.time || 0))
+    .slice(0, YAHOO_PRODUCT_CACHE_MAX);
+
+  persistentYahooProductCache = new Map(entries);
+
+  try {
+    localStorage.setItem(
+      YAHOO_PRODUCT_CACHE_KEY,
+      JSON.stringify(Object.fromEntries(entries))
+    );
+  } catch {}
+}
+
+function getPersistentYahooProduct(jan) {
+  const item = persistentYahooProductCache.get(jan);
+  if (!item?.hit) return null;
+
+  if (Date.now() - Number(item.time || 0) >= YAHOO_PRODUCT_CACHE_TTL_MS) {
+    persistentYahooProductCache.delete(jan);
+    return null;
+  }
+
+  return item.hit;
+}
+
 
 let recommendedReadingMap = new Map();
 
@@ -1915,10 +1975,17 @@ async function lookupYahooShopping(
   const jan = normalizeBarcodeCode(code);
   if (!jan) return null;
 
-  // 成功した結果だけキャッシュする。0件はキャッシュしない。
+  // 1) この画面を開いている間の成功キャッシュ
   const cached = yahooLookupCache.get(jan);
   if (cached && cached.hit && Date.now() - cached.time < 5 * 60 * 1000) {
     return cached.hit;
+  }
+
+  // 2) 過去30日以内にこの端末で見つけた成功結果
+  const persistentHit = getPersistentYahooProduct(jan);
+  if (persistentHit) {
+    yahooLookupCache.set(jan, { time: Date.now(), hit: persistentHit });
+    return persistentHit;
   }
 
   if (yahooLookupInflight.has(jan)) {
@@ -1929,18 +1996,35 @@ async function lookupYahooShopping(
     let janHits = [];
     let queryHits = [];
 
-    // 1) JAN検索
-    const janData = await fetchYahooViaWorker(
-      { janCode: jan, results: 20 },
+    // 3) Yahoo! JAN検索 1回目
+    let janData = await fetchYahooViaWorker(
+      { janCode: jan, results: 10 },
       clientId,
       workerUrl
     );
     janHits = Array.isArray(janData?.hits) ? janData.hits : [];
 
-    // 2) JAN検索が0件の時だけJAN文字列で検索
+    // JAN検索が0件なら、同じJANでもう1回だけ再検索。
+    // fetchYahooViaWorker側で1.2秒以上の間隔を必ず空ける。
     if (!janHits.length) {
+      const status = $('barcodeLookupStatus');
+      if (status) status.textContent = 'Yahoo!ショッピングでもう一度確認中…';
+
+      janData = await fetchYahooViaWorker(
+        { janCode: jan, results: 10 },
+        clientId,
+        workerUrl
+      );
+      janHits = Array.isArray(janData?.hits) ? janData.hits : [];
+    }
+
+    // 4) 2回とも0件なら、最後にJANコードを検索キーワードとして試す。
+    if (!janHits.length) {
+      const status = $('barcodeLookupStatus');
+      if (status) status.textContent = 'JANコードを別の検索方法でも確認中…';
+
       const queryData = await fetchYahooViaWorker(
-        { query: jan, results: 20 },
+        { query: jan, results: 10 },
         clientId,
         workerUrl
       );
@@ -1949,10 +2033,8 @@ async function lookupYahooShopping(
 
     const hits = janHits.length ? janHits : queryHits;
 
-    if (!hits.length) {
-      // 0件は保存しない。次回は必ずAPIへ再問い合わせ。
-      return null;
-    }
+    // 0件はキャッシュしない。次回は必ず再検索する。
+    if (!hits.length) return null;
 
     const exactJanHits = hits.filter(
       hit => normalizeBarcodeCode(hit?.janCode || '') === jan
@@ -1965,6 +2047,7 @@ async function lookupYahooShopping(
 
     if (hit) {
       yahooLookupCache.set(jan, { time: Date.now(), hit });
+      savePersistentYahooProduct(jan, hit);
     }
 
     return hit;
