@@ -23,7 +23,7 @@ main{max-width:900px;margin:0 auto;padding:7px}
 .count{min-width:44px;text-align:right;font-size:11px;color:var(--muted)}
 .product-list{display:flex;flex-direction:column;gap:4px}
 .product-card{position:relative;background:var(--panel);border:1px solid var(--line);border-radius:8px;overflow:hidden;transition:opacity .18s ease,filter .18s ease,border-color .18s ease,box-shadow .18s ease}
-.product-summary{width:100%;min-height:43px;border:0;background:transparent;padding:4px 6px 4px 9px;display:grid;grid-template-columns:minmax(0,1fr) minmax(224px,54%) 14px;align-items:center;text-align:left;gap:5px}
+.product-summary{width:100%;min-height:43px;border:0;background:transparent;padding:4px 6px 4px 9px;display:grid;grid-template-columns:minmax(0,1fr) auto 14px;align-items:center;text-align:left;gap:5px}
 .summary-main{min-width:0;display:flex;align-items:flex-start;gap:5px}
 .product-name{
   font-weight:700;
@@ -36,8 +36,8 @@ main{max-width:900px;margin:0 auto;padding:7px}
   -webkit-line-clamp:2;
   line-clamp:2
 }
-.product-size{flex:none;color:var(--muted);font-size:10px}
-.best-wrap{min-width:0;display:flex;flex-direction:column;align-items:flex-end;line-height:1.12}
+.product-size{flex:none;color:var(--muted);font-size:10px;white-space:nowrap}
+.best-wrap{min-width:0;display:flex;align-items:center;justify-content:flex-end;gap:5px;line-height:1.12;white-space:nowrap}
 .best-store{max-width:100%;font-size:10px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .best-unit{font-size:14px;white-space:nowrap}
 .chev{font-size:20px;color:var(--muted);transition:.18s transform}
@@ -81,12 +81,12 @@ body.focus-mode .product-card.open .product-summary,body.focus-mode .product-car
   .store-scroll{overflow-x:auto;overflow-y:hidden;padding-bottom:2px;-webkit-overflow-scrolling:touch;overscroll-behavior-x:contain}
   .store-table{min-width:748px}
   .store-head,.store-row{min-width:0;grid-template-columns:18px 88px 66px 42px 50px 62px 50px 104px 116px 26px}
-  .product-summary{grid-template-columns:minmax(0,1.15fr) minmax(196px,55%) 12px}
+  .product-summary{grid-template-columns:minmax(0,1fr) auto 12px}
   .grid3{grid-template-columns:1fr .72fr .88fr}
 }
 @media(max-width:380px){
   main{padding:5px}
-  .product-summary{min-height:40px;padding-left:7px;grid-template-columns:minmax(0,1.15fr) 190px 10px}
+  .product-summary{min-height:40px;padding-left:7px;grid-template-columns:minmax(0,1fr) auto 10px}
   .product-name{font-size:13px}
   .best-unit{font-size:13px}
   .best-store{font-size:9px}
@@ -1014,62 +1014,25 @@ button:active,.primary:active,.ghost:active,.icon-btn:active{transform:translate
 .st-quantity-fields{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,.9fr);gap:3px}
 .st-quantity-fields input,.st-quantity-fields select{width:100%;min-width:0}
 
-/* Ver.0.51: スマホ店舗入力は2段、横スクロールなし */
+/* Ver.0.52: スマホ店舗入力を従来の1行＋横スクロールへ戻す */
 @media(max-width:650px){
-  .store-scroll{overflow:visible;padding-bottom:0}
-  .store-table{min-width:0;width:100%}
-  .store-head{display:none}
-  .store-row{
-    width:100%;
+  .store-scroll{overflow-x:auto;overflow-y:hidden;padding-bottom:2px;-webkit-overflow-scrolling:touch;overscroll-behavior-x:contain}
+  .store-table{min-width:774px;width:100%}
+  .store-head{display:grid}
+  .store-head,.store-row{
     min-width:0;
-    display:grid;
-    grid-template-columns:20px minmax(62px,1fr) minmax(45px,.72fr) 32px 36px 46px 36px;
-    grid-template-areas:
-      "mark store price ptype tax coupon cvalue"
-      "mark store result result unit unit del";
-    column-gap:2px;
-    row-gap:4px;
+    grid-template-columns:44px 88px 66px 42px 50px 62px 50px 104px 116px 26px;
+    gap:3px;
     align-items:center;
-    padding:5px 1px;
   }
-  .store-row .best-mark{grid-area:mark;min-width:0;align-self:stretch}
-  .store-row .best-mark .price-badge{
-    writing-mode:vertical-rl;
-    min-width:18px;
-    min-height:42px;
-    padding:3px 1px;
-    gap:1px;
-  }
-  .store-row .best-mark .badge-icon{font-size:8px}
-  .store-row .st-store-cell{grid-area:store;align-self:stretch;justify-content:center}
-  .store-row .st-price{grid-area:price}
-  .store-row .st-price-type{grid-area:ptype}
-  .store-row .st-tax{grid-area:tax}
-  .store-row .st-coupon-type{grid-area:coupon}
-  .store-row .st-coupon-value{grid-area:cvalue}
-  .store-row .st-price-result{grid-area:result;text-align:right;padding-right:3px}
-  .store-row .st-unit{grid-area:unit;text-align:right}
-  .store-row .st-delete{grid-area:del}
-  .store-row input,.store-row select{
-    height:31px;
-    padding:0 2px;
-    font-size:10px;
-  }
-  .store-row .st-store{font-size:11px}
-  .store-row .st-price-result,.store-row .st-unit{font-size:9px;overflow:hidden;text-overflow:ellipsis}
-  .store-row .st-delete{
-    width:34px;
-    min-width:34px;
-    height:31px;
-    padding:0;
-    border:1px solid #d7a09b;
-    border-radius:6px;
-    background:#fff5f4;
-    color:var(--danger);
-    font-weight:800;
-  }
-  .st-quantity-fields{grid-template-columns:1fr 1fr;gap:2px}
-  .st-quantity-fields input,.st-quantity-fields select{height:27px;font-size:9px}
+  .store-row{padding:3px 2px}
+  .store-row .best-mark{min-width:40px}
+  .store-row input,.store-row select{height:32px;padding:0 4px;font-size:12px}
+  .store-row select{padding:0 2px}
+  .store-row .st-price-result,.store-row .st-unit{font-size:12px;overflow:visible;text-overflow:clip}
+  .store-row .st-delete{width:auto;min-width:0;height:30px;padding:0}
+  .st-quantity-fields{grid-template-columns:minmax(0,1fr) minmax(0,.9fr);gap:3px}
+  .st-quantity-fields input,.st-quantity-fields select{height:28px;font-size:10px}
   .product-edit-actions{flex-wrap:wrap}
   .product-edit-actions button{min-width:76px;padding:0 9px}
 }
@@ -1112,4 +1075,19 @@ button:active,.primary:active,.ghost:active,.icon-btn:active{transform:translate
 }
 @media(min-width:651px){
   .store-head,.store-row{grid-template-columns:44px minmax(86px,1.4fr) 72px 44px 54px 66px 54px 112px 124px 28px}
+}
+
+
+/* Ver.0.53: 商品一覧を商品名・最安・価格に簡略化 */
+.best-wrap.no-best .best-list-badge{display:none}
+.best-wrap.no-best .best-price{font-size:11px;font-weight:500;color:var(--muted)}
+.best-list-badge{flex:none}
+.product-card:not(.open) .best-price{font-size:13px;font-weight:700}
+
+/* Ver.0.53: バーコード検索の操作ボタンと説明文を分離 */
+#settingsDialog .barcode-api-actions{margin:8px 0 10px}
+#settingsDialog .barcode-api-actions + .template-note{margin-top:0;clear:both}
+@media(max-width:420px){
+  #settingsDialog .barcode-api-actions{flex-wrap:wrap}
+  #settingsDialog .barcode-api-actions button{flex:1 1 96px}
 }

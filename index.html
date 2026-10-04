@@ -9,12 +9,12 @@
   <title>PriceLog</title>
   <link rel="manifest" href="./manifest.webmanifest">
   <link rel="apple-touch-icon" href="./icon-192.png">
-  <link rel="stylesheet" href="./style.css?v=0.51">
+  <link rel="stylesheet" href="./style.css?v=0.53">
 </head>
 <body>
   <header class="topbar">
     <div>
-      <strong>PriceLog</strong> <small class="app-version">Ver.0.51</small>
+      <strong>PriceLog</strong> <small class="app-version">Ver.0.53</small>
     </div>
     <div class="top-actions">
       <button id="btnSettings" class="icon-btn" type="button" aria-label="設定">⚙</button>
@@ -90,7 +90,7 @@
 
       <label>登録タイプ
         <select id="productKind">
-          <option value="product">固有商品</option>
+          <option value="product">商品名</option>
           <option value="type">種類比較</option>
         </select>
         <span class="field-hint">種類比較では、内容量・単位を店舗ごとに設定する。</span>
@@ -107,6 +107,7 @@
         </label>
         <label>単位
           <select id="productUnit">
+            <option value=""></option>
             <option value="g">g</option>
             <option value="ml">ml</option>
             <option value="m">m</option>
@@ -427,17 +428,8 @@
             <span class="product-size"></span>
           </span>
           <span class="best-wrap">
-            <span class="best-store"></span>
-            <span class="best-values">
-              <span class="best-metric">
-                <span class="price-badge badge-low mini-badge"><span class="badge-icon">♛</span>最安</span>
-                <span class="best-price"></span>
-              </span>
-              <span class="best-metric">
-                <span class="price-badge badge-low mini-badge"><span class="badge-icon">♛</span>最安</span>
-                <strong class="best-unit"></strong>
-              </span>
-            </span>
+            <span class="price-badge badge-low mini-badge best-list-badge"><span class="badge-icon">♛</span>最安</span>
+            <span class="best-price"></span>
           </span>
           <span class="chev">›</span>
         </button>
@@ -502,7 +494,7 @@
 
   <div id="saveToast" class="save-toast hidden" role="status" aria-live="polite">保存しました</div>
 
-  <script src="./app.js?v=0.51"></script>
-  <script src="./ads.js?v=0.51"></script>
+  <script src="./app.js?v=0.53"></script>
+  <script src="./ads.js?v=0.53"></script>
 </body>
 </html>

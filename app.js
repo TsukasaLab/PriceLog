@@ -227,23 +227,13 @@ $('barcodeManualCode').addEventListener('keydown', (e) => {
 $('barcodeProductNameEdit').addEventListener('input', () => {
   syncBarcodeChoiceLabels();
   if ($('barcodeChoiceProduct').checked) {
-    if (barcodeLookupData) {
-      barcodeLookupData.productUnit = deriveProductRegistrationUnit(
-        $('barcodeProductNameEdit').value,
-        $('barcodeTypeNameEdit').value
-      );
-    }
     syncBarcodeQuantityForChoice();
     if (!barcodeReadingManuallyEdited) updateBarcodeReadingFromChoice();
   }
 });
 $('barcodeTypeNameEdit').addEventListener('input', () => {
   syncBarcodeChoiceLabels();
-  if ($('barcodeChoiceProduct').checked && barcodeLookupData) {
-    barcodeLookupData.productUnit = deriveProductRegistrationUnit(
-      $('barcodeProductNameEdit').value,
-      $('barcodeTypeNameEdit').value
-    );
+  if ($('barcodeChoiceProduct').checked) {
     syncBarcodeQuantityForChoice();
   }
   if ($('barcodeChoiceType').checked && !barcodeReadingManuallyEdited) {
@@ -272,7 +262,7 @@ $('barcodeUnit').addEventListener('change', () => {
   if (!barcodeLookupData) return;
 
   if ($('barcodeChoiceProduct').checked) {
-    barcodeLookupData.productUnit = $('barcodeUnit').value || '個';
+    barcodeLookupData.productUnit = $('barcodeUnit').value;
     return;
   }
 
@@ -401,7 +391,7 @@ function normalizeProductsData(list) {
     const amount = kind === 'type'
       ? (Number(product.amount) > 0 ? Number(product.amount) : '')
       : (Number(product.amount) > 0 ? Number(product.amount) : 1);
-    const unit = String(product.unit || (kind === 'type' ? '' : '個')).trim();
+    const unit = String(product.unit || '').trim();
     const stores = Array.isArray(product.stores) ? product.stores : [];
 
     return {
@@ -595,24 +585,19 @@ function render() {
 
     node.querySelector('.product-name').textContent = displayProduct.name;
     node.querySelector('.product-size').textContent = displayProduct.kind === 'type'
-      ? '店舗別'
-      : `${fmt(displayProduct.amount)}${displayProduct.unit}`;
+      ? '種類比較'
+      : '';
 
-    const bestStore = node.querySelector('.best-store');
+    const bestWrap = node.querySelector('.best-wrap');
     const bestPrice = node.querySelector('.best-price');
-    const bestUnit = node.querySelector('.best-unit');
     if (bests.before) {
-      renderBestStoreSummary(bestStore, bests);
       const baseCalc = bests.before.calc;
-      bestPrice.textContent =
-        `${fmtPrice(baseCalc.grossBefore)}[${fmtPrice(baseCalc.afterTotal)}](${fmtPriceDelta(baseCalc.afterTotal - baseCalc.grossBefore)})円`;
-      bestUnit.textContent =
-        `${fmtUnit(baseCalc.beforeUnit)}[${fmtUnit(baseCalc.afterUnit)}](${fmtUnitDelta(baseCalc.afterUnit - baseCalc.beforeUnit)})円/${bests.before.unit}`;
+      bestPrice.textContent = `${fmtPrice(baseCalc.grossBefore)}円`;
+      bestWrap.classList.remove('no-best');
       node.classList.add('has-best');
     } else {
-      bestStore.textContent = '価格未登録';
-      bestPrice.textContent = '-';
-      bestUnit.textContent = '-';
+      bestPrice.textContent = '価格未登録';
+      bestWrap.classList.add('no-best');
     }
 
     const bulkWrap = node.querySelector('.bulk-check-wrap');
@@ -781,7 +766,10 @@ function renderStoreRow(product, row, bestFlags = {before:false, after:false}) {
 
 function setSelectValueWithOption(select, value) {
   const normalized = String(value || '').trim();
-  if (!normalized) return;
+  if (!normalized) {
+    if (Array.from(select.options).some(option => option.value === '')) select.value = '';
+    return;
+  }
   if (!Array.from(select.options).some(option => option.value === normalized)) {
     const option = document.createElement('option');
     option.value = normalized;
@@ -800,22 +788,15 @@ function refreshBestOnly(productId) {
 
   const bests = getBests(product);
   const hasBest = !!bests.before;
-  const bestStore = card.querySelector('.best-store');
-  if (hasBest) renderBestStoreSummary(bestStore, bests);
-  else bestStore.textContent = '価格未登録';
-
+  const bestWrap = card.querySelector('.best-wrap');
   const bestPrice = card.querySelector('.best-price');
-  const bestUnit = card.querySelector('.best-unit');
 
   if (hasBest) {
-    const baseCalc = bests.before.calc;
-    bestPrice.textContent =
-      `${fmtPrice(baseCalc.grossBefore)}[${fmtPrice(baseCalc.afterTotal)}](${fmtPriceDelta(baseCalc.afterTotal - baseCalc.grossBefore)})円`;
-    bestUnit.textContent =
-      `${fmtUnit(baseCalc.beforeUnit)}[${fmtUnit(baseCalc.afterUnit)}](${fmtUnitDelta(baseCalc.afterUnit - baseCalc.beforeUnit)})円/${bests.before.unit}`;
+    bestPrice.textContent = `${fmtPrice(bests.before.calc.grossBefore)}円`;
+    bestWrap?.classList.remove('no-best');
   } else {
-    bestPrice.textContent = '-';
-    bestUnit.textContent = '-';
+    bestPrice.textContent = '価格未登録';
+    bestWrap?.classList.add('no-best');
   }
 
   card.classList.toggle('has-best', hasBest);
@@ -1153,7 +1134,7 @@ function renderStorePurchaseView() {
         meta.className = 'store-product-meta';
         const itemAmount = item.product.kind === 'type' ? item.row.amount : item.product.amount;
         const itemUnit = item.product.kind === 'type' ? item.row.unit : item.product.unit;
-        meta.textContent = `${fmt(itemAmount)}${itemUnit}`;
+        meta.textContent = itemUnit ? `${fmt(itemAmount)}${itemUnit}` : '';
 
         nameWrap.append(checkbox, productName, meta);
 
@@ -1165,7 +1146,7 @@ function renderStorePurchaseView() {
         const unit = document.createElement('span');
         unit.className = 'store-product-unit';
         unit.textContent =
-          `${fmtUnit(item.calc.beforeUnit)}[${fmtUnit(item.calc.afterUnit)}](${fmtUnitDelta(item.calc.afterUnit - item.calc.beforeUnit)})円/${itemUnit}`;
+          `${fmtUnit(item.calc.beforeUnit)}[${fmtUnit(item.calc.afterUnit)}](${fmtUnitDelta(item.calc.afterUnit - item.calc.beforeUnit)})円${itemUnit ? `/${itemUnit}` : ''}`;
 
         row.append(mark, nameWrap, price, unit);
         productList.appendChild(row);
@@ -1370,7 +1351,7 @@ function exportCurrentTemplateFile() {
       kind: product.kind === 'type' ? 'type' : 'product',
       barcode: product.kind === 'type' ? '' : String(product.barcode || ''),
       amount: Number(product.amount) > 0 ? Number(product.amount) : 1,
-      unit: product.unit || '個',
+      unit: product.unit || '',
       defaultTax: Number(product.defaultTax),
       stores: (product.stores || []).map(row => ({
         name: String(row.store || '').trim(),
@@ -1417,7 +1398,7 @@ function importTemplateFile(e) {
       data.products.forEach(raw => {
         const kind = raw.kind === 'type' ? 'type' : 'product';
         const amount = Number(raw.amount) > 0 ? Number(raw.amount) : 1;
-        const unit = String(raw.unit || '個').trim() || '個';
+        const unit = String(raw.unit || (kind === 'type' ? '個' : '')).trim();
         const candidate = {
           id: makeId('p'),
           name: String(raw.name || '').trim(),
@@ -2147,7 +2128,7 @@ async function lookupBarcodeProduct(code) {
       typeQuantity: Number(existing.amount) > 0 && existing.unit
         ? { amount: Number(existing.amount), unit: existing.unit }
         : null,
-      productUnit: deriveProductRegistrationUnit(existing.name, existingTypeName)
+      productUnit: ''
     };
 
     status.textContent = `PriceLog内で「${existing.name}」が見つかったよ。`;
@@ -2527,7 +2508,7 @@ function applyResolvedBarcodeFields({ exactName, typeName, quantity }) {
 
   if (barcodeLookupData) {
     barcodeLookupData.typeQuantity = quantity || null;
-    barcodeLookupData.productUnit = deriveProductRegistrationUnit(cleanExactName, cleanTypeName);
+    barcodeLookupData.productUnit = '';
   }
 
   // 検索結果が変わるたび、必ず「正式商品名」を初期選択に戻す。
@@ -2548,7 +2529,7 @@ function applyYahooShoppingResult(code, hit) {
     yahooHit: hit,
     product: { product_type: isYahooLikelyFood(hit) ? 'food' : 'other' },
     typeQuantity: quantity || null,
-    productUnit: deriveProductRegistrationUnit(yahooSearchText(hit, exactName), typeName)
+    productUnit: ''
   };
 
   $('barcodeProductNameEdit').value = exactName;
@@ -2622,7 +2603,7 @@ function deriveKnownBarcodeTypeFromText(value) {
     [['パスタ','スパゲッティ'], 'パスタ'],
     [['チーズ'], 'チーズ'],
     [['バター'], 'バター'],
-    [['粒ガム','板ガム','ボトルガム','チューインガム','chewing gum','ガム','クロレッツ','リカルデント','ブラックブラック','グリーンガム','フィッツ','fits','acuo','アクオ','ポスカ'], 'ガム'],
+    [['粒ガム','板ガム','ボトルガム','チューインガム','chewing gum','ガム','キシリトール','xylitol','クロレッツ','clorets','リカルデント','recaldent','ブラックブラック','black black','グリーンガム','フィッツ','fits','acuo','アクオ','ポスカ','pos-ca','ミンティア','フリスク','frisk'], 'ガム'],
     [['チョコレート'], 'チョコレート'],
     [['アイスクリーム','アイス'], 'アイス'],
     [['米','こめ'], '米'],
@@ -2652,7 +2633,24 @@ function deriveKnownBarcodeTypeFromText(value) {
 }
 
 function deriveYahooType(hit, exactName = '') {
-  return deriveKnownBarcodeTypeFromText(yahooSearchText(hit, exactName));
+  const text = yahooSearchText(hit, exactName);
+  const known = deriveKnownBarcodeTypeFromText(text);
+  if (known) return known;
+
+  // 「味」「風味」「フレーバー」などは比較カテゴリではないため種類候補にしない。
+  const genreCandidates = [
+    hit?.genreCategory?.name || '',
+    ...(Array.isArray(hit?.parentGenreCategories)
+      ? hit.parentGenreCategories.map(x => x?.name || '')
+      : [])
+  ];
+  for (const candidate of genreCandidates) {
+    const clean = cleanBarcodeText(candidate);
+    if (!clean || /^(?:味|風味|フレーバー|香り|タイプ)$/i.test(clean)) continue;
+    const resolved = deriveKnownBarcodeTypeFromText(clean);
+    if (resolved) return resolved;
+  }
+  return '';
 }
 
 function normalizeQuantityText(value) {
@@ -2797,13 +2795,7 @@ function applyOpenFactsResult(code, product) {
     product,
     source: 'openfacts',
     typeQuantity: quantity || null,
-    productUnit: deriveProductRegistrationUnit([
-      exactName,
-      product?.generic_name_ja || '',
-      product?.generic_name || '',
-      product?.categories || '',
-      product?.quantity || ''
-    ].join(' '), typeName)
+    productUnit: ''
   };
 
   $('barcodeProductNameEdit').value = exactName;
@@ -2838,13 +2830,7 @@ function applyUpcItemDbResult(code, item) {
     upcItem: item,
     product: { product_type: 'food' },
     typeQuantity: quantity || null,
-    productUnit: deriveProductRegistrationUnit([
-      exactName,
-      item?.category || '',
-      item?.description || '',
-      item?.size || '',
-      item?.weight || ''
-    ].join(' '), typeName)
+    productUnit: ''
   };
 
   $('barcodeProductNameEdit').value = exactName;
@@ -2918,7 +2904,7 @@ function prepareBarcodeManualResult(code) {
   barcodeLookupData = {
     code,
     typeQuantity: null,
-    productUnit: '個'
+    productUnit: ''
   };
 
   $('barcodeProductNameEdit').value = '';
@@ -2976,7 +2962,7 @@ function deriveProductRegistrationUnit(value, typeName = '') {
   const all = `${type} ${text}`;
 
   // 種類として数える量ではなく「その商品1つを何と数えるか」を決める。
-  // 例: 食パン6枚切りでも、固有商品としては 1袋 として登録する。
+  // 例: 食パン6枚切りでも、商品名登録では 1商品として扱う。
   const typeRules = [
     [['食パン','パン'], '袋'],
     [['米','こめ'], '袋'],
@@ -3029,7 +3015,7 @@ function syncBarcodeQuantityForChoice() {
   if (isProduct) {
     amountInput.value = '1';
     amountInput.readOnly = true;
-    setBarcodeUnit(barcodeLookupData?.productUnit || '個');
+    setBarcodeUnit(barcodeLookupData?.productUnit || '');
     return;
   }
 
@@ -3290,7 +3276,7 @@ function registerBarcodeProduct() {
   const typeName = $('barcodeTypeNameEdit').value.trim();
   const name = choice === 'type' ? typeName : exactName;
 
-  // 固有の商品名で登録する場合は「その商品1つ」を比較単位にする。
+  // 商品名で登録する場合は「その商品1つ」を比較単位にする。
   // 種類で登録する場合だけ、従来どおり取得した内容量を使う。
   const amount = choice === 'product'
     ? 1
@@ -3302,7 +3288,7 @@ function registerBarcodeProduct() {
     return;
   }
 
-  if (!(amount > 0) || !unit) {
+  if (!(amount > 0) || (choice === 'type' && !unit)) {
     $('barcodeLookupStatus').textContent = '内容量と単位を確認してね。';
     return;
   }
