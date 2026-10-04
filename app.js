@@ -1236,6 +1236,44 @@ function shoppingMemoUnitSelect(value, onChange) {
   return select;
 }
 
+function getStoreIllustrationCategory(storeName) {
+  const name = String(storeName || '').normalize('NFKC').toLowerCase();
+  const has = (...words) => words.some(word => name.includes(word));
+
+  if (has('amazon','アマゾン','楽天','yahoo','ネット','オンライン','通販')) return 'online';
+  if (has('ドラッグ','薬局','くすり','クスリ','スギ','ウエルシア','welcia','マツキヨ','マツモトキヨシ','コスモス','サンドラッグ')) return 'drug';
+  if (has('ホームセンター','コーナン','カインズ','dcm','アヤハ','ナフコ','コメリ')) return 'home';
+  if (has('コンビニ','セブン','ローソン','ファミマ','ファミリーマート','ミニストップ','デイリー')) return 'convenience';
+  if (has('スーパー','マート','イオン','西友','平和堂','フレンドマート','バロー','ライフ','業務','マックスバリュ','ラムー','ラ・ムー','イズミヤ','アルプラザ','アル・プラザ')) return 'supermarket';
+  return 'shop';
+}
+
+function storeIllustrationAccent(storeName) {
+  const palette = ['#6f9d63','#c7835a','#d2a343','#6f95a8','#8f806d','#9b7f91'];
+  let hash = 0;
+  for (const ch of String(storeName || '')) hash = ((hash * 31) + ch.codePointAt(0)) >>> 0;
+  return palette[hash % palette.length];
+}
+
+function createStoreIllustration(storeName) {
+  const category = getStoreIllustrationCategory(storeName);
+  const icon = document.createElement('span');
+  icon.className = `store-illustration store-illustration-${category}`;
+  icon.setAttribute('aria-hidden', 'true');
+  icon.style.setProperty('--store-accent', storeIllustrationAccent(storeName));
+
+  const svgs = {
+    supermarket: `<svg viewBox="0 0 48 48" focusable="false"><rect x="7" y="19" width="34" height="22" rx="5" fill="#fffaf0"/><path d="M6 18h36l-4-9H10z" fill="var(--store-accent)"/><path d="M10 9h28l1.7 4H8.3z" fill="#f3dfb6"/><path d="M12 18v5M20 18v5M28 18v5M36 18v5" stroke="#fff" stroke-width="3" stroke-linecap="round"/><rect x="13" y="27" width="9" height="14" rx="2" fill="#d9e9d1"/><rect x="26" y="27" width="10" height="7" rx="2" fill="#f1d7a7"/></svg>`,
+    drug: `<svg viewBox="0 0 48 48" focusable="false"><rect x="7" y="18" width="34" height="23" rx="5" fill="#fffaf0"/><path d="M6 18h36l-4-8H10z" fill="var(--store-accent)"/><circle cx="24" cy="29" r="8" fill="#eef5e8"/><path d="M24 24v10M19 29h10" stroke="#5d8f59" stroke-width="3.4" stroke-linecap="round"/><rect x="11" y="25" width="6" height="16" rx="2" fill="#f0ddbd"/></svg>`,
+    home: `<svg viewBox="0 0 48 48" focusable="false"><path d="M6 21L24 7l18 14v20H6z" fill="#fffaf0"/><path d="M5 21L24 6l19 15-4 4-15-12L9 25z" fill="var(--store-accent)"/><rect x="12" y="27" width="10" height="14" rx="2" fill="#d8e7d0"/><path d="M29 27l7 7M36 27l-7 7" stroke="#b17a56" stroke-width="3" stroke-linecap="round"/></svg>`,
+    convenience: `<svg viewBox="0 0 48 48" focusable="false"><rect x="7" y="18" width="34" height="23" rx="5" fill="#fffaf0"/><path d="M6 18h36l-3-8H9z" fill="#f1dfb9"/><path d="M10 10h7v8h-7zM17 10h7v8h-7zM24 10h7v8h-7zM31 10h7v8h-7z" fill="var(--store-accent)"/><rect x="12" y="26" width="9" height="15" rx="2" fill="#dbead3"/><rect x="26" y="26" width="10" height="7" rx="2" fill="#d8e7ef"/></svg>`,
+    online: `<svg viewBox="0 0 48 48" focusable="false"><rect x="9" y="12" width="30" height="25" rx="6" fill="#fffaf0" stroke="var(--store-accent)" stroke-width="3"/><path d="M15 20h18M15 26h13" stroke="#c6b18e" stroke-width="3" stroke-linecap="round"/><path d="M29 31l9 4-4 2 2 4-3 1-2-5-3 1z" fill="var(--store-accent)"/></svg>`,
+    shop: `<svg viewBox="0 0 48 48" focusable="false"><rect x="7" y="18" width="34" height="23" rx="5" fill="#fffaf0"/><path d="M6 18h36l-4-9H10z" fill="var(--store-accent)"/><path d="M10 18v5M20 18v5M28 18v5M38 18v5" stroke="#fff" stroke-width="3" stroke-linecap="round"/><rect x="12" y="27" width="10" height="14" rx="2" fill="#d9e9d1"/><rect x="27" y="27" width="9" height="8" rx="2" fill="#f0ddbd"/></svg>`
+  };
+  icon.innerHTML = svgs[category] || svgs.shop;
+  return icon;
+}
+
 function renderStorePurchaseView() {
   const container = $('storePurchaseList');
   if (!container) return;
@@ -1283,7 +1321,8 @@ function renderStorePurchaseView() {
     chev.className = 'store-summary-chev';
     chev.textContent = '›';
 
-    toggle.append(name, count, chev);
+    const storeIllustration = createStoreIllustration(storeName);
+    toggle.append(storeIllustration, name, count, chev);
     toggle.addEventListener('click', () => {
       if (isEditing) return;
       if (shoppingMemoEditStore && shoppingMemoEditStore !== storeName) {
