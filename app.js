@@ -54,7 +54,7 @@ let bulkMode = false;
 let bulkSelected = new Set();
 let storePurchaseMode = false;
 let openStoreName = null;
-let shoppingMemoFilter = 'all';
+let shoppingMemoFilters = new Map();
 let shoppingMemoChecked = new Set((loadJson(SHOPPING_MEMO_KEY, []) || []).map(String));
 let shoppingMemoEditStore = null;
 let shoppingMemoEditDraft = null;
@@ -167,13 +167,6 @@ $('btnSaveTemplate').addEventListener('click', saveTemplateDraft);
 $('btnExportTemplateFile').addEventListener('click', exportTemplateFile);
 $('btnStorePurchase').addEventListener('click', () => setStorePurchaseMode(!storePurchaseMode));
 $('storePurchaseSearch').addEventListener('input', renderStorePurchaseView);
-document.querySelectorAll('.shopping-filter').forEach(button => {
-  button.addEventListener('click', () => {
-    shoppingMemoFilter = button.dataset.filter || 'all';
-    document.querySelectorAll('.shopping-filter').forEach(item => item.classList.toggle('active', item === button));
-    renderStorePurchaseView();
-  });
-});
 $('btnDeleteAllProducts').addEventListener('click', deleteAllProducts);
 $('btnSettings').addEventListener('click', openSettings);
 $('btnToggleYahooClientId').addEventListener('click', toggleYahooClientIdVisibility);
@@ -1104,16 +1097,12 @@ function pruneShoppingMemoChecked(storeMap) {
   }
 }
 
-function getShoppingMemoStats(storeMap) {
-  let count = 0;
-  let total = 0;
+function getShoppingMemoDuplicates(storeMap) {
   const selectedByProduct = new Map();
 
   storeMap.forEach((items, storeName) => {
     items.forEach(item => {
       if (!shoppingMemoChecked.has(shoppingMemoKey(item))) return;
-      count += 1;
-      if (item.grossPrice !== null) total += item.grossPrice;
       if (!selectedByProduct.has(item.product.id)) {
         selectedByProduct.set(item.product.id, {product: item.product, stores: []});
       }
@@ -1121,36 +1110,37 @@ function getShoppingMemoStats(storeMap) {
     });
   });
 
-  const duplicates = Array.from(selectedByProduct.values())
-    .filter(entry => new Set(entry.stores).size > 1)
+  return Array.from(selectedByProduct.values())
     .map(entry => ({
       product: entry.product,
       stores: Array.from(new Set(entry.stores))
-    }));
-
-  return {count, total, duplicates};
+    }))
+    .filter(entry => entry.stores.length > 1);
 }
 
-function updateShoppingMemoHeader(storeMap) {
-  const stats = getShoppingMemoStats(storeMap);
-  $('shoppingMemoSummary').textContent = `購入予定 ${stats.count}品　合計 ${fmtPrice(stats.total)}円（税込）`;
-
+function updateShoppingMemoDuplicateWarning(storeMap) {
+  const duplicates = getShoppingMemoDuplicates(storeMap);
   const warning = $('shoppingMemoDuplicate');
-  if (!stats.duplicates.length) {
+  if (!duplicates.length) {
     warning.classList.add('hidden');
     warning.textContent = '';
     return;
   }
 
-  const lines = stats.duplicates.map(entry => `${entry.product.name}：${entry.stores.join('・')}`);
-  warning.textContent = `同じ商品が複数店舗で選択されています　${lines.join(' / ')}`;
+  const lines = duplicates.map(entry => `${entry.product.name}：${entry.stores.join('・')}`);
+  warning.textContent = `購入予定が重複しています\n${lines.join('\n')}`;
   warning.classList.remove('hidden');
 }
 
-function shoppingMemoItemVisible(item) {
+function getShoppingMemoFilter(storeName) {
+  return shoppingMemoFilters.get(storeName) || 'all';
+}
+
+function shoppingMemoItemVisible(item, storeName) {
   const checked = shoppingMemoChecked.has(shoppingMemoKey(item));
-  if (shoppingMemoFilter === 'checked') return checked;
-  if (shoppingMemoFilter === 'unchecked') return !checked;
+  const filter = getShoppingMemoFilter(storeName);
+  if (filter === 'checked') return checked;
+  if (filter === 'unchecked') return !checked;
   return true;
 }
 
@@ -1255,12 +1245,11 @@ function renderStorePurchaseView() {
   const q = $('storePurchaseSearch').value.trim().toLowerCase();
   const storeMap = buildStorePurchaseMap();
   pruneShoppingMemoChecked(storeMap);
-  updateShoppingMemoHeader(storeMap);
+  updateShoppingMemoDuplicateWarning(storeMap);
 
   const stores = Array.from(storeMap.entries())
     .filter(([storeName]) => !q || storeName.toLowerCase().includes(q))
     .map(([storeName, items]) => [storeName, items.slice().sort((a, b) => compareProducts(a.product, b.product))])
-    .filter(([storeName, items]) => shoppingMemoEditStore === storeName || items.some(shoppingMemoItemVisible))
     .sort((a, b) => a[0].localeCompare(b[0], 'ja', { sensitivity: 'base', numeric: true }));
 
   $('storePurchaseEmpty').classList.toggle('hidden', stores.length !== 0);
@@ -1288,7 +1277,7 @@ function renderStorePurchaseView() {
     const storeTotal = storeCheckedItems.reduce((sum, item) => sum + (item.grossPrice ?? 0), 0);
     const count = document.createElement('span');
     count.className = 'store-summary-count';
-    count.textContent = `予定${storeCheckedItems.length}品 / ${fmtPrice(storeTotal)}円`;
+    count.textContent = `予定${storeCheckedItems.length}品 / ${fmtPrice(storeTotal)}円（税込）`;
 
     const chev = document.createElement('span');
     chev.className = 'store-summary-chev';
@@ -1349,11 +1338,35 @@ function renderStorePurchaseView() {
     header.append(toggle, actions);
     card.appendChild(header);
 
+    if (isOpen && !isEditing) {
+      const filterBar = document.createElement('div');
+      filterBar.className = 'shopping-store-filters';
+      filterBar.setAttribute('role', 'group');
+      filterBar.setAttribute('aria-label', `${storeName}の購入予定フィルター`);
+      [
+        ['all', 'すべて'],
+        ['checked', 'チェック済み'],
+        ['unchecked', 'チェックなし']
+      ].forEach(([value, label]) => {
+        const filterButton = document.createElement('button');
+        filterButton.type = 'button';
+        filterButton.className = 'shopping-filter';
+        if (getShoppingMemoFilter(storeName) === value) filterButton.classList.add('active');
+        filterButton.textContent = label;
+        filterButton.addEventListener('click', () => {
+          shoppingMemoFilters.set(storeName, value);
+          renderStorePurchaseView();
+        });
+        filterBar.appendChild(filterButton);
+      });
+      card.appendChild(filterBar);
+    }
+
     if (isOpen) {
       const productList = document.createElement('div');
       productList.className = 'store-product-list';
 
-      const visibleItems = isEditing ? items : items.filter(shoppingMemoItemVisible);
+      const visibleItems = isEditing ? items : items.filter(item => shoppingMemoItemVisible(item, storeName));
       visibleItems.forEach(item => {
         const row = document.createElement('div');
         row.className = 'store-product-row';
@@ -1373,17 +1386,17 @@ function renderStorePurchaseView() {
           else shoppingMemoChecked.delete(key);
           persistShoppingMemoChecked();
 
-          if (shoppingMemoFilter !== 'all' && !isEditing) {
+          if (getShoppingMemoFilter(storeName) !== 'all' && !isEditing) {
             renderStorePurchaseView();
             return;
           }
 
           const refreshedMap = buildStorePurchaseMap();
-          updateShoppingMemoHeader(refreshedMap);
+          updateShoppingMemoDuplicateWarning(refreshedMap);
           const refreshedItems = refreshedMap.get(storeName) || [];
           const checkedItems = refreshedItems.filter(entry => shoppingMemoChecked.has(shoppingMemoKey(entry)));
           const checkedTotal = checkedItems.reduce((sum, entry) => sum + (entry.grossPrice ?? 0), 0);
-          count.textContent = `予定${checkedItems.length}品 / ${fmtPrice(checkedTotal)}円`;
+          count.textContent = `予定${checkedItems.length}品 / ${fmtPrice(checkedTotal)}円（税込）`;
           const resetButton = actions.querySelector('[data-shopping-reset]');
           if (resetButton) resetButton.disabled = checkedItems.length === 0;
         });
@@ -1448,9 +1461,12 @@ function renderStorePurchaseView() {
       if (!visibleItems.length) {
         const empty = document.createElement('div');
         empty.className = 'shopping-store-empty';
-        empty.textContent = shoppingMemoFilter === 'checked'
+        const activeFilter = getShoppingMemoFilter(storeName);
+        empty.textContent = activeFilter === 'checked'
           ? 'チェック済みの商品はありません。'
-          : 'チェックなしの商品はありません。';
+          : activeFilter === 'unchecked'
+            ? 'チェックなしの商品はありません。'
+            : '商品はありません。';
         productList.appendChild(empty);
       }
 

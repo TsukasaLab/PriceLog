@@ -9,12 +9,12 @@
   <title>PriceLog</title>
   <link rel="manifest" href="./manifest.webmanifest">
   <link rel="apple-touch-icon" href="./icon-192.png">
-  <link rel="stylesheet" href="./style.css?v=0.55">
+  <link rel="stylesheet" href="./style.css?v=0.56">
 </head>
 <body>
   <header class="topbar">
     <div>
-      <strong>PriceLog</strong> <small class="app-version">Ver.0.55</small>
+      <strong>PriceLog</strong> <small class="app-version">Ver.0.56</small>
     </div>
     <div class="top-actions">
       <button id="btnSettings" class="icon-btn" type="button" aria-label="設定">⚙</button>
@@ -64,16 +64,10 @@
       <div class="store-purchase-head">
         <div>
           <strong>買い物メモ</strong>
-          <div id="shoppingMemoSummary" class="shopping-memo-summary">購入予定 0品　合計 0円（税込）</div>
           <div id="shoppingMemoDuplicate" class="shopping-memo-duplicate hidden"></div>
         </div>
       </div>
       <div class="shopping-memo-tools">
-        <div class="shopping-memo-filters" role="group" aria-label="購入予定フィルター">
-          <button class="shopping-filter active" type="button" data-filter="all">すべて</button>
-          <button class="shopping-filter" type="button" data-filter="checked">チェック済み</button>
-          <button class="shopping-filter" type="button" data-filter="unchecked">チェックなし</button>
-        </div>
         <input id="storePurchaseSearch" class="store-purchase-search" type="search" placeholder="店舗を検索" autocomplete="off">
       </div>
       <div id="storePurchaseList" class="store-purchase-list"></div>
@@ -502,7 +496,7 @@
 
   <div id="saveToast" class="save-toast hidden" role="status" aria-live="polite">保存しました</div>
 
-  <script src="./app.js?v=0.55"></script>
-  <script src="./ads.js?v=0.55"></script>
+  <script src="./app.js?v=0.56"></script>
+  <script src="./ads.js?v=0.56"></script>
 </body>
 </html>

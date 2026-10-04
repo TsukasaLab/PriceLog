@@ -223,11 +223,13 @@ button:active,.primary:active,.ghost:active,.icon-btn:active{transform:translate
 .store-purchase-head{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:6px;padding:2px 2px 4px}
 .store-purchase-head strong{font-size:15px}
 .shopping-memo-summary{margin-top:3px;font-size:14px;font-weight:700;color:var(--text)}
-.shopping-memo-duplicate{margin-top:5px;padding:6px 8px;border:1px solid #e4b45f;border-radius:7px;background:#fff8e8;color:#7a4b00;font-size:11px;line-height:1.45}
+.shopping-memo-duplicate{margin-top:5px;padding:6px 8px;border:1px solid #e4b45f;border-radius:7px;background:#fff8e8;color:#7a4b00;font-size:11px;line-height:1.45;white-space:pre-line}
 .shopping-memo-tools{display:flex;align-items:center;gap:6px;margin-bottom:6px}
 .shopping-memo-filters{display:flex;gap:3px;flex:none}
 .shopping-filter{height:34px;padding:0 9px;border:1px solid var(--line);border-radius:7px;background:var(--panel);color:var(--text);font-size:11px;white-space:nowrap}
 .shopping-filter.active{background:var(--accent);border-color:var(--accent);color:var(--accentText);font-weight:700}
+.shopping-store-filters{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:4px;padding:6px 7px;background:#fafafa;border-bottom:1px solid var(--line)}
+.shopping-store-filters .shopping-filter{width:100%}
 .store-purchase-search{flex:1;min-width:0;width:100%;height:34px;border:1px solid var(--line);border-radius:8px;background:var(--panel);padding:0 10px;font-size:16px}
 .store-purchase-list{display:flex;flex-direction:column;gap:4px}
 .store-card{background:var(--panel);border:1px solid var(--line);border-radius:8px;overflow:hidden}
@@ -274,7 +276,6 @@ button:active,.primary:active,.ghost:active,.icon-btn:active{transform:translate
   .top-actions .mini{min-height:32px;padding:0 6px;font-size:11px}
   .topbar strong{font-size:15px}
   .topbar small:not(.app-version){display:none}
-  .shopping-memo-summary{font-size:13px}
   .store-product-row{grid-template-columns:50px 21px minmax(0,1fr) 72px 64px;column-gap:5px;font-size:11px}
   .store-product-mark{width:50px;min-width:50px}
   .store-product-amount{font-size:10px}
