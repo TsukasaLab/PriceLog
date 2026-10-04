@@ -6,6 +6,7 @@ const SETTINGS_KEY = 'pricelog_v02_settings';
 const INITIALIZED_KEY = 'pricelog_initialized_v1';
 const TEMPLATE_KEY = 'pricelog_custom_template_v1';
 const YAHOO_PRODUCT_CACHE_KEY = 'pricelog_yahoo_product_cache_v1';
+const SHOPPING_MEMO_KEY = 'pricelog_shopping_memo_v1';
 const V051_SETTINGS_MIGRATION_KEY = 'pricelog_v051_settings_migrated';
 
 const YAHOO_WORKER_URL = 'https://pricelog-yahoo.pricelog-api.workers.dev';
@@ -53,6 +54,10 @@ let bulkMode = false;
 let bulkSelected = new Set();
 let storePurchaseMode = false;
 let openStoreName = null;
+let shoppingMemoFilter = 'all';
+let shoppingMemoChecked = new Set((loadJson(SHOPPING_MEMO_KEY, []) || []).map(String));
+let shoppingMemoEditStore = null;
+let shoppingMemoEditDraft = null;
 let customTemplate = normalizeTemplateData(loadJson(TEMPLATE_KEY, {version:1, products:[], stores:[]}));
 let templateDraft = null;
 let readingWasManuallyEdited = false;
@@ -162,6 +167,13 @@ $('btnSaveTemplate').addEventListener('click', saveTemplateDraft);
 $('btnExportTemplateFile').addEventListener('click', exportTemplateFile);
 $('btnStorePurchase').addEventListener('click', () => setStorePurchaseMode(!storePurchaseMode));
 $('storePurchaseSearch').addEventListener('input', renderStorePurchaseView);
+document.querySelectorAll('.shopping-filter').forEach(button => {
+  button.addEventListener('click', () => {
+    shoppingMemoFilter = button.dataset.filter || 'all';
+    document.querySelectorAll('.shopping-filter').forEach(item => item.classList.toggle('active', item === button));
+    renderStorePurchaseView();
+  });
+});
 $('btnDeleteAllProducts').addEventListener('click', deleteAllProducts);
 $('btnSettings').addEventListener('click', openSettings);
 $('btnToggleYahooClientId').addEventListener('click', toggleYahooClientIdVisibility);
@@ -253,8 +265,16 @@ $('barcodeChoiceType').addEventListener('change', () => {
   updateBarcodeReadingFromChoice();
 });
 $('barcodeAmount').addEventListener('input', () => {
-  if (!$('barcodeChoiceType').checked || !barcodeLookupData) return;
+  if (!barcodeLookupData) return;
+
   const amount = Number($('barcodeAmount').value);
+
+  // 商品名で登録する場合の「1」は初期値。ユーザーが自由に編集できる。
+  if ($('barcodeChoiceProduct').checked) {
+    barcodeLookupData.productAmount = amount > 0 ? amount : null;
+    return;
+  }
+
   const unit = $('barcodeUnit').value;
   barcodeLookupData.typeQuantity = amount > 0 && unit ? { amount, unit } : null;
 });
@@ -1015,6 +1035,13 @@ function setStorePurchaseMode(enabled) {
     productEditDirty = false;
   }
 
+  if (!enabled && shoppingMemoEditStore) {
+    const ok = window.confirm('買い物メモで保存していない価格・容量の変更があります。破棄して商品一覧へ戻りますか？');
+    if (!ok) return;
+    shoppingMemoEditStore = null;
+    shoppingMemoEditDraft = null;
+  }
+
   storePurchaseMode = !!enabled;
 
   if (storePurchaseMode) {
@@ -1024,10 +1051,25 @@ function setStorePurchaseMode(enabled) {
   } else {
     openStoreName = null;
     $('storePurchaseSearch').value = '';
-    $('btnStorePurchase').textContent = '店舗購入品';
+    $('btnStorePurchase').textContent = '買い物メモ';
   }
 
   render();
+}
+
+function persistShoppingMemoChecked() {
+  localStorage.setItem(SHOPPING_MEMO_KEY, JSON.stringify(Array.from(shoppingMemoChecked)));
+}
+
+function shoppingMemoKey(item) {
+  return String(item.row.id);
+}
+
+function shoppingMemoGrossPrice(row) {
+  const price = Number(row?.price);
+  const tax = Number(row?.tax);
+  if (!(price >= 0) || row?.price === '' || !(tax >= 0)) return null;
+  return row.priceType === 'ex' ? price * (1 + tax / 100) : price;
 }
 
 function buildStorePurchaseMap() {
@@ -1035,24 +1077,173 @@ function buildStorePurchaseMap() {
 
   products.forEach(product => {
     const bests = getBests(product);
-    if (!bests.before) return;
 
-    const addItem = (entry, mark) => {
-      const storeName = String(entry.store || '').trim() || '店舗未入力';
+    (product.stores || []).forEach(row => {
+      const storeName = String(row.store || '').trim() || '店舗未入力';
       if (!map.has(storeName)) map.set(storeName, []);
       map.get(storeName).push({
         product,
-        row: entry.row,
-        calc: entry.calc,
-        mark
+        row,
+        calc: calcRow(product, row),
+        grossPrice: shoppingMemoGrossPrice(row),
+        mark: bests.before?.row.id === row.id ? 'low' : ''
       });
-    };
-
-    addItem(bests.before, 'low');
-    if (bests.after) addItem(bests.after, 'special');
+    });
   });
 
   return map;
+}
+
+function pruneShoppingMemoChecked(storeMap) {
+  const valid = new Set();
+  storeMap.forEach(items => items.forEach(item => valid.add(shoppingMemoKey(item))));
+  const next = new Set(Array.from(shoppingMemoChecked).filter(key => valid.has(key)));
+  if (next.size !== shoppingMemoChecked.size) {
+    shoppingMemoChecked = next;
+    persistShoppingMemoChecked();
+  }
+}
+
+function getShoppingMemoStats(storeMap) {
+  let count = 0;
+  let total = 0;
+  const selectedByProduct = new Map();
+
+  storeMap.forEach((items, storeName) => {
+    items.forEach(item => {
+      if (!shoppingMemoChecked.has(shoppingMemoKey(item))) return;
+      count += 1;
+      if (item.grossPrice !== null) total += item.grossPrice;
+      if (!selectedByProduct.has(item.product.id)) {
+        selectedByProduct.set(item.product.id, {product: item.product, stores: []});
+      }
+      selectedByProduct.get(item.product.id).stores.push(storeName);
+    });
+  });
+
+  const duplicates = Array.from(selectedByProduct.values())
+    .filter(entry => new Set(entry.stores).size > 1)
+    .map(entry => ({
+      product: entry.product,
+      stores: Array.from(new Set(entry.stores))
+    }));
+
+  return {count, total, duplicates};
+}
+
+function updateShoppingMemoHeader(storeMap) {
+  const stats = getShoppingMemoStats(storeMap);
+  $('shoppingMemoSummary').textContent = `購入予定 ${stats.count}品　合計 ${fmtPrice(stats.total)}円（税込）`;
+
+  const warning = $('shoppingMemoDuplicate');
+  if (!stats.duplicates.length) {
+    warning.classList.add('hidden');
+    warning.textContent = '';
+    return;
+  }
+
+  const lines = stats.duplicates.map(entry => `${entry.product.name}：${entry.stores.join('・')}`);
+  warning.textContent = `同じ商品が複数店舗で選択されています　${lines.join(' / ')}`;
+  warning.classList.remove('hidden');
+}
+
+function shoppingMemoItemVisible(item) {
+  const checked = shoppingMemoChecked.has(shoppingMemoKey(item));
+  if (shoppingMemoFilter === 'checked') return checked;
+  if (shoppingMemoFilter === 'unchecked') return !checked;
+  return true;
+}
+
+function startShoppingMemoEdit(storeName, items) {
+  shoppingMemoEditStore = storeName;
+  shoppingMemoEditDraft = items.map(item => {
+    const amount = item.product.kind === 'type' ? item.row.amount : item.product.amount;
+    const unit = item.product.kind === 'type' ? item.row.unit : item.product.unit;
+    return {
+      productId: item.product.id,
+      rowId: item.row.id,
+      grossPrice: item.grossPrice !== null ? Number(item.grossPrice) : '',
+      amount: amount ?? '',
+      unit: String(unit || '')
+    };
+  });
+  renderStorePurchaseView();
+}
+
+function cancelShoppingMemoEdit() {
+  shoppingMemoEditStore = null;
+  shoppingMemoEditDraft = null;
+  renderStorePurchaseView();
+}
+
+function saveShoppingMemoEdit() {
+  if (!shoppingMemoEditStore || !Array.isArray(shoppingMemoEditDraft)) return;
+
+  shoppingMemoEditDraft.forEach(edit => {
+    const product = products.find(item => item.id === edit.productId);
+    const row = product?.stores?.find(item => item.id === edit.rowId);
+    if (!product || !row) return;
+
+    const beforePrice = historyPriceValue(row.price);
+    const grossPrice = edit.grossPrice === '' ? null : Number(edit.grossPrice);
+
+    if (grossPrice !== null && Number.isFinite(grossPrice) && grossPrice >= 0) {
+      const taxRate = Number(row.tax) || 0;
+      const rawPrice = row.priceType === 'ex'
+        ? grossPrice / (1 + taxRate / 100)
+        : grossPrice;
+      row.price = Math.round(rawPrice * 10000) / 10000;
+    } else if (edit.grossPrice === '') {
+      row.price = '';
+    }
+
+    const amount = Number(edit.amount);
+    const unit = String(edit.unit || '').trim();
+    if (product.kind === 'type') {
+      row.amount = amount > 0 ? amount : '';
+      row.unit = unit;
+    } else {
+      product.amount = amount > 0 ? amount : 1;
+      product.unit = unit;
+    }
+
+    const afterPrice = historyPriceValue(row.price);
+    if (beforePrice !== null && afterPrice !== null && !sameHistoryPrice(beforePrice, afterPrice)) {
+      const history = ensureHistory(product);
+      history.unshift({
+        id: makeId('h'),
+        updatedAt: new Date().toISOString(),
+        store: (row.store || '店舗未入力').trim() || '店舗未入力',
+        beforePrice: Number(beforePrice),
+        afterPrice: Number(afterPrice)
+      });
+      if (history.length > 20) history.length = 20;
+    }
+  });
+
+  persistNow();
+  shoppingMemoEditStore = null;
+  shoppingMemoEditDraft = null;
+  renderStorePurchaseView();
+  showSaveToast('買い物メモの変更を保存しました');
+}
+
+function shoppingMemoUnitSelect(value, onChange) {
+  const select = document.createElement('select');
+  select.className = 'shopping-edit-unit';
+  select.setAttribute('aria-label', '単位');
+  const units = ['', 'g', 'ml', 'm', '個', '枚', '粒', '本', '袋', '箱', 'パック', '缶', '瓶'];
+  const normalized = String(value || '');
+  if (normalized && !units.includes(normalized)) units.push(normalized);
+  units.forEach(unit => {
+    const option = document.createElement('option');
+    option.value = unit;
+    option.textContent = unit;
+    select.appendChild(option);
+  });
+  select.value = normalized;
+  select.addEventListener('change', () => onChange(select.value));
+  return select;
 }
 
 function renderStorePurchaseView() {
@@ -1063,94 +1254,205 @@ function renderStorePurchaseView() {
 
   const q = $('storePurchaseSearch').value.trim().toLowerCase();
   const storeMap = buildStorePurchaseMap();
+  pruneShoppingMemoChecked(storeMap);
+  updateShoppingMemoHeader(storeMap);
 
   const stores = Array.from(storeMap.entries())
     .filter(([storeName]) => !q || storeName.toLowerCase().includes(q))
+    .map(([storeName, items]) => [storeName, items.slice().sort((a, b) => compareProducts(a.product, b.product))])
+    .filter(([storeName, items]) => shoppingMemoEditStore === storeName || items.some(shoppingMemoItemVisible))
     .sort((a, b) => a[0].localeCompare(b[0], 'ja', { sensitivity: 'base', numeric: true }));
 
   $('storePurchaseEmpty').classList.toggle('hidden', stores.length !== 0);
 
   stores.forEach(([storeName, items]) => {
-    items.sort((a, b) => compareProducts(a.product, b.product));
-
     const card = document.createElement('article');
     card.className = 'store-card';
-    if (openStoreName === storeName) card.classList.add('open');
+    const isOpen = openStoreName === storeName;
+    const isEditing = shoppingMemoEditStore === storeName;
+    if (isOpen) card.classList.add('open');
+    if (isEditing) card.classList.add('editing');
 
-    const summary = document.createElement('button');
-    summary.type = 'button';
-    summary.className = 'store-summary';
+    const header = document.createElement('div');
+    header.className = 'store-summary';
+
+    const toggle = document.createElement('button');
+    toggle.type = 'button';
+    toggle.className = 'store-summary-toggle';
 
     const name = document.createElement('span');
     name.className = 'store-summary-name';
     name.textContent = storeName;
 
+    const storeCheckedItems = items.filter(item => shoppingMemoChecked.has(shoppingMemoKey(item)));
+    const storeTotal = storeCheckedItems.reduce((sum, item) => sum + (item.grossPrice ?? 0), 0);
     const count = document.createElement('span');
     count.className = 'store-summary-count';
-    const starCount = items.filter(item => item.mark === 'low').length;
-    const diamondCount = items.filter(item => item.mark === 'special').length;
-    const parts = [];
-    if (starCount) parts.push(`最安${starCount}`);
-    if (diamondCount) parts.push(`特安${diamondCount}`);
-    count.textContent = `${parts.join(' / ')}　計${items.length}品`;
+    count.textContent = `予定${storeCheckedItems.length}品 / ${fmtPrice(storeTotal)}円`;
 
     const chev = document.createElement('span');
     chev.className = 'store-summary-chev';
     chev.textContent = '›';
 
-    summary.append(name, count, chev);
-    summary.addEventListener('click', () => {
+    toggle.append(name, count, chev);
+    toggle.addEventListener('click', () => {
+      if (isEditing) return;
+      if (shoppingMemoEditStore && shoppingMemoEditStore !== storeName) {
+        if (!window.confirm('別の店舗に保存していない変更があります。破棄して移動しますか？')) return;
+        shoppingMemoEditStore = null;
+        shoppingMemoEditDraft = null;
+      }
       openStoreName = openStoreName === storeName ? null : storeName;
       renderStorePurchaseView();
     });
 
-    card.appendChild(summary);
+    const actions = document.createElement('div');
+    actions.className = 'store-summary-actions';
 
-    if (openStoreName === storeName) {
+    if (isEditing) {
+      const cancel = document.createElement('button');
+      cancel.type = 'button';
+      cancel.className = 'ghost mini shopping-store-action';
+      cancel.textContent = 'キャンセル';
+      cancel.addEventListener('click', cancelShoppingMemoEdit);
+
+      const save = document.createElement('button');
+      save.type = 'button';
+      save.className = 'primary mini shopping-store-action';
+      save.textContent = '保存';
+      save.addEventListener('click', saveShoppingMemoEdit);
+      actions.append(cancel, save);
+    } else {
+      const edit = document.createElement('button');
+      edit.type = 'button';
+      edit.className = 'ghost mini shopping-store-action';
+      edit.textContent = '価格・容量編集';
+      edit.addEventListener('click', () => {
+        openStoreName = storeName;
+        startShoppingMemoEdit(storeName, items);
+      });
+
+      const reset = document.createElement('button');
+      reset.type = 'button';
+      reset.className = 'ghost mini shopping-store-action';
+      reset.textContent = 'チェックをリセット';
+      reset.dataset.shoppingReset = '1';
+      reset.disabled = storeCheckedItems.length === 0;
+      reset.addEventListener('click', () => {
+        items.forEach(item => shoppingMemoChecked.delete(shoppingMemoKey(item)));
+        persistShoppingMemoChecked();
+        renderStorePurchaseView();
+      });
+      actions.append(edit, reset);
+    }
+
+    header.append(toggle, actions);
+    card.appendChild(header);
+
+    if (isOpen) {
       const productList = document.createElement('div');
       productList.className = 'store-product-list';
 
-      items.forEach(item => {
+      const visibleItems = isEditing ? items : items.filter(shoppingMemoItemVisible);
+      visibleItems.forEach(item => {
         const row = document.createElement('div');
         row.className = 'store-product-row';
 
         const mark = document.createElement('span');
         mark.className = 'store-product-mark';
-        mark.appendChild(createPriceBadge(item.mark, true));
-
-        const nameWrap = document.createElement('div');
-        nameWrap.className = 'store-product-name-wrap';
+        if (item.mark === 'low') mark.appendChild(createPriceBadge('low', true));
 
         const checkbox = document.createElement('input');
         checkbox.type = 'checkbox';
         checkbox.className = 'store-product-check';
-        checkbox.setAttribute('aria-label', `${item.product.name}を買い物チェック`);
+        checkbox.checked = shoppingMemoChecked.has(shoppingMemoKey(item));
+        checkbox.setAttribute('aria-label', `${item.product.name}を購入予定にする`);
+        checkbox.addEventListener('change', () => {
+          const key = shoppingMemoKey(item);
+          if (checkbox.checked) shoppingMemoChecked.add(key);
+          else shoppingMemoChecked.delete(key);
+          persistShoppingMemoChecked();
+
+          if (shoppingMemoFilter !== 'all' && !isEditing) {
+            renderStorePurchaseView();
+            return;
+          }
+
+          const refreshedMap = buildStorePurchaseMap();
+          updateShoppingMemoHeader(refreshedMap);
+          const refreshedItems = refreshedMap.get(storeName) || [];
+          const checkedItems = refreshedItems.filter(entry => shoppingMemoChecked.has(shoppingMemoKey(entry)));
+          const checkedTotal = checkedItems.reduce((sum, entry) => sum + (entry.grossPrice ?? 0), 0);
+          count.textContent = `予定${checkedItems.length}品 / ${fmtPrice(checkedTotal)}円`;
+          const resetButton = actions.querySelector('[data-shopping-reset]');
+          if (resetButton) resetButton.disabled = checkedItems.length === 0;
+        });
 
         const productName = document.createElement('span');
         productName.className = 'store-product-name';
         productName.textContent = item.product.name;
+        productName.title = item.product.name;
 
-        const meta = document.createElement('span');
-        meta.className = 'store-product-meta';
-        const itemAmount = item.product.kind === 'type' ? item.row.amount : item.product.amount;
-        const itemUnit = item.product.kind === 'type' ? item.row.unit : item.product.unit;
-        meta.textContent = itemUnit ? `${fmt(itemAmount)}${itemUnit}` : '';
+        if (isEditing) {
+          const edit = shoppingMemoEditDraft?.find(d => d.productId === item.product.id && d.rowId === item.row.id);
+          if (!edit) return;
 
-        nameWrap.append(checkbox, productName, meta);
+          const amountWrap = document.createElement('span');
+          amountWrap.className = 'shopping-edit-amount-wrap';
+          const amountInput = document.createElement('input');
+          amountInput.className = 'shopping-edit-amount';
+          amountInput.type = 'text';
+          amountInput.inputMode = 'decimal';
+          amountInput.value = edit.amount ?? '';
+          amountInput.setAttribute('aria-label', `${item.product.name}の容量`);
+          amountInput.addEventListener('input', () => { edit.amount = amountInput.value; });
+          const unitSelect = shoppingMemoUnitSelect(edit.unit, value => { edit.unit = value; });
+          amountWrap.append(amountInput, unitSelect);
 
-        const price = document.createElement('span');
-        price.className = 'store-product-price';
-        price.textContent =
-          `${fmtPrice(item.calc.grossBefore)}[${fmtPrice(item.calc.afterTotal)}](${fmtPriceDelta(item.calc.afterTotal - item.calc.grossBefore)})円`;
+          const priceWrap = document.createElement('span');
+          priceWrap.className = 'shopping-edit-price-wrap';
+          const priceInput = document.createElement('input');
+          priceInput.className = 'shopping-edit-price';
+          priceInput.type = 'text';
+          priceInput.inputMode = 'decimal';
+          priceInput.value = edit.grossPrice === '' ? '' : fmtPrice(edit.grossPrice);
+          priceInput.setAttribute('aria-label', `${item.product.name}の税込価格`);
+          priceInput.addEventListener('input', () => {
+            edit.grossPrice = priceInput.value.replace(/,/g, '');
+          });
+          const yen = document.createElement('span');
+          yen.textContent = '円';
+          priceWrap.append(priceInput, yen);
 
-        const unit = document.createElement('span');
-        unit.className = 'store-product-unit';
-        unit.textContent =
-          `${fmtUnit(item.calc.beforeUnit)}[${fmtUnit(item.calc.afterUnit)}](${fmtUnitDelta(item.calc.afterUnit - item.calc.beforeUnit)})円${itemUnit ? `/${itemUnit}` : ''}`;
+          row.append(mark, checkbox, productName, amountWrap, priceWrap);
+        } else {
+          const itemAmount = item.product.kind === 'type' ? item.row.amount : item.product.amount;
+          const itemUnit = item.product.kind === 'type' ? item.row.unit : item.product.unit;
 
-        row.append(mark, nameWrap, price, unit);
+          const amount = document.createElement('span');
+          amount.className = 'store-product-amount';
+          amount.textContent = itemAmount !== '' && itemAmount !== null && itemAmount !== undefined
+            ? `${fmt(itemAmount)}${itemUnit || ''}`
+            : '';
+
+          const price = document.createElement('span');
+          price.className = 'store-product-price';
+          price.textContent = item.grossPrice !== null ? `${fmtPrice(item.grossPrice)}円` : '-';
+
+          row.append(mark, checkbox, productName, amount, price);
+        }
+
         productList.appendChild(row);
       });
+
+      if (!visibleItems.length) {
+        const empty = document.createElement('div');
+        empty.className = 'shopping-store-empty';
+        empty.textContent = shoppingMemoFilter === 'checked'
+          ? 'チェック済みの商品はありません。'
+          : 'チェックなしの商品はありません。';
+        productList.appendChild(empty);
+      }
 
       card.appendChild(productList);
     }
@@ -1177,6 +1479,8 @@ function deleteAllProducts() {
   openProductId = null;
   openStoreName = null;
   bulkSelected.clear();
+  shoppingMemoChecked.clear();
+  persistShoppingMemoChecked();
 
   persistNow();
   localStorage.setItem(INITIALIZED_KEY, '1');
@@ -3013,8 +3317,9 @@ function syncBarcodeQuantityForChoice() {
   const isProduct = $('barcodeChoiceProduct').checked;
 
   if (isProduct) {
-    amountInput.value = '1';
-    amountInput.readOnly = true;
+    // 「1」は固定値ではなく初期値。商品ごとの実際の内容量へ変更できる。
+    amountInput.readOnly = false;
+    amountInput.value = String(barcodeLookupData?.productAmount ?? 1);
     setBarcodeUnit(barcodeLookupData?.productUnit || '');
     return;
   }
@@ -3276,11 +3581,10 @@ function registerBarcodeProduct() {
   const typeName = $('barcodeTypeNameEdit').value.trim();
   const name = choice === 'type' ? typeName : exactName;
 
-  // 商品名で登録する場合は「その商品1つ」を比較単位にする。
-  // 種類で登録する場合だけ、従来どおり取得した内容量を使う。
-  const amount = choice === 'product'
-    ? 1
-    : Number($('barcodeAmount').value);
+  // 商品名で登録する場合も内容量は編集可能。
+  // 初期値は1、単位は自動判定せず空欄からユーザーが必要に応じて選ぶ。
+  // 種類で登録する場合は従来どおり取得した内容量・単位を初期値にする。
+  const amount = Number($('barcodeAmount').value);
   const unit = $('barcodeUnit').value;
 
   if (!name) {
@@ -3671,7 +3975,8 @@ function exportBackup() {
     exportedAt: new Date().toISOString(),
     settings,
     products,
-    customTemplate
+    customTemplate,
+    shoppingMemoChecked: Array.from(shoppingMemoChecked)
   };
   const blob = new Blob([JSON.stringify(payload, null, 2)], {type:'application/json'});
   const url = URL.createObjectURL(blob);
@@ -3694,6 +3999,8 @@ function importBackup(e) {
       if (!Array.isArray(data.products)) throw new Error('invalid');
       settings = normalizeSettingsData(data.settings || {});
       products = normalizeProductsData(data.products);
+      shoppingMemoChecked = new Set(Array.isArray(data.shoppingMemoChecked) ? data.shoppingMemoChecked.map(String) : []);
+      persistShoppingMemoChecked();
 
       if (data.customTemplate) {
         customTemplate = normalizeTemplateData(data.customTemplate);

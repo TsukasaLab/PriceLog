@@ -9,17 +9,17 @@
   <title>PriceLog</title>
   <link rel="manifest" href="./manifest.webmanifest">
   <link rel="apple-touch-icon" href="./icon-192.png">
-  <link rel="stylesheet" href="./style.css?v=0.53">
+  <link rel="stylesheet" href="./style.css?v=0.55">
 </head>
 <body>
   <header class="topbar">
     <div>
-      <strong>PriceLog</strong> <small class="app-version">Ver.0.53</small>
+      <strong>PriceLog</strong> <small class="app-version">Ver.0.55</small>
     </div>
     <div class="top-actions">
       <button id="btnSettings" class="icon-btn" type="button" aria-label="設定">⚙</button>
       <button id="btnBulkStore" class="ghost mini" type="button">店舗一括追加</button>
-      <button id="btnStorePurchase" class="ghost mini" type="button">店舗購入品</button>
+      <button id="btnStorePurchase" class="ghost mini" type="button">買い物メモ</button>
       <button id="btnAddProduct" class="primary mini" type="button">＋商品</button>
     </div>
   </header>
@@ -63,13 +63,21 @@
     <section id="storePurchaseView" class="store-purchase-view hidden">
       <div class="store-purchase-head">
         <div>
-          <strong>店舗購入品</strong>
-          <div class="store-purchase-note"><span class="price-badge badge-low mini-badge"><span class="badge-icon">♛</span>最安</span> 普段その店で買う候補　<span class="price-badge badge-special mini-badge"><span class="badge-icon">◆</span>特安</span> クーポンがある時だけ買う候補</div>
+          <strong>買い物メモ</strong>
+          <div id="shoppingMemoSummary" class="shopping-memo-summary">購入予定 0品　合計 0円（税込）</div>
+          <div id="shoppingMemoDuplicate" class="shopping-memo-duplicate hidden"></div>
         </div>
       </div>
-      <input id="storePurchaseSearch" class="store-purchase-search" type="search" placeholder="店舗を検索" autocomplete="off">
+      <div class="shopping-memo-tools">
+        <div class="shopping-memo-filters" role="group" aria-label="購入予定フィルター">
+          <button class="shopping-filter active" type="button" data-filter="all">すべて</button>
+          <button class="shopping-filter" type="button" data-filter="checked">チェック済み</button>
+          <button class="shopping-filter" type="button" data-filter="unchecked">チェックなし</button>
+        </div>
+        <input id="storePurchaseSearch" class="store-purchase-search" type="search" placeholder="店舗を検索" autocomplete="off">
+      </div>
       <div id="storePurchaseList" class="store-purchase-list"></div>
-      <div id="storePurchaseEmpty" class="empty hidden">おすすめできる店舗・商品がまだないよ。</div>
+      <div id="storePurchaseEmpty" class="empty hidden">登録されている店舗・商品がまだないよ。</div>
     </section>
   </main>
 
@@ -494,7 +502,7 @@
 
   <div id="saveToast" class="save-toast hidden" role="status" aria-live="polite">保存しました</div>
 
-  <script src="./app.js?v=0.53"></script>
-  <script src="./ads.js?v=0.53"></script>
+  <script src="./app.js?v=0.55"></script>
+  <script src="./ads.js?v=0.55"></script>
 </body>
 </html>
