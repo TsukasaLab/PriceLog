@@ -9,16 +9,16 @@
   <title>PriceLog</title>
   <link rel="manifest" href="./manifest.webmanifest">
   <link rel="apple-touch-icon" href="./icon-192.png">
-  <link rel="stylesheet" href="./style.css?v=0.49">
+  <link rel="stylesheet" href="./style.css?v=0.51">
 </head>
 <body>
   <header class="topbar">
     <div>
-      <strong>PriceLog</strong> <small class="app-version">Ver.0.49</small>
+      <strong>PriceLog</strong> <small class="app-version">Ver.0.51</small>
     </div>
     <div class="top-actions">
       <button id="btnSettings" class="icon-btn" type="button" aria-label="設定">⚙</button>
-      <button id="btnBulkStore" class="ghost mini" type="button">一括店舗</button>
+      <button id="btnBulkStore" class="ghost mini" type="button">店舗一括追加</button>
       <button id="btnStorePurchase" class="ghost mini" type="button">店舗購入品</button>
       <button id="btnAddProduct" class="primary mini" type="button">＋商品</button>
     </div>
@@ -26,8 +26,8 @@
 
   <main>
     <div class="best-legend">
-      <span><strong>★</strong> 通常時に買う店</span>
-      <span><strong>◆</strong> クーポン使用で★より安い店</span>
+      <span><span class="price-badge badge-low"><span class="badge-icon">♛</span>最安</span> 通常時に買う店</span>
+      <span><span class="price-badge badge-special"><span class="badge-icon">◆</span>特安</span> クーポン使用で最安より安い店</span>
     </div>
 
     <section class="searchbar">
@@ -64,9 +64,8 @@
       <div class="store-purchase-head">
         <div>
           <strong>店舗購入品</strong>
-          <div class="store-purchase-note">★ 普段その店で買う候補　◆ クーポンがある時だけ買う候補</div>
+          <div class="store-purchase-note"><span class="price-badge badge-low mini-badge"><span class="badge-icon">♛</span>最安</span> 普段その店で買う候補　<span class="price-badge badge-special mini-badge"><span class="badge-icon">◆</span>特安</span> クーポンがある時だけ買う候補</div>
         </div>
-        <button id="btnCloseStorePurchase" class="ghost mini" type="button">商品一覧へ</button>
       </div>
       <input id="storePurchaseSearch" class="store-purchase-search" type="search" placeholder="店舗を検索" autocomplete="off">
       <div id="storePurchaseList" class="store-purchase-list"></div>
@@ -89,12 +88,20 @@
         <input id="productName" required maxlength="60">
       </label>
 
+      <label>登録タイプ
+        <select id="productKind">
+          <option value="product">固有商品</option>
+          <option value="type">種類比較</option>
+        </select>
+        <span class="field-hint">種類比較では、内容量・単位を店舗ごとに設定する。</span>
+      </label>
+
       <label class="reading-field">よみがな
         <input id="productReading" maxlength="80" placeholder="商品名から自動入力">
         <span class="field-hint">商品名から候補を自動入力。必要ならそのまま修正できる。</span>
       </label>
 
-      <div class="grid3">
+      <div id="productAmountGroup" class="grid3">
         <label>内容量
           <input id="productAmount" required type="text" inputmode="decimal" value="100">
         </label>
@@ -116,17 +123,7 @@
         </label>
       </div>
 
-      <div id="productImageSetting" class="product-image-setting hidden">
-        <div class="product-image-setting-title">商品画像</div>
-        <div class="product-image-setting-body">
-          <img id="productImageSettingPreview" class="product-image-setting-preview" alt="登録済み商品画像">
-          <button id="btnDeleteProductImage" class="ghost danger" type="button">商品画像を削除</button>
-        </div>
-        <div id="productImageDeleteNote" class="field-hint hidden">保存すると商品画像を削除します。</div>
-      </div>
-
       <div class="dialog-actions">
-        <button id="btnDeleteProduct" class="danger ghost hidden" type="button">商品削除</button>
         <button class="primary" value="default" type="submit">保存</button>
       </div>
     </form>
@@ -134,7 +131,7 @@
 
   <dialog id="settingsDialog" class="dialog">
     <form id="settingsForm" method="dialog">
-      <div class="dialog-head">
+      <div class="dialog-head settings-dialog-head">
         <strong>設定</strong>
         <button class="icon-btn" value="cancel" type="submit" aria-label="閉じる">×</button>
       </div>
@@ -180,10 +177,6 @@
             <option value="type">種類</option>
           </select>
         </label>
-        <label class="setting-check-row">
-          <input id="barcodeUseImageDefault" type="checkbox">
-          <span>商品画像を使う</span>
-        </label>
         <div class="template-note">
           種類を選んだ場合、そのJANコードは商品に紐づけない。
         </div>
@@ -199,17 +192,20 @@
           <button id="btnTestYahooApi" class="ghost mini" type="button">接続テスト</button>
         </div>
         <div class="template-note">
-          Client IDはこの端末内に保存。Yahoo!検索はPriceLog専用の中継サーバー経由で行う。
+          Yahoo!検索を使用する場合はClient IDを設定してください。<br>
+          Client IDの取得方法は「はじめに・使い方」を参照
         </div>
         <div id="yahooApiStatus" class="template-message"></div>
       </div>
 
       <div class="settings-block">
         <div class="settings-title">テンプレート</div>
-        <div class="template-note">選択した商品 × 選択した店舗を、既存データへ差分追加する。</div>
+        <div class="template-note">現在登録している商品と店舗をテンプレートJSONに保存する。価格・クーポン・履歴は引き継がない。</div>
         <div class="stack">
-          <button id="btnEditTemplate" class="ghost backup-btn" type="button">テンプレートファイルを作成</button>
-          <button id="btnLoadTemplate" class="ghost backup-btn" type="button">テンプレートを読み込む</button>
+          <button id="btnEditTemplate" class="ghost backup-btn" type="button">現在の商品からテンプレート作成</button>
+          <button id="btnLoadTemplate" class="ghost backup-btn" type="button">テンプレートファイルを読み込む</button>
+          <button id="btnLoadRecommendedTemplate" class="ghost backup-btn" type="button">おすすめ商品を追加</button>
+          <input id="templateImportFile" class="hidden-file-input" type="file" accept="application/json,.json">
         </div>
         <div id="templateSummary" class="template-summary"></div>
         <div id="templateMessage" class="template-message"></div>
@@ -257,7 +253,7 @@
         <button id="btnStartBarcodeCamera" class="primary backup-btn" type="button">カメラで読み取る</button>
       </section>
 
-      <div class="barcode-manual">
+      <div id="barcodeManualSection" class="barcode-manual">
         <input id="barcodeManualCode" type="text" inputmode="numeric" maxlength="20" placeholder="JANコードを直接入力">
         <button id="btnLookupBarcode" class="ghost mini" type="button">検索</button>
       </div>
@@ -308,19 +304,17 @@
               <option value="本">本</option>
               <option value="袋">袋</option>
               <option value="箱">箱</option>
+              <option value="パック">パック</option>
+              <option value="缶">缶</option>
+              <option value="瓶">瓶</option>
             </select>
           </label>
         </div>
 
-        <div class="barcode-register-options">
-          <label class="barcode-image-option">
-            <input id="barcodeUseImage" type="checkbox">
-            <span>商品画像を使う</span>
-          </label>
-          <div id="barcodeImageOptionNote" class="field-hint"></div>
+        <div class="barcode-result-actions">
+          <button id="btnBarcodeRescan" class="ghost" type="button">別のバーコードを読み取る</button>
+          <button id="btnRegisterBarcodeProduct" class="primary" type="button">この内容で商品登録</button>
         </div>
-
-        <button id="btnRegisterBarcodeProduct" class="primary backup-btn" type="button">この内容で商品登録</button>
       </section>
     </div>
   </dialog>
@@ -436,11 +430,11 @@
             <span class="best-store"></span>
             <span class="best-values">
               <span class="best-metric">
-                <span class="metric-mark">★</span>
+                <span class="price-badge badge-low mini-badge"><span class="badge-icon">♛</span>最安</span>
                 <span class="best-price"></span>
               </span>
               <span class="best-metric">
-                <span class="metric-mark">★</span>
+                <span class="price-badge badge-low mini-badge"><span class="badge-icon">♛</span>最安</span>
                 <strong class="best-unit"></strong>
               </span>
             </span>
@@ -450,10 +444,6 @@
       </div>
 
       <div class="product-detail hidden">
-        <div class="product-image-wrap hidden">
-          <img class="product-image" alt="商品画像" loading="lazy" referrerpolicy="no-referrer">
-        </div>
-
         <div class="detail-toolbar">
           <button class="btn-edit-product ghost mini" type="button">商品設定</button>
           <button class="btn-history ghost mini" type="button">変更履歴</button>
@@ -468,6 +458,11 @@
             <div class="store-list"></div>
           </div>
         </div>
+        <div class="product-edit-actions">
+          <button class="btn-delete-product-detail danger ghost" type="button">商品削除</button>
+          <button class="btn-cancel-product-edit ghost" type="button">キャンセル</button>
+          <button class="btn-save-product-edit primary" type="button">保存</button>
+        </div>
       </div>
     </article>
   </template>
@@ -475,7 +470,18 @@
   <template id="storeTemplate">
     <div class="store-row">
       <span class="best-mark" aria-hidden="true"></span>
-      <input class="st-store" type="text" maxlength="40" placeholder="店舗">
+      <div class="st-store-cell">
+        <input class="st-store" type="text" maxlength="40" placeholder="店舗">
+        <div class="st-quantity-fields hidden">
+          <input class="st-amount" type="text" inputmode="decimal" placeholder="内容量" aria-label="内容量">
+          <select class="st-unit-select" aria-label="単位">
+            <option value="g">g</option><option value="ml">ml</option><option value="m">m</option>
+            <option value="個">個</option><option value="枚">枚</option><option value="粒">粒</option>
+            <option value="本">本</option><option value="袋">袋</option><option value="箱">箱</option>
+            <option value="パック">パック</option><option value="缶">缶</option><option value="瓶">瓶</option>
+          </select>
+        </div>
+      </div>
       <input class="st-price" type="text" inputmode="decimal" placeholder="価格">
       <select class="st-price-type" aria-label="税込・税抜">
         <option value="inc">込</option>
@@ -494,7 +500,9 @@
     </div>
   </template>
 
-  <script src="./app.js?v=0.49"></script>
-  <script src="./ads.js?v=0.49"></script>
+  <div id="saveToast" class="save-toast hidden" role="status" aria-live="polite">保存しました</div>
+
+  <script src="./app.js?v=0.51"></script>
+  <script src="./ads.js?v=0.51"></script>
 </body>
 </html>

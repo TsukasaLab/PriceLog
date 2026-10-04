@@ -950,3 +950,166 @@ button:active,.primary:active,.ghost:active,.icon-btn:active{transform:translate
 .barcode-image-option:has(input:disabled){
   opacity:.55;
 }
+
+/* Ver.0.51: 価格バッジ */
+.price-badge{
+  display:inline-flex;
+  align-items:center;
+  justify-content:center;
+  gap:2px;
+  min-height:20px;
+  padding:1px 6px 1px 4px;
+  border:1px solid currentColor;
+  border-radius:999px;
+  font-size:10px;
+  font-weight:800;
+  line-height:1;
+  white-space:nowrap;
+  box-shadow:0 1px 2px rgba(0,0,0,.10);
+}
+.price-badge .badge-icon{font-size:11px;line-height:1}
+.badge-low{color:#7a5a00;background:#fff8d8;border-color:#d6b447}
+.badge-special{color:#a1263d;background:#fff0f3;border-color:#dc8194}
+.mini-badge{min-height:17px;padding:1px 4px 1px 3px;font-size:8px}
+.mini-badge .badge-icon{font-size:9px}
+.best-store{display:flex;align-items:center;justify-content:flex-end;gap:5px;flex-wrap:wrap}
+.best-store-item{display:inline-flex;align-items:center;gap:3px;min-width:0}
+.best-mark{min-width:40px}
+.best-legend{flex-wrap:wrap}
+.best-legend>span{gap:5px}
+.metric-mark{display:none}
+
+/* Ver.0.51: 商品編集は保存/キャンセルで確定 */
+.product-edit-actions{
+  display:flex;
+  justify-content:flex-end;
+  gap:7px;
+  margin-top:8px;
+  padding-top:8px;
+  border-top:1px solid var(--line);
+}
+.product-edit-actions .btn-delete-product-detail{margin-right:auto}
+.product-edit-actions button{min-width:86px}
+.save-toast{
+  position:fixed;
+  left:50%;
+  bottom:max(24px, env(safe-area-inset-bottom));
+  z-index:1000;
+  transform:translate(-50%,8px);
+  opacity:0;
+  padding:9px 16px;
+  border-radius:999px;
+  background:rgba(28,28,30,.92);
+  color:#fff;
+  font-size:13px;
+  font-weight:700;
+  pointer-events:none;
+  transition:opacity .18s ease,transform .18s ease;
+}
+.save-toast.show{opacity:1;transform:translate(-50%,0)}
+
+/* Ver.0.51: 店舗セル内の種類別内容量 */
+.st-store-cell{min-width:0;display:flex;flex-direction:column;gap:3px}
+.st-store-cell>.st-store{width:100%}
+.st-quantity-fields{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,.9fr);gap:3px}
+.st-quantity-fields input,.st-quantity-fields select{width:100%;min-width:0}
+
+/* Ver.0.51: スマホ店舗入力は2段、横スクロールなし */
+@media(max-width:650px){
+  .store-scroll{overflow:visible;padding-bottom:0}
+  .store-table{min-width:0;width:100%}
+  .store-head{display:none}
+  .store-row{
+    width:100%;
+    min-width:0;
+    display:grid;
+    grid-template-columns:20px minmax(62px,1fr) minmax(45px,.72fr) 32px 36px 46px 36px;
+    grid-template-areas:
+      "mark store price ptype tax coupon cvalue"
+      "mark store result result unit unit del";
+    column-gap:2px;
+    row-gap:4px;
+    align-items:center;
+    padding:5px 1px;
+  }
+  .store-row .best-mark{grid-area:mark;min-width:0;align-self:stretch}
+  .store-row .best-mark .price-badge{
+    writing-mode:vertical-rl;
+    min-width:18px;
+    min-height:42px;
+    padding:3px 1px;
+    gap:1px;
+  }
+  .store-row .best-mark .badge-icon{font-size:8px}
+  .store-row .st-store-cell{grid-area:store;align-self:stretch;justify-content:center}
+  .store-row .st-price{grid-area:price}
+  .store-row .st-price-type{grid-area:ptype}
+  .store-row .st-tax{grid-area:tax}
+  .store-row .st-coupon-type{grid-area:coupon}
+  .store-row .st-coupon-value{grid-area:cvalue}
+  .store-row .st-price-result{grid-area:result;text-align:right;padding-right:3px}
+  .store-row .st-unit{grid-area:unit;text-align:right}
+  .store-row .st-delete{grid-area:del}
+  .store-row input,.store-row select{
+    height:31px;
+    padding:0 2px;
+    font-size:10px;
+  }
+  .store-row .st-store{font-size:11px}
+  .store-row .st-price-result,.store-row .st-unit{font-size:9px;overflow:hidden;text-overflow:ellipsis}
+  .store-row .st-delete{
+    width:34px;
+    min-width:34px;
+    height:31px;
+    padding:0;
+    border:1px solid #d7a09b;
+    border-radius:6px;
+    background:#fff5f4;
+    color:var(--danger);
+    font-weight:800;
+  }
+  .st-quantity-fields{grid-template-columns:1fr 1fr;gap:2px}
+  .st-quantity-fields input,.st-quantity-fields select{height:27px;font-size:9px}
+  .product-edit-actions{flex-wrap:wrap}
+  .product-edit-actions button{min-width:76px;padding:0 9px}
+}
+
+/* Ver.0.51: 設定ヘッダーを常時固定 */
+#settingsDialog{
+  max-height:calc(100dvh - 24px);
+  overflow-y:auto;
+  overscroll-behavior:contain;
+}
+#settingsDialog form{padding:0 12px 12px}
+#settingsDialog .settings-dialog-head{
+  position:sticky;
+  top:0;
+  z-index:30;
+  margin:0 -2px 4px;
+  padding:12px 2px 10px;
+  background:rgba(255,255,255,.97);
+  border-bottom:1px solid var(--line);
+  backdrop-filter:blur(8px);
+}
+
+/* Ver.0.51: 商品追加の×とバーコードボタンを分離 */
+#productDialog .dialog-head{min-height:38px;padding-right:44px;margin-bottom:8px}
+#productDialog .barcode-launch{margin-top:4px;margin-bottom:12px}
+.product-dialog-close{top:10px;right:10px}
+
+/* Ver.0.51: バーコード結果を1画面で確定しやすく */
+.barcode-result-actions{display:grid;grid-template-columns:1fr 1.25fr;gap:7px;margin-top:10px}
+.barcode-result-actions button{min-height:44px}
+@media(max-width:420px){
+  .barcode-result-actions{grid-template-columns:1fr}
+}
+/* Ver.0.51: 店舗削除×は常時ボタンとして見える */
+.st-delete{
+  border:1px solid #d8c3c0;
+  background:#fff8f7;
+  color:var(--danger);
+  font-weight:800;
+}
+@media(min-width:651px){
+  .store-head,.store-row{grid-template-columns:44px minmax(86px,1.4fr) 72px 44px 54px 66px 54px 112px 124px 28px}
+}

@@ -6,16 +6,16 @@ const SETTINGS_KEY = 'pricelog_v02_settings';
 const INITIALIZED_KEY = 'pricelog_initialized_v1';
 const TEMPLATE_KEY = 'pricelog_custom_template_v1';
 const YAHOO_PRODUCT_CACHE_KEY = 'pricelog_yahoo_product_cache_v1';
+const V051_SETTINGS_MIGRATION_KEY = 'pricelog_v051_settings_migrated';
 
 const YAHOO_WORKER_URL = 'https://pricelog-yahoo.pricelog-api.workers.dev';
 
 const defaultSettings = {
   standardTax: 10,
   reducedTax: 8,
-  defaultPriceType: 'inc',
+  defaultPriceType: 'ex',
   yahooClientId: '',
-  barcodeNameDefault: 'product',
-  barcodeUseImageDefault: true
+  barcodeNameDefault: 'product'
 };
 
 function normalizeSettingsData(raw = {}) {
@@ -30,18 +30,25 @@ function normalizeSettingsData(raw = {}) {
     reducedTax: Number.isFinite(Number(value.reducedTax))
       ? Number(value.reducedTax)
       : defaultSettings.reducedTax,
-    defaultPriceType: value.defaultPriceType === 'ex' ? 'ex' : 'inc',
+    defaultPriceType: value.defaultPriceType === 'inc' ? 'inc' : 'ex',
     yahooClientId: String(value.yahooClientId || ''),
-    barcodeNameDefault: value.barcodeNameDefault === 'type' ? 'type' : 'product',
-    barcodeUseImageDefault: value.barcodeUseImageDefault !== false
+    barcodeNameDefault: value.barcodeNameDefault === 'type' ? 'type' : 'product'
   };
 }
 
 let settings = normalizeSettingsData(loadJson(SETTINGS_KEY, defaultSettings));
-let products = loadJson(STORAGE_KEY, []);
+if (localStorage.getItem(V051_SETTINGS_MIGRATION_KEY) !== '1') {
+  settings.defaultPriceType = 'ex';
+  localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings));
+  localStorage.setItem(V051_SETTINGS_MIGRATION_KEY, '1');
+}
+let products = normalizeProductsData(loadJson(STORAGE_KEY, []));
 let openProductId = null;
 let editProductId = null;
 let saveTimer = null;
+let productEditDraft = null;
+let productEditDirty = false;
+let toastTimer = null;
 let bulkMode = false;
 let bulkSelected = new Set();
 let storePurchaseMode = false;
@@ -57,7 +64,6 @@ let barcodeScanTimer = null;
 let barcodeScanning = false;
 let barcodeLookupData = null;
 let barcodeReadingManuallyEdited = false;
-let productImageDeletePending = false;
 let yahooRequestChain = Promise.resolve();
 let yahooLastRequestAt = 0;
 const YAHOO_MIN_REQUEST_INTERVAL_MS = 1200;
@@ -130,7 +136,7 @@ const listEl = $('productList');
 const productTemplate = $('productTemplate');
 const storeTemplate = $('storeTemplate');
 
-seedIfEmpty();
+initializeWithoutSamples();
 loadRecommendedReadingMap();
 render();
 
@@ -140,8 +146,10 @@ $('btnBulkStore').addEventListener('click', () => setBulkMode(!bulkMode));
 $('btnBulkCancel').addEventListener('click', () => setBulkMode(false));
 $('btnBulkSelectAll').addEventListener('click', toggleBulkSelectAll);
 $('btnBulkAdd').addEventListener('click', bulkAddStore);
-$('btnEditTemplate').addEventListener('click', openTemplateEditor);
-$('btnLoadTemplate').addEventListener('click', loadProductTemplate);
+$('btnEditTemplate').addEventListener('click', exportCurrentTemplateFile);
+$('btnLoadTemplate').addEventListener('click', () => $('templateImportFile').click());
+$('templateImportFile').addEventListener('change', importTemplateFile);
+$('btnLoadRecommendedTemplate').addEventListener('click', loadRecommendedProductsDirect);
 $('btnCloseTemplate').addEventListener('click', () => $('templateDialog').close());
 $('btnAddTemplateProduct').addEventListener('click', addTemplateProduct);
 $('btnAddTemplateStore').addEventListener('click', addTemplateStore);
@@ -153,7 +161,6 @@ $('btnImportRecommendedProducts').addEventListener('click', importRecommendedPro
 $('btnSaveTemplate').addEventListener('click', saveTemplateDraft);
 $('btnExportTemplateFile').addEventListener('click', exportTemplateFile);
 $('btnStorePurchase').addEventListener('click', () => setStorePurchaseMode(!storePurchaseMode));
-$('btnCloseStorePurchase').addEventListener('click', () => setStorePurchaseMode(false));
 $('storePurchaseSearch').addEventListener('input', renderStorePurchaseView);
 $('btnDeleteAllProducts').addEventListener('click', deleteAllProducts);
 $('btnSettings').addEventListener('click', openSettings);
@@ -163,24 +170,6 @@ $('btnTestYahooApi').addEventListener('click', testYahooShoppingApi);
 $('productForm').addEventListener('submit', (e) => {
   e.preventDefault();
   saveProductFromDialog();
-});
-
-$('btnDeleteProductImage').addEventListener('click', () => {
-  if (!editProductId) return;
-
-  productImageDeletePending = true;
-  $('productImageSettingPreview').classList.add('hidden');
-  $('btnDeleteProductImage').classList.add('hidden');
-  $('productImageDeleteNote').classList.remove('hidden');
-});
-
-$('btnDeleteProduct').addEventListener('click', () => {
-  if (!editProductId) return;
-  products = products.filter(p => p.id !== editProductId);
-  if (openProductId === editProductId) openProductId = null;
-  persistNow();
-  $('productDialog').close();
-  render();
 });
 
 $('settingsForm').addEventListener('submit', (e) => {
@@ -193,8 +182,7 @@ $('settingsForm').addEventListener('submit', (e) => {
     reducedTax: rt,
     defaultPriceType: $('defaultPriceType').value === 'ex' ? 'ex' : 'inc',
     yahooClientId: $('yahooClientId').value.trim(),
-    barcodeNameDefault: $('barcodeNameDefault').value === 'type' ? 'type' : 'product',
-    barcodeUseImageDefault: $('barcodeUseImageDefault').checked
+    barcodeNameDefault: $('barcodeNameDefault').value === 'type' ? 'type' : 'product'
   });
 
   localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings));
@@ -223,6 +211,7 @@ $('productDialog').addEventListener('cancel', (e) => {
 
 $('btnBarcodeAdd').addEventListener('click', openBarcodeDialog);
 $('btnCloseBarcode').addEventListener('click', closeBarcodeDialog);
+$('btnBarcodeRescan').addEventListener('click', resetBarcodeLookupView);
 $('btnStartBarcodeCamera').addEventListener('click', startBarcodeCamera);
 $('btnLookupBarcode').addEventListener('click', () => {
   const code = normalizeBarcodeCode($('barcodeManualCode').value);
@@ -237,12 +226,26 @@ $('barcodeManualCode').addEventListener('keydown', (e) => {
 });
 $('barcodeProductNameEdit').addEventListener('input', () => {
   syncBarcodeChoiceLabels();
-  if ($('barcodeChoiceProduct').checked && !barcodeReadingManuallyEdited) {
-    updateBarcodeReadingFromChoice();
+  if ($('barcodeChoiceProduct').checked) {
+    if (barcodeLookupData) {
+      barcodeLookupData.productUnit = deriveProductRegistrationUnit(
+        $('barcodeProductNameEdit').value,
+        $('barcodeTypeNameEdit').value
+      );
+    }
+    syncBarcodeQuantityForChoice();
+    if (!barcodeReadingManuallyEdited) updateBarcodeReadingFromChoice();
   }
 });
 $('barcodeTypeNameEdit').addEventListener('input', () => {
   syncBarcodeChoiceLabels();
+  if ($('barcodeChoiceProduct').checked && barcodeLookupData) {
+    barcodeLookupData.productUnit = deriveProductRegistrationUnit(
+      $('barcodeProductNameEdit').value,
+      $('barcodeTypeNameEdit').value
+    );
+    syncBarcodeQuantityForChoice();
+  }
   if ($('barcodeChoiceType').checked && !barcodeReadingManuallyEdited) {
     updateBarcodeReadingFromChoice();
   }
@@ -250,19 +253,40 @@ $('barcodeTypeNameEdit').addEventListener('input', () => {
 $('barcodeChoiceProduct').addEventListener('change', () => {
   if (!$('barcodeChoiceProduct').checked) return;
   barcodeReadingManuallyEdited = false;
+  syncBarcodeQuantityForChoice();
   updateBarcodeReadingFromChoice();
 });
 $('barcodeChoiceType').addEventListener('change', () => {
   if (!$('barcodeChoiceType').checked) return;
   barcodeReadingManuallyEdited = false;
+  syncBarcodeQuantityForChoice();
   updateBarcodeReadingFromChoice();
+});
+$('barcodeAmount').addEventListener('input', () => {
+  if (!$('barcodeChoiceType').checked || !barcodeLookupData) return;
+  const amount = Number($('barcodeAmount').value);
+  const unit = $('barcodeUnit').value;
+  barcodeLookupData.typeQuantity = amount > 0 && unit ? { amount, unit } : null;
+});
+$('barcodeUnit').addEventListener('change', () => {
+  if (!barcodeLookupData) return;
+
+  if ($('barcodeChoiceProduct').checked) {
+    barcodeLookupData.productUnit = $('barcodeUnit').value || '個';
+    return;
+  }
+
+  const amount = Number($('barcodeAmount').value);
+  const unit = $('barcodeUnit').value;
+  barcodeLookupData.typeQuantity = amount > 0 && unit ? { amount, unit } : null;
 });
 $('barcodeReading').addEventListener('input', () => {
   barcodeReadingManuallyEdited = true;
 });
-$('barcodeUseImage').addEventListener('change', refreshBarcodeImageOption);
 $('btnRegisterBarcodeProduct').addEventListener('click', registerBarcodeProduct);
 $('barcodeDialog').addEventListener('close', stopBarcodeCamera);
+
+$('productKind').addEventListener('change', syncProductKindFields);
 
 $('productName').addEventListener('compositionstart', () => {
   productNameIsComposing = true;
@@ -334,6 +358,12 @@ document.addEventListener('focusin', (e) => {
   });
 });
 
+window.addEventListener('beforeunload', (e) => {
+  if (!productEditDirty) return;
+  e.preventDefault();
+  e.returnValue = '';
+});
+
 if ('serviceWorker' in navigator) {
   window.addEventListener('load', () => navigator.serviceWorker.register('./sw.js').catch(() => {}));
 }
@@ -355,46 +385,54 @@ function makeId(prefix) {
   return prefix + '_' + Date.now().toString(36) + '_' + Math.random().toString(36).slice(2, 7);
 }
 
-function seedIfEmpty() {
-  const initialized = localStorage.getItem(INITIALIZED_KEY) === '1';
-
-  // 初回起動時だけサンプル商品を追加する。
-  // 一度初期化した後は、商品が0件でも勝手に復活させない。
-  if (initialized) return;
-
-  if (!products.length) {
-    products = [
-      {
-        id: makeId('p'),
-        name: 'ブレンディ',
-        reading: 'ぶれんでぃ',
-        amount: 110,
-        unit: 'g',
-        defaultTax: 8,
-        history: [],
-        stores: [
-          {id:makeId('s'),store:'平和堂',price:598,priceType:'inc',tax:8,couponType:'none',couponValue:0},
-          {id:makeId('s'),store:'業務スーパー',price:620,priceType:'inc',tax:8,couponType:'percent',couponValue:20},
-          {id:makeId('s'),store:'イオン',price:580,priceType:'inc',tax:8,couponType:'yen',couponValue:50}
-        ]
-      },
-      {
-        id: makeId('p'),
-        name: '牛乳',
-        reading: 'ぎゅうにゅう',
-        amount: 1000,
-        unit: 'ml',
-        defaultTax: 8,
-        history: [],
-        stores: [
-          {id:makeId('s'),store:'平和堂',price:218,priceType:'inc',tax:8,couponType:'none',couponValue:0}
-        ]
-      }
-    ];
-    persistNow();
+function initializeWithoutSamples() {
+  // 新規利用時は商品0件で開始する。サンプル商品は自動登録しない。
+  if (localStorage.getItem(INITIALIZED_KEY) !== '1') {
+    localStorage.setItem(INITIALIZED_KEY, '1');
   }
+}
 
-  localStorage.setItem(INITIALIZED_KEY, '1');
+function normalizeProductsData(list) {
+  if (!Array.isArray(list)) return [];
+
+  return list.map(raw => {
+    const product = raw && typeof raw === 'object' ? raw : {};
+    const kind = product.kind === 'type' ? 'type' : 'product';
+    const amount = kind === 'type'
+      ? (Number(product.amount) > 0 ? Number(product.amount) : '')
+      : (Number(product.amount) > 0 ? Number(product.amount) : 1);
+    const unit = String(product.unit || (kind === 'type' ? '' : '個')).trim();
+    const stores = Array.isArray(product.stores) ? product.stores : [];
+
+    return {
+      ...product,
+      id: String(product.id || makeId('p')),
+      kind,
+      name: String(product.name || '').trim(),
+      reading: normalizeReadingInput(product.reading || ''),
+      amount,
+      unit,
+      defaultTax: Number.isFinite(Number(product.defaultTax)) ? Number(product.defaultTax) : settings.reducedTax,
+      history: Array.isArray(product.history) ? product.history.slice(0, 20) : [],
+      stores: stores.map(rawRow => {
+        const row = rawRow && typeof rawRow === 'object' ? rawRow : {};
+        return {
+          ...row,
+          id: String(row.id || makeId('s')),
+          store: String(row.store || ''),
+          price: row.price ?? '',
+          priceType: row.priceType === 'inc' ? 'inc' : 'ex',
+          tax: Number.isFinite(Number(row.tax)) ? Number(row.tax) : Number(product.defaultTax ?? settings.reducedTax),
+          couponType: ['percent','yen'].includes(row.couponType) ? row.couponType : 'none',
+          couponValue: row.couponValue ?? '',
+          amount: kind === 'type' && row.amount === ''
+            ? ''
+            : (Number(row.amount) > 0 ? Number(row.amount) : amount),
+          unit: String(row.unit || unit).trim() || (kind === 'type' ? '個' : unit)
+        };
+      })
+    };
+  }).filter(product => product.name);
 }
 
 function persistSoon() {
@@ -413,6 +451,98 @@ function taxOptions(selected) {
   return values.map(v => `<option value="${escapeAttr(v)}"${Number(v)===Number(selected)?' selected':''}>${v}%</option>`).join('');
 }
 
+function beginProductEdit(productId) {
+  const source = products.find(product => product.id === productId);
+  if (!source) {
+    productEditDraft = null;
+    productEditDirty = false;
+    return;
+  }
+  productEditDraft = structuredCloneSafe(source);
+  productEditDirty = false;
+}
+
+function confirmDiscardProductEdit() {
+  if (!productEditDraft || !productEditDirty) return true;
+  return window.confirm('保存していない変更があります。変更を破棄して移動しますか？');
+}
+
+function closeProductEdit({discard = false} = {}) {
+  if (!discard && !confirmDiscardProductEdit()) return false;
+  openProductId = null;
+  productEditDraft = null;
+  productEditDirty = false;
+  render();
+  return true;
+}
+
+function markProductEditDirty() {
+  productEditDirty = true;
+}
+
+function showSaveToast(message = '保存しました') {
+  const toast = $('saveToast');
+  if (!toast) return;
+  clearTimeout(toastTimer);
+  toast.textContent = message;
+  toast.classList.remove('hidden');
+  requestAnimationFrame(() => toast.classList.add('show'));
+  toastTimer = setTimeout(() => {
+    toast.classList.remove('show');
+    setTimeout(() => toast.classList.add('hidden'), 180);
+  }, 2000);
+}
+
+function saveProductEdit(productId) {
+  if (!productEditDraft || productEditDraft.id !== productId) return;
+  const index = products.findIndex(product => product.id === productId);
+  if (index < 0) return;
+
+  const original = products[index];
+  const draft = structuredCloneSafe(productEditDraft);
+  const history = Array.isArray(original.history) ? structuredCloneSafe(original.history) : [];
+  const originalRows = new Map((original.stores || []).map(row => [row.id, row]));
+
+  for (const row of draft.stores || []) {
+    const beforeRow = originalRows.get(row.id);
+    if (!beforeRow) continue;
+    const before = historyPriceValue(beforeRow.price);
+    const after = historyPriceValue(row.price);
+    if (before !== null && after !== null && !sameHistoryPrice(before, after)) {
+      history.unshift({
+        id: makeId('h'),
+        updatedAt: new Date().toISOString(),
+        store: (row.store || beforeRow.store || '店舗未入力').trim() || '店舗未入力',
+        beforePrice: Number(before),
+        afterPrice: Number(after)
+      });
+    }
+  }
+
+  draft.history = history.slice(0, 20);
+  products[index] = draft;
+  persistNow();
+  openProductId = null;
+  productEditDraft = null;
+  productEditDirty = false;
+  render();
+  showSaveToast('保存しました');
+}
+
+function deleteProductFromDetail(productId) {
+  const product = products.find(item => item.id === productId);
+  if (!product) return;
+  if (!window.confirm(`「${product.name}」を削除しますか？`)) return;
+
+  products = products.filter(item => item.id !== productId);
+  openProductId = null;
+  productEditDraft = null;
+  productEditDirty = false;
+  persistNow();
+  render();
+  showSaveToast('商品を削除しました');
+}
+
 function render() {
   const q = $('searchInput').value.trim().toLowerCase();
 
@@ -421,6 +551,7 @@ function render() {
   $('storePurchaseView').classList.toggle('hidden', !storePurchaseMode);
   $('productList').classList.toggle('hidden', storePurchaseMode);
   $('searchInput').closest('.searchbar').classList.toggle('hidden', storePurchaseMode);
+  $('btnBulkStore').classList.toggle('hidden', storePurchaseMode);
   const legend = document.querySelector('.best-legend');
   if (legend) legend.classList.toggle('hidden', storePurchaseMode);
 
@@ -453,26 +584,30 @@ function render() {
       listEl.appendChild(label);
       lastGroup = group;
     }
+
     const node = productTemplate.content.firstElementChild.cloneNode(true);
     node.dataset.id = product.id;
 
-    const bests = getBests(product);
-    node.querySelector('.product-name').textContent = product.name;
-    node.querySelector('.product-size').textContent = `${fmt(product.amount)}${product.unit}`;
+    const isOpen = !bulkMode && openProductId === product.id;
+    if (isOpen && (!productEditDraft || productEditDraft.id !== product.id)) beginProductEdit(product.id);
+    const displayProduct = isOpen && productEditDraft ? productEditDraft : product;
+    const bests = getBests(displayProduct);
+
+    node.querySelector('.product-name').textContent = displayProduct.name;
+    node.querySelector('.product-size').textContent = displayProduct.kind === 'type'
+      ? '店舗別'
+      : `${fmt(displayProduct.amount)}${displayProduct.unit}`;
 
     const bestStore = node.querySelector('.best-store');
     const bestPrice = node.querySelector('.best-price');
     const bestUnit = node.querySelector('.best-unit');
     if (bests.before) {
-      bestStore.textContent = formatBestStores(bests);
-
+      renderBestStoreSummary(bestStore, bests);
       const baseCalc = bests.before.calc;
       bestPrice.textContent =
         `${fmtPrice(baseCalc.grossBefore)}[${fmtPrice(baseCalc.afterTotal)}](${fmtPriceDelta(baseCalc.afterTotal - baseCalc.grossBefore)})円`;
-
       bestUnit.textContent =
-        `${fmtUnit(baseCalc.beforeUnit)}[${fmtUnit(baseCalc.afterUnit)}](${fmtUnitDelta(baseCalc.afterUnit - baseCalc.beforeUnit)})円/${product.unit}`;
-
+        `${fmtUnit(baseCalc.beforeUnit)}[${fmtUnit(baseCalc.afterUnit)}](${fmtUnitDelta(baseCalc.afterUnit - baseCalc.beforeUnit)})円/${bests.before.unit}`;
       node.classList.add('has-best');
     } else {
       bestStore.textContent = '価格未登録';
@@ -499,46 +634,41 @@ function render() {
         updateBulkSelectedCount();
         return;
       }
-      openProductId = openProductId === product.id ? null : product.id;
+
+      if (openProductId === product.id) {
+        closeProductEdit();
+        return;
+      }
+
+      if (!confirmDiscardProductEdit()) return;
+      openProductId = product.id;
+      beginProductEdit(product.id);
       render();
     });
 
     const detail = node.querySelector('.product-detail');
-    const isOpen = !bulkMode && openProductId === product.id;
     detail.classList.toggle('hidden', !isOpen);
     node.classList.toggle('open', isOpen);
 
-    if (isOpen) {
-      const imageWrap = node.querySelector('.product-image-wrap');
-      const imageEl = node.querySelector('.product-image');
-      const imageUrl = safeRemoteImageUrl(product.imageUrl);
-
-      if (imageUrl) {
-        imageEl.src = imageUrl;
-        imageEl.alt = `${product.name}の商品画像`;
-        imageWrap.classList.remove('hidden');
-        imageEl.addEventListener('error', () => {
-          imageWrap.classList.add('hidden');
-          imageEl.removeAttribute('src');
-        }, { once: true });
-      } else {
-        imageWrap.classList.add('hidden');
-        imageEl.removeAttribute('src');
-      }
-
+    if (isOpen && productEditDraft) {
+      const draft = productEditDraft;
       node.querySelector('.btn-edit-product').addEventListener('click', () => openProductDialog(product.id));
       node.querySelector('.btn-history').addEventListener('click', () => openHistoryDialog(product.id));
       node.querySelector('.btn-add-store').addEventListener('click', () => {
-        product.stores.push({
+        draft.stores.push({
           id: makeId('s'),
           store: '',
           price: '',
           priceType: settings.defaultPriceType,
-          tax: product.defaultTax,
+          tax: draft.defaultTax,
           couponType: 'none',
-          couponValue: ''
+          couponValue: '',
+          amount: draft.kind === 'type'
+            ? (Number(draft.amount) > 0 ? Number(draft.amount) : '')
+            : (Number(draft.amount) > 0 ? Number(draft.amount) : 1),
+          unit: draft.unit || '個'
         });
-        persistNow();
+        markProductEditDirty();
         render();
         requestAnimationFrame(() => {
           const card = listEl.querySelector(`[data-id="${cssEscape(product.id)}"]`);
@@ -548,21 +678,24 @@ function render() {
       });
 
       const storeList = node.querySelector('.store-list');
-
-      product.stores.forEach(row => {
+      draft.stores.forEach(row => {
         const flags = {
           before: bests.before?.row.id === row.id,
           after: bests.after?.row.id === row.id
         };
-        storeList.appendChild(renderStoreRow(product, row, flags));
+        storeList.appendChild(renderStoreRow(draft, row, flags));
       });
 
-      if (!product.stores.length) {
+      if (!draft.stores.length) {
         const hint = document.createElement('div');
         hint.className = 'empty';
         hint.textContent = '「＋店舗」で価格を追加';
         storeList.appendChild(hint);
       }
+
+      node.querySelector('.btn-save-product-edit').addEventListener('click', () => saveProductEdit(product.id));
+      node.querySelector('.btn-cancel-product-edit').addEventListener('click', () => closeProductEdit({discard:true}));
+      node.querySelector('.btn-delete-product-detail').addEventListener('click', () => deleteProductFromDetail(product.id));
     }
 
     listEl.appendChild(node);
@@ -580,41 +713,29 @@ function renderStoreRow(product, row, bestFlags = {before:false, after:false}) {
   const tax = el.querySelector('.st-tax');
   const couponType = el.querySelector('.st-coupon-type');
   const couponValue = el.querySelector('.st-coupon-value');
+  const amount = el.querySelector('.st-amount');
+  const unitSelect = el.querySelector('.st-unit-select');
+  const quantityFields = el.querySelector('.st-quantity-fields');
   const priceResultOut = el.querySelector('.st-price-result');
   const unitOut = el.querySelector('.st-unit');
 
   store.value = row.store ?? '';
   price.value = row.price ?? '';
-  priceType.value = row.priceType === 'ex' ? 'ex' : 'inc';
+  priceType.value = row.priceType === 'inc' ? 'inc' : 'ex';
   tax.innerHTML = taxOptions(row.tax ?? product.defaultTax);
   couponType.value = ['percent','yen'].includes(row.couponType) ? row.couponType : 'none';
   couponValue.value = row.couponValue ?? '';
 
-  let priceEditStart = historyPriceValue(row.price);
+  const isType = product.kind === 'type';
+  quantityFields.classList.toggle('hidden', !isType);
+  if (isType) {
+    amount.value = Number(row.amount) > 0 ? row.amount : (product.amount || 1);
+    setSelectValueWithOption(unitSelect, row.unit || product.unit || '個');
+  }
 
-  price.addEventListener('focus', () => {
-    priceEditStart = historyPriceValue(row.price);
-  });
-
-  price.addEventListener('blur', () => {
-    const after = historyPriceValue(price.value);
-    if (priceEditStart !== null && after !== null && !sameHistoryPrice(priceEditStart, after)) {
-      addPriceHistory(product, row.store || store.value.trim(), priceEditStart, after);
-    }
-    priceEditStart = after;
-  });
-
-  function sync() {
-    row.store = store.value.trim();
-    row.price = numberOrBlank(price.value);
-    row.priceType = priceType.value;
-    row.tax = Number(tax.value);
-    row.couponType = couponType.value;
-    row.couponValue = numberOrBlank(couponValue.value);
-
-    couponValue.disabled = row.couponType === 'none';
-    couponValue.placeholder = row.couponType === 'percent' ? '%' : row.couponType === 'yen' ? '円' : '-';
-
+  function updateOutputs() {
+    couponValue.disabled = couponType.value === 'none';
+    couponValue.placeholder = couponType.value === 'percent' ? '%' : couponType.value === 'yen' ? '円' : '-';
     const calc = calcRow(product, row);
     if (calc) {
       priceResultOut.textContent = `${fmtPrice(calc.grossBefore)}[${fmtPrice(calc.afterTotal)}](${fmtPriceDelta(calc.afterTotal - calc.grossBefore)})`;
@@ -623,47 +744,75 @@ function renderStoreRow(product, row, bestFlags = {before:false, after:false}) {
       priceResultOut.textContent = '-';
       unitOut.textContent = '-';
     }
+  }
 
-    persistSoon();
+  function sync() {
+    row.store = store.value.trim();
+    row.price = numberOrBlank(price.value);
+    row.priceType = priceType.value;
+    row.tax = Number(tax.value);
+    row.couponType = couponType.value;
+    row.couponValue = numberOrBlank(couponValue.value);
+    if (isType) {
+      row.amount = numberOrBlank(amount.value);
+      row.unit = unitSelect.value || product.unit || '個';
+    }
+    markProductEditDirty();
+    updateOutputs();
     refreshBestOnly(product.id);
   }
 
-  [store, price, priceType, tax, couponType, couponValue].forEach(ctrl => {
+  [store, price, priceType, tax, couponType, couponValue, amount, unitSelect].forEach(ctrl => {
+    if (!ctrl) return;
     ctrl.addEventListener('input', sync);
     ctrl.addEventListener('change', sync);
   });
 
   el.querySelector('.st-delete').addEventListener('click', () => {
-    product.stores = product.stores.filter(s => s.id !== row.id);
-    persistNow();
+    product.stores = product.stores.filter(item => item.id !== row.id);
+    productEditDraft = product;
+    markProductEditDirty();
     render();
   });
 
-  sync();
+  updateOutputs();
   return el;
 }
 
+function setSelectValueWithOption(select, value) {
+  const normalized = String(value || '').trim();
+  if (!normalized) return;
+  if (!Array.from(select.options).some(option => option.value === normalized)) {
+    const option = document.createElement('option');
+    option.value = normalized;
+    option.textContent = normalized;
+    select.appendChild(option);
+  }
+  select.value = normalized;
+}
+
 function refreshBestOnly(productId) {
-  const product = products.find(p => p.id === productId);
+  const product = productEditDraft?.id === productId
+    ? productEditDraft
+    : products.find(p => p.id === productId);
   const card = listEl.querySelector(`[data-id="${cssEscape(productId)}"]`);
   if (!product || !card) return;
 
   const bests = getBests(product);
   const hasBest = !!bests.before;
-
-  card.querySelector('.best-store').textContent = hasBest ? formatBestStores(bests) : '価格未登録';
+  const bestStore = card.querySelector('.best-store');
+  if (hasBest) renderBestStoreSummary(bestStore, bests);
+  else bestStore.textContent = '価格未登録';
 
   const bestPrice = card.querySelector('.best-price');
   const bestUnit = card.querySelector('.best-unit');
 
   if (hasBest) {
     const baseCalc = bests.before.calc;
-
     bestPrice.textContent =
       `${fmtPrice(baseCalc.grossBefore)}[${fmtPrice(baseCalc.afterTotal)}](${fmtPriceDelta(baseCalc.afterTotal - baseCalc.grossBefore)})円`;
-
     bestUnit.textContent =
-      `${fmtUnit(baseCalc.beforeUnit)}[${fmtUnit(baseCalc.afterUnit)}](${fmtUnitDelta(baseCalc.afterUnit - baseCalc.beforeUnit)})円/${product.unit}`;
+      `${fmtUnit(baseCalc.beforeUnit)}[${fmtUnit(baseCalc.afterUnit)}](${fmtUnitDelta(baseCalc.afterUnit - baseCalc.beforeUnit)})円/${bests.before.unit}`;
   } else {
     bestPrice.textContent = '-';
     bestUnit.textContent = '-';
@@ -684,13 +833,11 @@ function refreshBestOnly(productId) {
         ? `${fmtPrice(calc.grossBefore)}[${fmtPrice(calc.afterTotal)}](${fmtPriceDelta(calc.afterTotal - calc.grossBefore)})`
         : '-';
     }
-
     if (unitOut) {
       unitOut.textContent = calc
         ? `${fmtUnit(calc.beforeUnit)}[${fmtUnit(calc.afterUnit)}](${fmtUnitDelta(calc.afterUnit - calc.beforeUnit)})`
         : '-';
     }
-
     applyBestFlags(rowEl, mark, {
       before: !!bests.before && bests.before.row.id === row?.id,
       after: !!bests.after && bests.after.row.id === row?.id
@@ -700,7 +847,7 @@ function refreshBestOnly(productId) {
 
 function calcRow(product, row) {
   const price = Number(row.price);
-  const amount = Number(product.amount);
+  const amount = Number(product.kind === 'type' ? row.amount : product.amount);
   const tax = Number(row.tax);
   if (!(price > 0) || !(amount > 0) || !(tax >= 0)) return null;
 
@@ -734,7 +881,7 @@ function getBests(product) {
     if (!calc) return;
 
     if (!before || calc.beforeUnit < before.calc.beforeUnit) {
-      before = { row, store: row.store, calc };
+      before = { row, store: row.store, calc, unit: product.kind === 'type' ? (row.unit || product.unit) : product.unit };
     }
   });
 
@@ -756,28 +903,46 @@ function getBests(product) {
     if (!beatsBaseBefore || !beatsBaseAfter) return;
 
     if (!after || calc.afterUnit < after.calc.afterUnit) {
-      after = { row, store: row.store, calc };
+      after = { row, store: row.store, calc, unit: product.kind === 'type' ? (row.unit || product.unit) : product.unit };
     }
   });
 
   return { before, after };
 }
 
-function formatBestStores(bests) {
-  if (!bests.before) return '価格未登録';
+function createPriceBadge(kind, compact = false) {
+  const badge = document.createElement('span');
+  badge.className = `price-badge ${kind === 'special' ? 'badge-special' : 'badge-low'}${compact ? ' mini-badge' : ''}`;
+  const icon = document.createElement('span');
+  icon.className = 'badge-icon';
+  icon.textContent = kind === 'special' ? '◆' : '♛';
+  badge.append(icon, document.createTextNode(kind === 'special' ? '特安' : '最安'));
+  return badge;
+}
 
-  const parts = [`★${bests.before.store || '店舗未入力'}`];
-
-  if (bests.after) {
-    parts.push(`◆${bests.after.store || '店舗未入力'}`);
+function renderBestStoreSummary(container, bests) {
+  container.innerHTML = '';
+  if (!bests.before) {
+    container.textContent = '価格未登録';
+    return;
   }
 
-  return parts.join('　');
+  const add = (kind, store) => {
+    const wrap = document.createElement('span');
+    wrap.className = 'best-store-item';
+    wrap.append(createPriceBadge(kind, true), document.createTextNode(store || '店舗未入力'));
+    container.appendChild(wrap);
+  };
+
+  add('low', bests.before.store);
+  if (bests.after) add('special', bests.after.store);
 }
 
 function applyBestFlags(rowEl, markEl, flags) {
-  const mark = flags.before ? '★' : (flags.after ? '◆' : '');
-  if (markEl) markEl.textContent = mark;
+  if (!markEl) return;
+  markEl.innerHTML = '';
+  if (flags.before) markEl.appendChild(createPriceBadge('low', true));
+  else if (flags.after) markEl.appendChild(createPriceBadge('special', true));
 }
 
 function ensureHistory(product) {
@@ -862,14 +1027,19 @@ function formatHistoryDate(iso) {
 }
 
 function setStorePurchaseMode(enabled) {
+  if (!!enabled && !confirmDiscardProductEdit()) return;
+  if (!!enabled && openProductId) {
+    openProductId = null;
+    productEditDraft = null;
+    productEditDirty = false;
+  }
+
   storePurchaseMode = !!enabled;
 
   if (storePurchaseMode) {
     bulkMode = false;
     bulkSelected.clear();
-    openProductId = null;
-    $('btnBulkStore').textContent = '一括店舗';
-    $('btnStorePurchase').textContent = '購入品中';
+    $('btnStorePurchase').textContent = '商品一覧';
   } else {
     openStoreName = null;
     $('storePurchaseSearch').value = '';
@@ -897,8 +1067,8 @@ function buildStorePurchaseMap() {
       });
     };
 
-    addItem(bests.before, '★');
-    if (bests.after) addItem(bests.after, '◆');
+    addItem(bests.before, 'low');
+    if (bests.after) addItem(bests.after, 'special');
   });
 
   return map;
@@ -936,11 +1106,11 @@ function renderStorePurchaseView() {
 
     const count = document.createElement('span');
     count.className = 'store-summary-count';
-    const starCount = items.filter(item => item.mark === '★').length;
-    const diamondCount = items.filter(item => item.mark === '◆').length;
+    const starCount = items.filter(item => item.mark === 'low').length;
+    const diamondCount = items.filter(item => item.mark === 'special').length;
     const parts = [];
-    if (starCount) parts.push(`★${starCount}`);
-    if (diamondCount) parts.push(`◆${diamondCount}`);
+    if (starCount) parts.push(`最安${starCount}`);
+    if (diamondCount) parts.push(`特安${diamondCount}`);
     count.textContent = `${parts.join(' / ')}　計${items.length}品`;
 
     const chev = document.createElement('span');
@@ -965,7 +1135,7 @@ function renderStorePurchaseView() {
 
         const mark = document.createElement('span');
         mark.className = 'store-product-mark';
-        mark.textContent = item.mark;
+        mark.appendChild(createPriceBadge(item.mark, true));
 
         const nameWrap = document.createElement('div');
         nameWrap.className = 'store-product-name-wrap';
@@ -981,7 +1151,9 @@ function renderStorePurchaseView() {
 
         const meta = document.createElement('span');
         meta.className = 'store-product-meta';
-        meta.textContent = `${fmt(item.product.amount)}${item.product.unit}`;
+        const itemAmount = item.product.kind === 'type' ? item.row.amount : item.product.amount;
+        const itemUnit = item.product.kind === 'type' ? item.row.unit : item.product.unit;
+        meta.textContent = `${fmt(itemAmount)}${itemUnit}`;
 
         nameWrap.append(checkbox, productName, meta);
 
@@ -993,7 +1165,7 @@ function renderStorePurchaseView() {
         const unit = document.createElement('span');
         unit.className = 'store-product-unit';
         unit.textContent =
-          `${fmtUnit(item.calc.beforeUnit)}[${fmtUnit(item.calc.afterUnit)}](${fmtUnitDelta(item.calc.afterUnit - item.calc.beforeUnit)})円/${item.product.unit}`;
+          `${fmtUnit(item.calc.beforeUnit)}[${fmtUnit(item.calc.afterUnit)}](${fmtUnitDelta(item.calc.afterUnit - item.calc.beforeUnit)})円/${itemUnit}`;
 
         row.append(mark, nameWrap, price, unit);
         productList.appendChild(row);
@@ -1033,6 +1205,12 @@ function deleteAllProducts() {
 }
 
 function setBulkMode(enabled) {
+  if (enabled && !confirmDiscardProductEdit()) return;
+  if (enabled && openProductId) {
+    openProductId = null;
+    productEditDraft = null;
+    productEditDirty = false;
+  }
   if (enabled) storePurchaseMode = false;
   bulkMode = !!enabled;
   if (!bulkMode) {
@@ -1044,7 +1222,7 @@ function setBulkMode(enabled) {
   }
 
   $('bulkStoreBar').classList.toggle('hidden', !bulkMode);
-  $('btnBulkStore').textContent = bulkMode ? '一括中' : '一括店舗';
+  $('btnBulkStore').textContent = bulkMode ? '追加対象選択中' : '店舗一括追加';
   updateBulkSelectedCount();
   render();
 
@@ -1112,7 +1290,9 @@ function bulkAddStore() {
       priceType: settings.defaultPriceType,
       tax: product.defaultTax,
       couponType: 'none',
-      couponValue: ''
+      couponValue: '',
+      amount: product.kind === 'type' ? '' : (Number(product.amount) > 0 ? Number(product.amount) : 1),
+      unit: product.unit || '個'
     });
 
     added += 1;
@@ -1127,6 +1307,181 @@ function bulkAddStore() {
   bulkSelected.clear();
   updateBulkSelectedCount();
   render();
+}
+
+async function loadRecommendedProductsDirect() {
+  const msg = $('templateMessage');
+  const btn = $('btnLoadRecommendedTemplate');
+  btn.disabled = true;
+  msg.textContent = 'おすすめ商品を読み込み中…';
+  try {
+    const response = await fetch('./template-products.json?v=1', {cache:'no-store'});
+    if (!response.ok) throw new Error('fetch failed');
+    const data = await response.json();
+    if (!Array.isArray(data.products)) throw new Error('invalid');
+
+    const keys = new Set(products.map(productTemplateKey));
+    let added = 0;
+    data.products.forEach(item => {
+      const product = {
+        id: makeId('p'),
+        name: String(item.name || '').trim(),
+        reading: normalizeReadingInput(item.reading || ''),
+        kind: 'product',
+        amount: Number(item.amount),
+        unit: String(item.unit || '').trim(),
+        defaultTax: Number.isFinite(Number(item.defaultTax)) ? Number(item.defaultTax) : settings.reducedTax,
+        history: [],
+        stores: []
+      };
+      if (!product.name || !(product.amount > 0) || !product.unit) return;
+      const key = productTemplateKey(product);
+      if (keys.has(key)) return;
+      products.push(product);
+      keys.add(key);
+      added += 1;
+    });
+    persistNow();
+    render();
+    updateTemplateSummary();
+    msg.textContent = added ? `おすすめ商品を${added}件追加したよ。` : '追加できるおすすめ商品はなかったよ。';
+  } catch {
+    msg.textContent = 'おすすめ商品を読み込めなかったよ。';
+  } finally {
+    btn.disabled = false;
+  }
+}
+
+function exportCurrentTemplateFile() {
+  const msg = $('templateMessage');
+  if (!products.length) {
+    msg.textContent = 'テンプレートにする商品がまだないよ。';
+    return;
+  }
+
+  const payload = {
+    app: 'PriceLog',
+    type: 'current-products-template',
+    version: 2,
+    createdAt: new Date().toISOString(),
+    products: products.map(product => ({
+      name: product.name,
+      reading: product.reading || '',
+      kind: product.kind === 'type' ? 'type' : 'product',
+      barcode: product.kind === 'type' ? '' : String(product.barcode || ''),
+      amount: Number(product.amount) > 0 ? Number(product.amount) : 1,
+      unit: product.unit || '個',
+      defaultTax: Number(product.defaultTax),
+      stores: (product.stores || []).map(row => ({
+        name: String(row.store || '').trim(),
+        amount: product.kind === 'type'
+          ? (Number(row.amount) > 0 ? Number(row.amount) : Number(product.amount) || 1)
+          : undefined,
+        unit: product.kind === 'type' ? (row.unit || product.unit || '個') : undefined,
+        price: '',
+        priceType: 'ex',
+        tax: Number(product.defaultTax),
+        couponType: 'none',
+        couponValue: ''
+      })).filter(row => row.name)
+    }))
+  };
+
+  const blob = new Blob([JSON.stringify(payload, null, 2)], {type:'application/json'});
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `PriceLog-template-${new Date().toISOString().slice(0,10)}.json`;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  URL.revokeObjectURL(url);
+  msg.textContent = `現在の商品${products.length}件をテンプレートに書き出したよ。価格・クーポン・履歴は含めていないよ。`;
+}
+
+function importTemplateFile(e) {
+  const file = e.target.files?.[0];
+  if (!file) return;
+  const msg = $('templateMessage');
+  const reader = new FileReader();
+
+  reader.onload = () => {
+    try {
+      const data = JSON.parse(String(reader.result));
+      if (data?.app !== 'PriceLog' || !Array.isArray(data.products)) throw new Error('invalid');
+
+      const productByKey = new Map(products.map(product => [productTemplateKey(product), product]));
+      let addedProducts = 0;
+      let addedStores = 0;
+
+      data.products.forEach(raw => {
+        const kind = raw.kind === 'type' ? 'type' : 'product';
+        const amount = Number(raw.amount) > 0 ? Number(raw.amount) : 1;
+        const unit = String(raw.unit || '個').trim() || '個';
+        const candidate = {
+          id: makeId('p'),
+          name: String(raw.name || '').trim(),
+          reading: normalizeReadingInput(raw.reading || ''),
+          kind,
+          barcode: kind === 'product' ? normalizeBarcodeCode(raw.barcode || '') : '',
+          amount,
+          unit,
+          defaultTax: Number.isFinite(Number(raw.defaultTax)) ? Number(raw.defaultTax) : settings.reducedTax,
+          history: [],
+          stores: []
+        };
+        if (!candidate.name) return;
+
+        const key = productTemplateKey(candidate);
+        let product = productByKey.get(key);
+        if (!product) {
+          if (candidate.barcode && findProductByBarcode(candidate.barcode)) candidate.barcode = '';
+          product = candidate;
+          products.push(product);
+          productByKey.set(key, product);
+          addedProducts += 1;
+        }
+
+        const sourceStores = Array.isArray(raw.stores) ? raw.stores : [];
+        sourceStores.forEach(storeRaw => {
+          const storeName = String(storeRaw?.name ?? storeRaw?.store ?? '').trim();
+          if (!storeName) return;
+          const exists = product.stores.some(row =>
+            String(row.store || '').trim().toLowerCase() === storeName.toLowerCase()
+          );
+          if (exists) return;
+
+          product.stores.push({
+            id: makeId('s'),
+            store: storeName,
+            price: '',
+            priceType: 'ex',
+            tax: Number(product.defaultTax),
+            couponType: 'none',
+            couponValue: '',
+            amount: product.kind === 'type'
+              ? (Number(storeRaw?.amount) > 0 ? Number(storeRaw.amount) : Number(product.amount) || 1)
+              : Number(product.amount) || 1,
+            unit: product.kind === 'type'
+              ? (String(storeRaw?.unit || product.unit || '個').trim() || '個')
+              : product.unit
+          });
+          addedStores += 1;
+        });
+      });
+
+      products = normalizeProductsData(products);
+      persistNow();
+      render();
+      msg.textContent = `商品${addedProducts}件、店舗行${addedStores}件を差分追加したよ。価格は空欄・税抜で読み込んだよ。`;
+    } catch {
+      msg.textContent = 'テンプレートファイルを読み込めなかったよ。';
+    } finally {
+      e.target.value = '';
+    }
+  };
+
+  reader.readAsText(file);
 }
 
 function normalizeTemplateData(data) {
@@ -1180,14 +1535,8 @@ function selectedTemplateStores(data = customTemplate) {
 function updateTemplateSummary() {
   const el = $('templateSummary');
   if (!el) return;
-
-  const productsCount = selectedTemplateProducts().length;
-  const storesCount = selectedTemplateStores().length;
-  const allProducts = customTemplate.products.length;
-  const allStores = customTemplate.stores.length;
-
-  el.textContent =
-    `商品 ${productsCount}/${allProducts}件選択　店舗 ${storesCount}/${allStores}件選択`;
+  const storeCount = products.reduce((sum, product) => sum + (product.stores || []).filter(row => String(row.store || '').trim()).length, 0);
+  el.textContent = `現在の商品 ${products.length}件　店舗行 ${storeCount}件`;
 }
 
 function refreshTemplateTaxOptions() {
@@ -1334,6 +1683,7 @@ function addTemplateProduct() {
     selected: true,
     name,
     reading,
+    kind: 'product',
     amount,
     unit,
     defaultTax: Number.isFinite(tax) ? tax : settings.reducedTax
@@ -1579,11 +1929,12 @@ function productTemplateKey(product) {
     .normalize('NFKC')
     .trim()
     .toLowerCase();
+  const kind = product.kind === 'type' ? 'type' : 'product';
+  if (kind === 'type') return `${kind}|${name}`;
 
   const unit = String(product.unit || '').normalize('NFKC').trim().toLowerCase();
   const amount = Number(product.amount);
-
-  return `${name}|${Number.isFinite(amount) ? amount : ''}|${unit}`;
+  return `${kind}|${name}|${Number.isFinite(amount) ? amount : ''}|${unit}`;
 }
 
 function openBarcodeDialog() {
@@ -1603,12 +1954,27 @@ function openBarcodeDialog() {
   $('barcodeChoiceProduct').checked = settings.barcodeNameDefault !== 'type';
   $('barcodeChoiceType').checked = settings.barcodeNameDefault === 'type';
 
-  $('barcodeUseImage').checked = !!settings.barcodeUseImageDefault;
-  $('barcodeUseImage').disabled = true;
-  $('barcodeImageOptionNote').textContent = '商品画像が見つかると使用有無を選べるよ。';
+  $('barcodeCameraSection').classList.remove('hidden');
+  $('barcodeManualSection').classList.remove('hidden');
 
   if ($('productDialog').open) $('productDialog').close();
   $('barcodeDialog').showModal();
+}
+
+function resetBarcodeLookupView() {
+  stopBarcodeCamera();
+  barcodeLookupData = null;
+  barcodeReadingManuallyEdited = false;
+  $('barcodeResult').classList.add('hidden');
+  $('barcodeCameraSection').classList.remove('hidden');
+  $('barcodeManualSection').classList.remove('hidden');
+  $('barcodeManualCode').value = '';
+  $('barcodeCameraMessage').textContent = 'カメラを起動してね。';
+  $('barcodeProductNameEdit').value = '';
+  $('barcodeTypeNameEdit').value = '';
+  $('barcodeReading').value = '';
+  $('barcodeAmount').value = '';
+  setBarcodeUnit('');
 }
 
 function closeBarcodeDialog() {
@@ -1639,14 +2005,19 @@ async function startBarcodeCamera() {
   const msg = $('barcodeCameraMessage');
   msg.textContent = 'カメラを起動中…';
 
+  if (!window.isSecureContext) {
+    msg.textContent = 'カメラはHTTPS接続でのみ使用できます。JANコードを直接入力してください。';
+    return;
+  }
+
   if (!navigator.mediaDevices?.getUserMedia) {
-    msg.textContent = 'このブラウザーではカメラを使えないよ。JANコードを直接入力してね。';
+    msg.textContent = 'このブラウザーではカメラを使用できません。JANコードを直接入力してください。';
     return;
   }
 
   barcodeDetector = await createBarcodeDetector();
   if (!barcodeDetector) {
-    msg.textContent = 'このブラウザーはバーコード自動検出に未対応。JANコードを直接入力してね。';
+    msg.textContent = 'このブラウザーはバーコード自動読み取りに未対応です。Chromeを最新版にするか、JANコードを直接入力してください。';
     return;
   }
 
@@ -1665,10 +2036,21 @@ async function startBarcodeCamera() {
     await video.play();
 
     barcodeScanning = true;
-    msg.textContent = 'バーコードを枠の中央に合わせてね。';
+    msg.textContent = 'バーコードを枠の中央に合わせてください。';
     scanBarcodeFrame();
   } catch (err) {
-    msg.textContent = 'カメラを起動できなかったよ。権限を確認するか、JANコードを直接入力してね。';
+    const name = String(err?.name || '');
+    if (name === 'NotAllowedError' || name === 'SecurityError') {
+      msg.textContent = 'カメラの使用が許可されていません。ブラウザーのサイト設定でカメラを許可するか、JANコードを直接入力してください。';
+    } else if (name === 'NotFoundError' || name === 'DevicesNotFoundError') {
+      msg.textContent = '使用できるカメラが見つかりません。JANコードを直接入力してください。';
+    } else if (name === 'NotReadableError' || name === 'TrackStartError') {
+      msg.textContent = 'カメラを使用できません。他のアプリでカメラを閉じてから、もう一度試してください。';
+    } else if (name === 'OverconstrainedError') {
+      msg.textContent = 'この端末のカメラ設定では起動できませんでした。JANコードを直接入力してください。';
+    } else {
+      msg.textContent = 'カメラを起動できませんでした。カメラ権限を確認するか、JANコードを直接入力してください。';
+    }
   }
 }
 
@@ -1749,23 +2131,28 @@ async function lookupBarcodeProduct(code) {
   const status = $('barcodeLookupStatus');
 
   result.classList.remove('hidden');
+  $('barcodeCameraSection').classList.add('hidden');
+  $('barcodeManualSection').classList.add('hidden');
   $('barcodeResultCode').textContent = code;
+  requestAnimationFrame(() => result.scrollIntoView({block:'start'}));
   status.textContent = '商品情報を検索中…';
 
   // 1) PriceLog内の登録済みJAN
   const existing = findProductByBarcode(code);
   if (existing) {
+    const existingTypeName = deriveKnownBarcodeTypeFromText(existing.name || '');
     barcodeLookupData = {
       code,
       source: 'pricelog',
-      imageUrl: safeRemoteImageUrl(existing.imageUrl)
+      typeQuantity: Number(existing.amount) > 0 && existing.unit
+        ? { amount: Number(existing.amount), unit: existing.unit }
+        : null,
+      productUnit: deriveProductRegistrationUnit(existing.name, existingTypeName)
     };
 
     status.textContent = `PriceLog内で「${existing.name}」が見つかったよ。`;
     $('barcodeProductNameEdit').value = existing.name;
-    $('barcodeTypeNameEdit').value = deriveKnownBarcodeTypeFromText(existing.name || '');
-    $('barcodeAmount').value = existing.amount || '';
-    $('barcodeUnit').value = existing.unit || '';
+    $('barcodeTypeNameEdit').value = existingTypeName;
     applyBarcodeRegisterDefaults();
     return;
   }
@@ -2133,21 +2520,21 @@ function chooseBarcodeProductName(candidates, typeName = '') {
 function applyResolvedBarcodeFields({ exactName, typeName, quantity }) {
   // 商品名・種類・内容量は完全に独立して反映する。
   // 種類候補が商品名を上書きすることはない。
-  $('barcodeProductNameEdit').value = cleanBarcodeProductNameCandidate(exactName);
-  $('barcodeTypeNameEdit').value = cleanBarcodeText(typeName);
+  const cleanExactName = cleanBarcodeProductNameCandidate(exactName);
+  const cleanTypeName = cleanBarcodeText(typeName);
+  $('barcodeProductNameEdit').value = cleanExactName;
+  $('barcodeTypeNameEdit').value = cleanTypeName;
 
-  if (quantity && Number(quantity.amount) > 0 && quantity.unit) {
-    $('barcodeAmount').value = String(quantity.amount);
-    setBarcodeUnit(quantity.unit);
-  } else {
-    $('barcodeAmount').value = '';
-    setBarcodeUnit('');
+  if (barcodeLookupData) {
+    barcodeLookupData.typeQuantity = quantity || null;
+    barcodeLookupData.productUnit = deriveProductRegistrationUnit(cleanExactName, cleanTypeName);
   }
 
   // 検索結果が変わるたび、必ず「正式商品名」を初期選択に戻す。
   $('barcodeChoiceProduct').checked = true;
   $('barcodeChoiceType').checked = false;
   syncBarcodeChoiceLabels();
+  syncBarcodeQuantityForChoice();
 }
 
 function applyYahooShoppingResult(code, hit) {
@@ -2159,88 +2546,15 @@ function applyYahooShoppingResult(code, hit) {
     code,
     source: 'yahoo',
     yahooHit: hit,
-    imageUrl: extractYahooImageUrl(hit),
-    product: { product_type: isYahooLikelyFood(hit) ? 'food' : 'other' }
+    product: { product_type: isYahooLikelyFood(hit) ? 'food' : 'other' },
+    typeQuantity: quantity || null,
+    productUnit: deriveProductRegistrationUnit(yahooSearchText(hit, exactName), typeName)
   };
 
   $('barcodeProductNameEdit').value = exactName;
   $('barcodeTypeNameEdit').value = typeName;
 
-  if (quantity) {
-    $('barcodeAmount').value = String(quantity.amount);
-    setBarcodeUnit(quantity.unit);
-  } else {
-    $('barcodeAmount').value = '';
-    setBarcodeUnit('');
-  }
-
   applyBarcodeRegisterDefaults();
-}
-
-function safeRemoteImageUrl(value) {
-  const raw = String(value || '').trim();
-  if (!raw) return '';
-
-  try {
-    const url = new URL(raw);
-    if (url.protocol !== 'https:' && url.protocol !== 'http:') return '';
-    return url.toString();
-  } catch {
-    return '';
-  }
-}
-
-function extractYahooImageUrl(hit) {
-  const candidates = [
-    hit?.image?.medium,
-    hit?.image?.small,
-    hit?.image?.large,
-    hit?.imageUrl,
-    hit?.image?.url
-  ];
-
-  for (const candidate of candidates) {
-    const safe = safeRemoteImageUrl(candidate);
-    if (safe) return safe;
-  }
-
-  const imageId = String(hit?.imageId || '').trim();
-  if (imageId) {
-    return `https://item-shopping.c.yimg.jp/i/g/${encodeURIComponent(imageId)}`;
-  }
-
-  return '';
-}
-
-function extractOpenFactsImageUrl(product) {
-  const candidates = [
-    product?.image_front_url,
-    product?.image_url,
-    product?.image_front_small_url,
-    product?.image_small_url
-  ];
-
-  for (const candidate of candidates) {
-    const safe = safeRemoteImageUrl(candidate);
-    if (safe) return safe;
-  }
-
-  return '';
-}
-
-function extractUpcItemImageUrl(item) {
-  const candidates = [
-    ...(Array.isArray(item?.images) ? item.images : []),
-    item?.image,
-    item?.thumbnail
-  ];
-
-  for (const candidate of candidates) {
-    const safe = safeRemoteImageUrl(candidate);
-    if (safe) return safe;
-  }
-
-  return '';
 }
 
 function cleanYahooProductName(value) {
@@ -2430,8 +2744,7 @@ async function lookupOpenFacts(code) {
   const fields = [
     'code','product_name','product_name_ja','generic_name','generic_name_ja',
     'brands','quantity','product_quantity','product_quantity_unit',
-    'categories','categories_tags','image_front_url','image_url',
-    'image_front_small_url','image_small_url'
+    'categories','categories_tags'
   ].join(',');
 
   const domains = [
@@ -2483,19 +2796,18 @@ function applyOpenFactsResult(code, product) {
     code,
     product,
     source: 'openfacts',
-    imageUrl: extractOpenFactsImageUrl(product)
+    typeQuantity: quantity || null,
+    productUnit: deriveProductRegistrationUnit([
+      exactName,
+      product?.generic_name_ja || '',
+      product?.generic_name || '',
+      product?.categories || '',
+      product?.quantity || ''
+    ].join(' '), typeName)
   };
 
   $('barcodeProductNameEdit').value = exactName;
   $('barcodeTypeNameEdit').value = typeName;
-
-  if (quantity) {
-    $('barcodeAmount').value = String(quantity.amount);
-    setBarcodeUnit(quantity.unit);
-  } else {
-    $('barcodeAmount').value = '';
-    setBarcodeUnit('');
-  }
 
   applyBarcodeRegisterDefaults();
 }
@@ -2524,20 +2836,19 @@ function applyUpcItemDbResult(code, item) {
     code,
     source: 'upcitemdb',
     upcItem: item,
-    imageUrl: extractUpcItemImageUrl(item),
-    product: { product_type: 'food' }
+    product: { product_type: 'food' },
+    typeQuantity: quantity || null,
+    productUnit: deriveProductRegistrationUnit([
+      exactName,
+      item?.category || '',
+      item?.description || '',
+      item?.size || '',
+      item?.weight || ''
+    ].join(' '), typeName)
   };
 
   $('barcodeProductNameEdit').value = exactName;
   $('barcodeTypeNameEdit').value = typeName;
-
-  if (quantity) {
-    $('barcodeAmount').value = String(quantity.amount);
-    setBarcodeUnit(quantity.unit);
-  } else {
-    $('barcodeAmount').value = '';
-    setBarcodeUnit('');
-  }
 
   applyBarcodeRegisterDefaults();
 }
@@ -2606,7 +2917,8 @@ function parseQuantityFromUpcItem(item) {
 function prepareBarcodeManualResult(code) {
   barcodeLookupData = {
     code,
-    imageUrl: ''
+    typeQuantity: null,
+    productUnit: '個'
   };
 
   $('barcodeProductNameEdit').value = '';
@@ -2658,6 +2970,81 @@ function parseBarcodeQuantity(product) {
   return parseQuantityFromText(product?.quantity || '');
 }
 
+function deriveProductRegistrationUnit(value, typeName = '') {
+  const text = String(value || '').normalize('NFKC').toLowerCase();
+  const type = String(typeName || '').normalize('NFKC').toLowerCase();
+  const all = `${type} ${text}`;
+
+  // 種類として数える量ではなく「その商品1つを何と数えるか」を決める。
+  // 例: 食パン6枚切りでも、固有商品としては 1袋 として登録する。
+  const typeRules = [
+    [['食パン','パン'], '袋'],
+    [['米','こめ'], '袋'],
+    [['牛乳','低脂肪乳','加工乳','豆乳','ジュース','お茶','緑茶','麦茶','炭酸水','水','コーヒー','紅茶','スポーツドリンク'], '本'],
+    [['醤油','しょうゆ','みりん','料理酒','酢','オリーブオイル','サラダ油','食用油','ケチャップ','マヨネーズ','ソース'], '本'],
+    [['ラップ','アルミホイル'], '本'],
+    [['卵','たまご'], 'パック'],
+    [['納豆','豆腐','ヨーグルト','チーズ','バター','ガム','チョコレート','アイス','歯磨き粉','歯ブラシ','電池'], '個'],
+    [['ティッシュ'], '箱'],
+    [['トイレットペーパー','キッチンペーパー','ゴミ袋'], '袋'],
+    [['洗濯洗剤','食器用洗剤','柔軟剤','シャンプー','コンディショナー','ボディソープ','ハンドソープ'], '本']
+  ];
+
+  for (const [keywords, unit] of typeRules) {
+    if (keywords.some(keyword => type.includes(keyword))) return unit;
+  }
+
+  // 商品名や説明に包装形態が明記されている場合はそれを使う。
+  // 「6枚切り」「14粒」など中身の個数表現はここでは単位判定に使わない。
+  const packagingRules = [
+    [/(?:パウチ|袋入り|袋詰め|袋詰|バッグ(?:入り)?)/, '袋'],
+    [/(?:ボックス|box|箱入り|箱詰め|箱詰)/, '箱'],
+    [/(?:パック入り|パック詰め|パック詰)/, 'パック'],
+    [/(?:ペットボトル|ボトル)/, '本'],
+    [/(?:びん|瓶)/, '瓶'],
+    [/(?:缶入り|缶詰|缶タイプ)/, '缶'],
+    [/(?:シート|シート状)/, '枚']
+  ];
+
+  for (const [pattern, unit] of packagingRules) {
+    if (pattern.test(text)) return unit;
+  }
+
+  // 種類が取れない商品は、明確な商品形状だけ補助判定する。
+  if (/(?:マスク|シートマスク|フェイスマスク|カード|シール|ステッカー)/.test(all)) return '枚';
+  if (/(?:袋|パウチ)/.test(text)) return '袋';
+  if (/(?:箱|box)/.test(text)) return '箱';
+  if (/(?:ボトル|ペットボトル)/.test(text)) return '本';
+  if (/(?:缶)/.test(text)) return '缶';
+  if (/(?:瓶|びん)/.test(text)) return '瓶';
+  if (/(?:パック)/.test(text)) return 'パック';
+
+  return '個';
+}
+
+function syncBarcodeQuantityForChoice() {
+  const amountInput = $('barcodeAmount');
+  const isProduct = $('barcodeChoiceProduct').checked;
+
+  if (isProduct) {
+    amountInput.value = '1';
+    amountInput.readOnly = true;
+    setBarcodeUnit(barcodeLookupData?.productUnit || '個');
+    return;
+  }
+
+  amountInput.readOnly = false;
+  const quantity = barcodeLookupData?.typeQuantity;
+
+  if (quantity && Number(quantity.amount) > 0 && quantity.unit) {
+    amountInput.value = String(quantity.amount);
+    setBarcodeUnit(quantity.unit);
+  } else {
+    amountInput.value = '';
+    setBarcodeUnit('');
+  }
+}
+
 function setBarcodeUnit(unit) {
   const select = $('barcodeUnit');
   const exists = Array.from(select.options).some(option => option.value === unit);
@@ -2670,25 +3057,6 @@ function setBarcodeUnit(unit) {
   }
 
   select.value = unit;
-}
-
-function refreshBarcodeImageOption() {
-  const input = $('barcodeUseImage');
-  const note = $('barcodeImageOptionNote');
-  const imageUrl = safeRemoteImageUrl(barcodeLookupData?.imageUrl);
-  const hasImage = !!imageUrl;
-
-  input.disabled = !hasImage;
-
-  if (!hasImage) {
-    input.checked = false;
-    note.textContent = 'この商品では使える画像が見つからなかったよ。';
-    return;
-  }
-
-  note.textContent = input.checked
-    ? '登録時に商品画像も保存する。'
-    : '商品画像は保存しない。';
 }
 
 function updateBarcodeReadingFromChoice() {
@@ -2726,12 +3094,9 @@ function applyBarcodeRegisterDefaults() {
     $('barcodeChoiceProduct').checked = false;
   }
 
-  $('barcodeUseImage').checked =
-    !!settings.barcodeUseImageDefault &&
-    !!safeRemoteImageUrl(barcodeLookupData?.imageUrl);
 
   syncBarcodeChoiceLabels();
-  refreshBarcodeImageOption();
+  syncBarcodeQuantityForChoice();
   updateBarcodeReadingFromChoice();
 }
 
@@ -2925,7 +3290,11 @@ function registerBarcodeProduct() {
   const typeName = $('barcodeTypeNameEdit').value.trim();
   const name = choice === 'type' ? typeName : exactName;
 
-  const amount = Number($('barcodeAmount').value);
+  // 固有の商品名で登録する場合は「その商品1つ」を比較単位にする。
+  // 種類で登録する場合だけ、従来どおり取得した内容量を使う。
+  const amount = choice === 'product'
+    ? 1
+    : Number($('barcodeAmount').value);
   const unit = $('barcodeUnit').value;
 
   if (!name) {
@@ -2943,11 +3312,6 @@ function registerBarcodeProduct() {
     reading = barcodeReadingForName(name);
   }
 
-  const useImage = $('barcodeUseImage').checked;
-  const imageUrl = useImage
-    ? safeRemoteImageUrl(barcodeLookupData?.imageUrl)
-    : '';
-
   const productType = barcodeLookupData?.product?.product_type || 'food';
   const defaultTax = productType === 'food'
     ? Number(settings.reducedTax)
@@ -2956,9 +3320,9 @@ function registerBarcodeProduct() {
   const product = {
     id: makeId('p'),
     barcode: barcodeForProduct,
-    imageUrl,
     name,
     reading,
+    kind: choice === 'type' ? 'type' : 'product',
     amount,
     unit,
     defaultTax,
@@ -3119,13 +3483,22 @@ function compareProducts(a, b) {
   });
 }
 
-function openProductDialog(id = null) {
-  editProductId = id;
-  const p = id ? products.find(x => x.id === id) : null;
+function syncProductKindFields() {
+  const isType = $('productKind').value === 'type';
+  $('productAmountGroup').classList.toggle('hidden', isType);
+}
 
-  // 商品名を触るまでは既存の読みをそのまま表示。
-  // 商品名を入力し始めたら、自動読みを強制更新する。
-  // その後、よみがな欄を手修正した時だけ自動更新を停止する。
+function openProductDialog(id = null) {
+  if (!id && productEditDraft) {
+    if (!confirmDiscardProductEdit()) return;
+    openProductId = null;
+    productEditDraft = null;
+    productEditDirty = false;
+  }
+  editProductId = id;
+  const persisted = id ? products.find(x => x.id === id) : null;
+  const p = id && productEditDraft?.id === id ? productEditDraft : persisted;
+
   readingWasManuallyEdited = false;
   productNameIsComposing = false;
   compositionReadingCandidate = '';
@@ -3133,57 +3506,25 @@ function openProductDialog(id = null) {
   $('productDialogTitle').textContent = p ? '商品設定' : '商品追加';
   $('productName').value = p?.name ?? '';
   $('productReading').value = p?.reading ?? '';
+  $('productKind').value = p?.kind === 'type' ? 'type' : 'product';
   $('productAmount').value = p?.amount ?? 100;
-  $('productUnit').value = p?.unit ?? 'g';
+  setSelectValueWithOption($('productUnit'), p?.unit ?? 'g');
+  syncProductKindFields();
 
   const taxSelect = $('productTax');
   const selectedTax = p?.defaultTax ?? settings.reducedTax;
   taxSelect.innerHTML = taxOptions(selectedTax);
   taxSelect.value = String(selectedTax);
 
-  $('btnDeleteProduct').classList.toggle('hidden', !p);
-
-  productImageDeletePending = false;
-  const imageSetting = $('productImageSetting');
-  const imagePreview = $('productImageSettingPreview');
-  const deleteImageButton = $('btnDeleteProductImage');
-  const deleteImageNote = $('productImageDeleteNote');
-  const currentImageUrl = safeRemoteImageUrl(p?.imageUrl);
-
-  imageSetting.classList.toggle('hidden', !p || !currentImageUrl);
-  deleteImageButton.classList.remove('hidden');
-  deleteImageNote.classList.add('hidden');
-
-  if (p && currentImageUrl) {
-    imagePreview.src = currentImageUrl;
-    imagePreview.classList.remove('hidden');
-    imagePreview.onerror = () => {
-      imagePreview.classList.add('hidden');
-    };
-  } else {
-    imagePreview.removeAttribute('src');
-    imagePreview.classList.add('hidden');
-  }
-
   const dialog = $('productDialog');
   dialog.showModal();
 
   requestAnimationFrame(() => {
-    // スマホでは商品追加画面を必ず先頭から表示する。
     dialog.scrollTop = 0;
     $('productForm').scrollTop = 0;
-
     const nameInput = $('productName');
-
-    try {
-      // キーボードを開いてもブラウザ側の自動スクロールで
-      // ダイアログ中央へ移動しないようにする。
-      nameInput.focus({ preventScroll: true });
-    } catch {
-      nameInput.focus();
-    }
-
-    // キーボード表示直後にも先頭位置へ戻す。
+    try { nameInput.focus({ preventScroll: true }); }
+    catch { nameInput.focus(); }
     requestAnimationFrame(() => {
       dialog.scrollTop = 0;
       $('productForm').scrollTop = 0;
@@ -3193,49 +3534,82 @@ function openProductDialog(id = null) {
 
 function saveProductFromDialog() {
   const name = $('productName').value.trim();
+  const kind = $('productKind').value === 'type' ? 'type' : 'product';
 
   if (!$('productReading').value.trim()) {
     const candidate = makeReadingCandidate(name);
     if (candidate) $('productReading').value = candidate;
   }
 
-  const amount = Number($('productAmount').value);
-  if (!name || !(amount > 0)) return;
+  let amount = Number($('productAmount').value);
+  let unit = $('productUnit').value || '個';
+  if (kind === 'type') {
+    const current = editProductId
+      ? (productEditDraft?.id === editProductId ? productEditDraft : products.find(x => x.id === editProductId))
+      : null;
+    amount = current?.kind === 'type' ? (current.amount ?? '') : (Number(current?.amount) > 0 ? Number(current.amount) : '');
+    unit = current?.kind === 'type' ? (current.unit || '') : (current?.unit || '');
+  }
+
+  if (!name || (kind === 'product' && !(amount > 0))) return;
 
   if (editProductId) {
-    const p = products.find(x => x.id === editProductId);
-    if (p) {
-      p.name = name;
-      p.reading = normalizeReadingInput($('productReading').value);
-      p.amount = amount;
-      p.unit = $('productUnit').value;
-      p.defaultTax = Number($('productTax').value);
-      if (productImageDeletePending) p.imageUrl = '';
+    const persisted = products.find(x => x.id === editProductId);
+    let target = productEditDraft?.id === editProductId ? productEditDraft : (persisted ? structuredCloneSafe(persisted) : null);
+    if (target) {
+      const previousKind = target.kind === 'type' ? 'type' : 'product';
+      target.name = name;
+      target.reading = normalizeReadingInput($('productReading').value);
+      target.kind = kind;
+      target.amount = amount;
+      target.unit = unit;
+      target.defaultTax = Number($('productTax').value);
+
+      if (previousKind !== kind && kind === 'type') {
+        target.stores.forEach(row => {
+          if (!(Number(row.amount) > 0)) row.amount = Number(target.amount) > 0 ? Number(target.amount) : '';
+          if (!row.unit) row.unit = target.unit || '個';
+        });
+      }
+
+      if (openProductId === editProductId) {
+        productEditDraft = target;
+        markProductEditDirty();
+      } else {
+        const index = products.findIndex(x => x.id === editProductId);
+        if (index >= 0) products[index] = target;
+        persistNow();
+      }
     }
   } else {
+    const defaultTax = Number($('productTax').value);
     const p = {
       id: makeId('p'),
       name,
       reading: normalizeReadingInput($('productReading').value),
+      kind,
       amount,
-      unit: $('productUnit').value,
-      defaultTax: Number($('productTax').value),
+      unit,
+      defaultTax,
       history: [],
       stores: [{
         id: makeId('s'),
         store: '',
         price: '',
         priceType: settings.defaultPriceType,
-        tax: Number($('productTax').value),
+        tax: defaultTax,
         couponType: 'none',
-        couponValue: ''
+        couponValue: '',
+        amount: kind === 'type' ? '' : amount,
+        unit: kind === 'type' ? '個' : unit
       }]
     };
     products.unshift(p);
+    persistNow();
     openProductId = p.id;
+    beginProductEdit(p.id);
   }
 
-  persistNow();
   $('productDialog').close();
   render();
 }
@@ -3283,12 +3657,18 @@ async function testYahooShoppingApi() {
 
 
 function openSettings() {
+  if (productEditDraft) {
+    if (!confirmDiscardProductEdit()) return;
+    openProductId = null;
+    productEditDraft = null;
+    productEditDirty = false;
+    render();
+  }
   $('standardTax').value = settings.standardTax;
   $('reducedTax').value = settings.reducedTax;
   $('defaultPriceType').value = settings.defaultPriceType;
   $('barcodeNameDefault').value =
     settings.barcodeNameDefault === 'type' ? 'type' : 'product';
-  $('barcodeUseImageDefault').checked = !!settings.barcodeUseImageDefault;
   $('yahooClientId').value = settings.yahooClientId || '';
   $('yahooClientId').type = 'password';
   $('btnToggleYahooClientId').textContent = '表示';
@@ -3326,8 +3706,8 @@ function importBackup(e) {
     try {
       const data = JSON.parse(String(reader.result));
       if (!Array.isArray(data.products)) throw new Error('invalid');
-      products = data.products;
       settings = normalizeSettingsData(data.settings || {});
+      products = normalizeProductsData(data.products);
 
       if (data.customTemplate) {
         customTemplate = normalizeTemplateData(data.customTemplate);
