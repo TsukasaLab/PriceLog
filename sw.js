@@ -1,10 +1,5 @@
-const CACHE='pricelog-v057';
-const ASSETS=['./','./index.html','./guide.html','./style.css?v=0.57','./app.js?v=0.57','./manifest.webmanifest','./template-products.json','./icon-192-v057.png','./icon-512-v057.png','./ads.js?v=0.57','./ad-pc.html','./ad-sp.html'];
-self.addEventListener('install',e=>{self.skipWaiting();e.waitUntil(caches.open(CACHE).then(c=>c.addAll(ASSETS)))});
-self.addEventListener('activate',e=>{e.waitUntil(Promise.all([caches.keys().then(keys=>Promise.all(keys.filter(k=>k!==CACHE).map(k=>caches.delete(k)))),self.clients.claim()]))});
-self.addEventListener('fetch',e=>{
-  if(e.request.method!=='GET')return;
-  const url=new URL(e.request.url);
-  if(url.origin!==self.location.origin)return;
-  e.respondWith(fetch(e.request).then(r=>{const copy=r.clone();caches.open(CACHE).then(c=>c.put(e.request,copy));return r}).catch(()=>caches.match(e.request).then(r=>r||caches.match('./index.html'))));
-});
+const CACHE="carlog-v0.65";const FILES=["./","./index.html","./style.css?v=0.65","./app.js?v=0.65","./manifest.webmanifest?v=0.65","./icon-192-v043.png","./icon-512-v043.png",
+  "./assets/vehicles/compact-minivan_white.webp",
+  "./assets/vehicles/sedan_black.webp",
+  "./assets/heroes/compact-minivan_white.webp",
+  "./assets/heroes/compact-minivan_white_pc.webp",];self.addEventListener("install",e=>{e.waitUntil(caches.open(CACHE).then(c=>c.addAll(FILES)));self.skipWaiting()});self.addEventListener("activate",e=>e.waitUntil(caches.keys().then(k=>Promise.all(k.filter(x=>x!==CACHE).map(x=>caches.delete(x)))).then(()=>self.clients.claim())));self.addEventListener("fetch",e=>{if(e.request.method!=="GET")return;let u=new URL(e.request.url);if(u.origin!==self.location.origin)return;e.respondWith(fetch(e.request,{cache:"no-store"}).then(r=>{if(r.ok)caches.open(CACHE).then(c=>c.put(e.request,r.clone()));return r}).catch(()=>caches.match(e.request).then(r=>r||(e.request.mode==="navigate"?caches.match("./index.html"):new Response("Offline",{status:503})))))});
