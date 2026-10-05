@@ -1,226 +1,502 @@
-<!doctype html><html lang="ja"><head>
-<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
-<meta name="theme-color" content="#202631"><title>CarLog</title>
-<link rel="manifest" href="manifest.webmanifest?v=0.66"><link rel="stylesheet" href="style.css?v=0.66">
-</head><body>
-<div class="version">Ver.0.66 β</div>
-<aside class="pc-sidebar" aria-label="PCメニュー">
-  <div class="pc-brand"><span class="brand-mark">🚙</span><div><strong>CarLog</strong><small>Car Maintenance Log</small></div></div>
-  <button class="active" onclick="goHome()"><span class="navico">⌂</span><span>ホーム</span></button>
-  <button onclick="openFuel()"><span class="navico">⛽</span><span>給油記録</span></button>
-  <button onclick="openMaintenance()"><span class="navico">🔧</span><span>整備・修理</span></button>
-  <button onclick="openExpense()"><span class="navico">▣</span><span>その他支出</span></button>
-  <button onclick="openHistory()"><span class="navico">☷</span><span>履歴一覧</span></button>
-  <button onclick="openCosts()"><span class="navico">⌁</span><span>維持費・分析</span></button>
-  <button onclick="openDriving()"><span class="navico">▥</span><span>走行データ</span></button>
-  <button onclick="openVehicleManager()"><span class="navico">🚙</span><span>車両管理</span></button>
-  <button onclick="openSettings()"><span class="navico">⚙</span><span>設定・使い方</span></button>
-  <div class="pc-brand-foot">CarLog β</div>
-</aside><div class="ambient-scene" aria-hidden="true">
-  <div class="ambient-sun"></div><div class="ambient-mountain m1"></div><div class="ambient-mountain m2"></div>
-</div>
-<main class="app">
-<section id="setup" class="screen hidden">
- <div class="brand"><b>C</b><div><h1>CarLog</h1><p>愛車のお金とメンテを、ひとつに。</p></div></div>
- <div class="card form"><label>車両名<input id="setupName"></label><label>メーカー<input id="setupMaker"></label><label>現在走行距離（km）<input id="setupKm" type="number"></label><label>車検満了日<input id="setupInspection" type="date"></label><label>オイル交換周期（km）<input id="setupOil" type="number" value="5000"></label></div>
- <button class="primary" onclick="createVehicleFromSetup()">この車を登録</button>
-</section>
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+  <meta name="theme-color" content="#f7f1e4">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="default">
+  <title>PriceLog</title>
+  <link rel="manifest" href="./manifest.webmanifest?v=0.58">
+  <link rel="apple-touch-icon" href="./icon-192-v058.png">
+  <link rel="stylesheet" href="./style.css?v=0.58">
+</head>
+<body>
+  <header class="topbar">
+    <div>
+      <strong>PriceLog</strong> <small class="app-version">Ver.0.58</small>
+    </div>
+    <div class="top-actions">
+      <button id="btnSettings" class="icon-btn" type="button" aria-label="設定">⚙</button>
+      <button id="btnBulkStore" class="ghost mini" type="button">店舗一括追加</button>
+      <button id="btnStorePurchase" class="ghost mini" type="button">買い物メモ</button>
+      <button id="btnAddProduct" class="primary mini" type="button">＋商品</button>
+    </div>
+  </header>
 
-<section id="home" class="screen app-page hidden correct-home">
- <header class="mobile-top">
-   <div class="mobile-brand"><span>🚙</span><b>CarLog</b></div>
-   <button onclick="openSettings()" aria-label="メニュー">☰</button>
- </header>
+  <main>
+    <div class="best-legend">
+      <span><span class="price-badge badge-low"><span class="badge-icon">♛</span>最安</span> 通常時に買う店</span>
+      <span><span class="price-badge badge-special"><span class="badge-icon">◆</span>特安</span> クーポン使用で最安より安い店</span>
+    </div>
 
- <section class="correct-hero">
-   <div class="correct-hero-copy">
-     <div class="mycar-label">🚙 <span>MY CAR</span></div>
-     <h2 id="homeCarName">---</h2>
-     <div class="car-meta"><b id="homeMaker"></b><span id="homeCarMeta"></span></div>
-     <button class="change-vehicle" onclick="openVehicleManager()">車両を変更 ›</button>
-   </div>
-   <div id="homeCarThumb" class="correct-car-visual">🚗</div>
-   <div class="correct-mileage"><span>総走行距離</span><strong id="homeKm">0 km</strong></div>
- </section>
+    <section class="searchbar">
+      <input id="searchInput" type="search" placeholder="商品を検索" autocomplete="off">
+      <span id="productCount" class="count"></span>
+    </section>
 
- <section class="correct-stats">
-   <button class="correct-stat fuel" onclick="openCosts('fuel')"><span class="stat-ico">⛽</span><div><small>今月のガソリン代</small><b id="dashFuel">0 円</b><em id="dashFuelDiff"></em></div></button>
-   <button class="correct-stat maint" onclick="openCosts('maint')"><span class="stat-ico">🔧</span><div><small>今月の整備代</small><b id="dashMaint">0 円</b><em id="dashMaintDiff"></em></div></button>
-   <button class="correct-stat other" onclick="openCosts('other')"><span class="stat-ico">▣</span><div><small>今月のその他</small><b id="dashOther">0 円</b><em id="dashOtherDiff"></em></div></button>
-   <button class="correct-stat total" onclick="openCosts('total')"><span class="stat-ico">◔</span><div><small>今月の合計</small><b id="dashTotal">0 円</b><em id="dashTotalDiff"></em></div></button>
- </section>
+    <section id="bulkStoreBar" class="bulk-store-bar hidden">
+      <div class="bulk-store-top">
+        <strong>選択した商品に店舗を一括追加</strong>
+        <span id="bulkSelectedCount">0件選択</span>
+      </div>
+      <div class="bulk-store-controls">
+        <input id="bulkStoreName" type="text" maxlength="40" placeholder="店舗名">
+        <button id="btnBulkSelectAll" class="ghost mini" type="button">全選択</button>
+        <button id="btnBulkAdd" class="primary mini" type="button">追加</button>
+        <button id="btnBulkCancel" class="ghost mini" type="button">終了</button>
+      </div>
+      <div id="bulkMessage" class="bulk-message"></div>
+    </section>
 
- <section class="correct-grid">
-   <article class="correct-card monthly-card">
-    <div class="correct-card-head"><h3>月別の支出</h3><button onclick="openCosts()">›</button></div>
-    <div class="chart-legend"><span class="fuel-dot">● ガソリン</span><span class="maint-dot">● 整備</span><span class="other-dot">● その他</span></div>
-    <div id="dashMonthBars" class="dash-month-bars"></div>
-   </article>
+    <section id="productList" class="product-list"></section>
+    <div id="emptyState" class="empty hidden">
+      <div>商品がまだないよ。「＋商品」から追加してね。</div>
+      <a class="guide-start-link" href="./guide.html">初めて使う方：最初の設定と使い方を見る</a>
+    </div>
 
-   <article class="correct-card breakdown-card">
-    <div class="correct-card-head"><h3>支出の内訳（今月）</h3><button onclick="openCosts('total')">›</button></div>
-    <div class="breakdown-body">
-      <div id="dashDonut" class="dash-donut"><span>合計<b id="dashDonutTotal">0 円</b></span></div>
-      <div class="dash-legend">
-       <div><i class="fuel"></i><span>ガソリン</span><b id="dashFuelLegend">0 円</b></div>
-       <div><i class="maint"></i><span>整備</span><b id="dashMaintLegend">0 円</b></div>
-       <div><i class="other"></i><span>その他</span><b id="dashOtherLegend">0 円</b></div>
+    <section class="ad-area" aria-label="広告">
+      <div class="ad-label">広告</div>
+      <div id="adFrameHost" class="ad-frame-host" aria-live="off"></div>
+    </section>
+
+    <section id="storePurchaseView" class="store-purchase-view hidden">
+      <div class="store-purchase-head">
+        <div>
+          <strong>買い物メモ</strong>
+          <div id="shoppingMemoDuplicate" class="shopping-memo-duplicate hidden"></div>
+        </div>
+      </div>
+      <div class="shopping-memo-tools">
+        <input id="storePurchaseSearch" class="store-purchase-search" type="search" placeholder="店舗を検索" autocomplete="off">
+      </div>
+      <div id="storePurchaseList" class="store-purchase-list"></div>
+      <div id="storePurchaseEmpty" class="empty hidden">登録されている店舗・商品がまだないよ。</div>
+    </section>
+  </main>
+
+  <dialog id="productDialog" class="dialog">
+    <button id="btnCloseProductDialog" class="product-dialog-close icon-btn" type="button" aria-label="閉じる">×</button>
+    <form id="productForm" method="dialog">
+      <div class="dialog-head">
+        <strong id="productDialogTitle">商品追加</strong>
+      </div>
+
+      <button id="btnBarcodeAdd" class="barcode-launch" type="button">
+        📷 バーコードから追加
+      </button>
+
+      <label>商品名
+        <input id="productName" required maxlength="60">
+      </label>
+
+      <label>登録タイプ
+        <select id="productKind">
+          <option value="product">商品名</option>
+          <option value="type">種類比較</option>
+        </select>
+        <span class="field-hint">種類比較では、内容量・単位を店舗ごとに設定する。</span>
+      </label>
+
+      <label class="reading-field">よみがな
+        <input id="productReading" maxlength="80" placeholder="商品名から自動入力">
+        <span class="field-hint">商品名から候補を自動入力。必要ならそのまま修正できる。</span>
+      </label>
+
+      <div id="productAmountGroup" class="grid3">
+        <label>内容量
+          <input id="productAmount" required type="text" inputmode="decimal" value="100">
+        </label>
+        <label>単位
+          <select id="productUnit">
+            <option value=""></option>
+            <option value="g">g</option>
+            <option value="ml">ml</option>
+            <option value="m">m</option>
+            <option value="個">個</option>
+            <option value="枚">枚</option>
+            <option value="粒">粒</option>
+            <option value="本">本</option>
+            <option value="袋">袋</option>
+            <option value="箱">箱</option>
+          </select>
+        </label>
+        <label>既定税率
+          <select id="productTax"></select>
+        </label>
+      </div>
+
+      <div class="dialog-actions">
+        <button class="primary" value="default" type="submit">保存</button>
+      </div>
+    </form>
+  </dialog>
+
+  <dialog id="settingsDialog" class="dialog">
+    <form id="settingsForm" method="dialog">
+      <div class="dialog-head settings-dialog-head">
+        <strong>設定</strong>
+        <button class="icon-btn" value="cancel" type="submit" aria-label="閉じる">×</button>
+      </div>
+
+      <div class="settings-block guide-settings-block">
+        <div class="settings-title">ヘルプ</div>
+        <a class="ghost backup-btn link-button" href="./guide.html">はじめに・使い方</a>
+      </div>
+
+      <div class="settings-block">
+        <div class="settings-title">消費税</div>
+        <div class="grid2">
+          <label>標準税率
+            <div class="suffix">
+              <input id="standardTax" type="text" inputmode="decimal">
+              <span>%</span>
+            </div>
+          </label>
+          <label>軽減税率
+            <div class="suffix">
+              <input id="reducedTax" type="text" inputmode="decimal">
+              <span>%</span>
+            </div>
+          </label>
+        </div>
+      </div>
+
+      <div class="settings-block">
+        <div class="settings-title">価格入力</div>
+        <label>初期状態
+          <select id="defaultPriceType">
+            <option value="inc">税込</option>
+            <option value="ex">税抜</option>
+          </select>
+        </label>
+      </div>
+
+      <div class="settings-block">
+        <div class="settings-title">バーコード登録の初期値</div>
+        <label>登録する名前
+          <select id="barcodeNameDefault">
+            <option value="product">商品名</option>
+            <option value="type">種類</option>
+          </select>
+        </label>
+        <div class="template-note">
+          種類を選んだ場合、そのJANコードは商品に紐づけない。
+        </div>
+      </div>
+
+      <div class="settings-block">
+        <div class="settings-title">バーコード検索</div>
+        <label>Yahoo!ショッピング Client ID
+          <input id="yahooClientId" type="password" autocomplete="off" placeholder="取得したClient IDを貼り付け">
+        </label>
+        <div class="barcode-api-actions">
+          <button id="btnToggleYahooClientId" class="ghost mini" type="button">表示</button>
+          <button id="btnTestYahooApi" class="ghost mini" type="button">接続テスト</button>
+        </div>
+        <div class="template-note">
+          Yahoo!検索を使用する場合はClient IDを設定してください。<br>
+          Client IDの取得方法は「はじめに・使い方」を参照
+        </div>
+        <div id="yahooApiStatus" class="template-message"></div>
+      </div>
+
+      <div class="settings-block">
+        <div class="settings-title">テンプレート</div>
+        <div class="template-note">現在登録している商品と店舗をテンプレートJSONに保存する。価格・クーポン・履歴は引き継がない。</div>
+        <div class="stack">
+          <button id="btnEditTemplate" class="ghost backup-btn" type="button">現在の商品からテンプレート作成</button>
+          <button id="btnLoadTemplate" class="ghost backup-btn" type="button">テンプレートファイルを読み込む</button>
+          <button id="btnLoadRecommendedTemplate" class="ghost backup-btn" type="button">おすすめ商品を追加</button>
+          <input id="templateImportFile" class="hidden-file-input" type="file" accept="application/json,.json">
+        </div>
+        <div id="templateSummary" class="template-summary"></div>
+        <div id="templateMessage" class="template-message"></div>
+      </div>
+
+      <div class="settings-block">
+        <div class="settings-title">データ</div>
+        <div class="stack">
+          <button id="btnExport" class="ghost backup-btn" type="button">バックアップを書き出す</button>
+          <button id="btnImport" class="ghost backup-btn" type="button">バックアップを読み込む</button>
+          <input id="importFile" class="hidden-file-input" type="file" accept="application/json,.json">
+        </div>
+      </div>
+
+      <div class="settings-block danger-zone">
+        <div class="settings-title">商品データ削除</div>
+        <div class="template-note">商品・店舗価格・変更履歴をすべて削除する。税率などの設定は残る。</div>
+        <button id="btnDeleteAllProducts" class="danger-button" type="button">全商品を削除</button>
+        <div id="deleteAllMessage" class="template-message"></div>
+      </div>
+
+      <div class="dialog-actions">
+        <button class="primary" value="default" type="submit">設定を保存</button>
+      </div>
+    </form>
+  </dialog>
+
+
+  <dialog id="barcodeDialog" class="dialog barcode-dialog">
+    <div class="barcode-wrap">
+      <div class="dialog-head">
+        <div>
+          <strong>バーコードから商品追加</strong>
+          <div class="barcode-sub">JAN/EANコードをカメラで読み取って商品情報を検索する。</div>
+        </div>
+        <button id="btnCloseBarcode" class="icon-btn" type="button" aria-label="閉じる">×</button>
+      </div>
+
+      <section id="barcodeCameraSection" class="barcode-camera-section">
+        <video id="barcodeVideo" class="barcode-video" playsinline muted></video>
+        <div class="barcode-guide">
+          <span></span>
+        </div>
+        <div id="barcodeCameraMessage" class="barcode-message">カメラを起動してね。</div>
+        <button id="btnStartBarcodeCamera" class="primary backup-btn" type="button">カメラで読み取る</button>
+      </section>
+
+      <div id="barcodeManualSection" class="barcode-manual">
+        <input id="barcodeManualCode" type="text" inputmode="numeric" maxlength="20" placeholder="JANコードを直接入力">
+        <button id="btnLookupBarcode" class="ghost mini" type="button">検索</button>
+      </div>
+
+      <section id="barcodeResult" class="barcode-result hidden">
+        <div class="barcode-result-code">バーコード: <strong id="barcodeResultCode"></strong></div>
+        <div id="barcodeLookupStatus" class="barcode-message"></div>
+
+        <div class="barcode-choice-title">登録する名前</div>
+        <label class="barcode-choice">
+          <input id="barcodeChoiceProduct" type="radio" name="barcodeNameChoice" value="product" checked>
+          <span>
+            <small>商品名</small>
+            <strong id="barcodeProductName"></strong>
+          </span>
+        </label>
+
+        <label class="barcode-choice">
+          <input id="barcodeChoiceType" type="radio" name="barcodeNameChoice" value="type">
+          <span>
+            <small>種類</small>
+            <strong id="barcodeTypeName"></strong>
+          </span>
+        </label>
+
+        <div class="barcode-edit-grid">
+          <label>商品名候補
+            <input id="barcodeProductNameEdit" type="text" maxlength="80">
+          </label>
+          <label>種類候補
+            <input id="barcodeTypeNameEdit" type="text" maxlength="60">
+          </label>
+          <label>よみがな
+            <input id="barcodeReading" type="text" maxlength="100">
+          </label>
+          <label>内容量
+            <input id="barcodeAmount" type="text" inputmode="decimal">
+          </label>
+          <label>単位
+            <select id="barcodeUnit">
+              <option value=""></option>
+              <option value="g">g</option>
+              <option value="ml">ml</option>
+              <option value="m">m</option>
+              <option value="個">個</option>
+              <option value="枚">枚</option>
+              <option value="粒">粒</option>
+              <option value="本">本</option>
+              <option value="袋">袋</option>
+              <option value="箱">箱</option>
+              <option value="パック">パック</option>
+              <option value="缶">缶</option>
+              <option value="瓶">瓶</option>
+            </select>
+          </label>
+        </div>
+
+        <div class="barcode-result-actions">
+          <button id="btnBarcodeRescan" class="ghost" type="button">別のバーコードを読み取る</button>
+          <button id="btnRegisterBarcodeProduct" class="primary" type="button">この内容で商品登録</button>
+        </div>
+      </section>
+    </div>
+  </dialog>
+
+
+  <dialog id="templateDialog" class="dialog template-dialog">
+    <div class="template-editor">
+      <div class="dialog-head">
+        <div>
+          <strong>テンプレートファイルを作成</strong>
+          <div class="template-editor-sub">チェックした商品と店舗だけを保存する。</div>
+        </div>
+        <button id="btnCloseTemplate" class="icon-btn" type="button" aria-label="閉じる">×</button>
+      </div>
+
+      <section class="template-editor-section">
+        <div class="template-section-head">
+          <strong>商品</strong>
+          <div class="template-section-actions">
+            <button id="btnTemplateProductsAll" class="ghost mini" type="button">全選択</button>
+            <button id="btnTemplateProductsNone" class="ghost mini" type="button">全解除</button>
+            <button id="btnImportRecommendedProducts" class="ghost mini" type="button">おすすめ商品を追加</button>
+          </div>
+        </div>
+
+        <div class="template-product-add">
+          <input id="tplProductName" type="text" maxlength="60" placeholder="商品名">
+          <input id="tplProductReading" type="text" maxlength="80" placeholder="よみがな">
+          <input id="tplProductAmount" type="text" inputmode="decimal" value="100" placeholder="内容量">
+          <select id="tplProductUnit">
+            <option value="g">g</option>
+            <option value="ml">ml</option>
+            <option value="個">個</option>
+            <option value="枚">枚</option>
+            <option value="本">本</option>
+            <option value="袋">袋</option>
+            <option value="箱">箱</option>
+          </select>
+          <select id="tplProductTax"></select>
+          <button id="btnAddTemplateProduct" class="primary mini" type="button">追加</button>
+        </div>
+
+        <div id="templateProductList" class="template-entry-list"></div>
+        <div id="templateProductEmpty" class="template-empty">商品はまだないよ。</div>
+      </section>
+
+      <section class="template-editor-section">
+        <div class="template-section-head">
+          <strong>店舗</strong>
+          <div class="template-section-actions">
+            <button id="btnTemplateStoresAll" class="ghost mini" type="button">全選択</button>
+            <button id="btnTemplateStoresNone" class="ghost mini" type="button">全解除</button>
+          </div>
+        </div>
+
+        <div class="template-store-add">
+          <input id="tplStoreName" type="text" maxlength="40" placeholder="店舗名">
+          <button id="btnAddTemplateStore" class="primary mini" type="button">追加</button>
+        </div>
+
+        <div id="templateStoreList" class="template-entry-list"></div>
+        <div id="templateStoreEmpty" class="template-empty">店舗はまだないよ。</div>
+      </section>
+
+      <div id="templateEditorMessage" class="template-message"></div>
+
+      <div class="template-editor-actions">
+        <button id="btnExportTemplateFile" class="ghost" type="button">テンプレートJSONを書き出す</button>
+        <button id="btnSaveTemplate" class="primary" type="button">選択内容を保存</button>
       </div>
     </div>
-   </article>
+  </dialog>
 
-   <article class="correct-card recent-card">
-    <div class="correct-card-head"><h3>最近の記録</h3><button class="see-all" onclick="openHistory()">すべて見る ›</button></div>
-    <div id="recent"></div>
-   </article>
 
-   <article class="correct-card vehicle-card">
-    <div class="correct-card-head"><h3>車両情報</h3><button class="edit-link" onclick="openVehicleManager()">✎ 編集</button></div>
-    <div class="vehicle-card-body no-image"><dl>
-       <div><dt>メーカー</dt><dd id="dashMaker">---</dd></div>
-       <div><dt>車名</dt><dd id="dashCarName">---</dd></div>
-       <div><dt>型式</dt><dd id="dashModel">---</dd></div>
-       <div><dt>カラー</dt><dd id="dashColor">---</dd></div>
-      </dl></div>
-   </article>
- </section>
+  <dialog id="historyDialog" class="dialog history-dialog">
+    <div class="history-panel">
+      <div class="dialog-head">
+        <div>
+          <strong>変更履歴</strong>
+          <div id="historyProductName" class="history-product-name"></div>
+        </div>
+        <button id="btnCloseHistory" class="icon-btn" type="button" aria-label="閉じる">×</button>
+      </div>
 
- <div class="compat-values" aria-hidden="true">
-  <span id="latestEco">記録なし</span><span id="refTotalKm">0 km</span><span id="monthFuel">0 円</span><span id="monthTotal">0 円</span><span id="monthKm">0 km</span>
-  <span id="yearTotal">0 円</span><span id="yearAvg">0 円</span><span id="yearKm">0 km</span><span id="perKm">---</span>
-  <span id="inspection">未設定</span><span id="inspectionLeft"></span><span id="oilTarget">未設定</span><span id="oilLeft"></span>
-  <span id="refNextMaint"></span><span id="refDonut"></span><span id="refDonutTotal"></span><span id="refFuelCost"></span><span id="refMaintCost"></span><span id="refOtherCost"></span>
-  <div id="refEcoChart"></div><div id="refYearBars"></div><div id="homeMemos"></div><span id="heroMileageInline"></span>
- </div>
-</section>
+      <div class="history-note">価格変更の直近20件</div>
 
-<section id="fuel" class="screen app-page hidden"><div class="screen-head page-head"><div><span class="page-eyebrow">RECORD</span><h2 id="fuelTitle">給油記録</h2><p>給油量・走行距離・支払額を記録</p></div></div>
- <div class="card form"><label>給油日<input id="fuelDate" type="date" onchange="showSameDay('fuel')"></label><div id="fuelSameDay"></div><label>走行距離（km）<input id="fuelKm" type="number"></label><label>給油量（L）<input id="fuelLiters" type="number" step="0.01"></label><label>店名<select id="fuelStoreSelect" onchange="chooseStore('fuel')"><option value="">店名を選択</option><option value="__new__">新しい店名を入力</option></select><input id="fuelStore" class="store-input" placeholder="店名を入力"></label><label>支払金額（円）<input id="fuelAmount" type="number"></label><label class="check"><input id="fuelFull" type="checkbox" checked>満タン給油</label></div>
- <button class="primary" id="fuelSave" onclick="saveFuel()">登録</button><button id="fuelDelete" class="danger hidden" onclick="deleteCurrent('fuel')">この記録を削除</button><button onclick="goHome()">キャンセル</button>
-</section>
+      <div id="historyTableWrap" class="history-table-wrap">
+        <div class="history-grid history-head">
+          <span>更新日</span>
+          <span>店舗名</span>
+          <span>変更前価格</span>
+          <span>変更後価格</span>
+        </div>
+        <div id="historyList"></div>
+      </div>
 
-<section id="maintenance" class="screen app-page hidden"><div class="screen-head page-head"><div><span class="page-eyebrow">MAINTENANCE</span><h2 id="maintTitle">整備・修理</h2><p>メンテナンス履歴をわかりやすく管理</p></div></div>
- <div class="card form"><label>日付<input id="maintDate" type="date" onchange="showSameDay('maintenance')"></label><div id="maintSameDay"></div><label>種類<select id="maintType"><option>オイル交換</option><option>オイル＋フィルター交換</option><option>タイヤ交換</option><option>バッテリー交換</option><option>車検</option><option>点検</option><option>修理</option><option>その他</option></select></label><label>走行距離（km・任意）<input id="maintKm" type="number"></label><label>費用（円）<input id="maintAmount" type="number"></label><label>店名<select id="maintStoreSelect" onchange="chooseStore('maint')"><option value="">店名を選択</option><option value="__new__">新しい店名を入力</option></select><input id="maintStore" class="store-input" placeholder="店名を入力"></label><label>メモ<textarea id="maintMemo" rows="3"></textarea></label></div>
- <button class="primary" id="maintSave" onclick="saveMaintenance()">登録</button><button id="maintDelete" class="danger hidden" onclick="deleteCurrent('maintenance')">この記録を削除</button><button onclick="goHome()">キャンセル</button>
-</section>
+      <div id="historyEmpty" class="history-empty hidden">価格変更履歴はまだないよ。</div>
+    </div>
+  </dialog>
 
-<section id="expense" class="screen app-page hidden"><div class="screen-head page-head"><div><span class="page-eyebrow">EXPENSE</span><h2 id="expenseTitle">その他支出</h2><p>税金・保険・用品などの費用を記録</p></div></div>
- <div class="card form"><label>日付<input id="expenseDate" type="date" onchange="showSameDay('expense')"></label><div id="expenseSameDay"></div><label>分類<select id="expenseCategory"><option>自動車税</option><option>任意保険</option><option>駐車場</option><option>高速・有料道路</option><option>洗車</option><option>用品</option><option>その他</option></select></label><label>金額（円）<input id="expenseAmount" type="number"></label><label>店名<select id="expenseStoreSelect" onchange="chooseStore('expense')"><option value="">店名を選択</option><option value="__new__">新しい店名を入力</option></select><input id="expenseStore" class="store-input" placeholder="店名を入力"></label><label>メモ<textarea id="expenseMemo" rows="3"></textarea></label></div>
- <button class="primary" id="expenseSave" onclick="saveExpense()">登録</button><button id="expenseDelete" class="danger hidden" onclick="deleteCurrent('expense')">この記録を削除</button><button onclick="goHome()">キャンセル</button>
-</section>
+  <template id="productTemplate">
+    <article class="product-card">
+      <div class="product-summary-row">
+        <label class="bulk-check-wrap hidden">
+          <input class="bulk-check" type="checkbox" aria-label="一括店舗追加の対象に選択">
+        </label>
+        <button class="product-summary" type="button">
+          <span class="summary-main">
+            <span class="product-name"></span>
+            <span class="product-size"></span>
+          </span>
+          <span class="best-wrap">
+            <span class="price-badge badge-low mini-badge best-list-badge"><span class="badge-icon">♛</span>最安</span>
+            <span class="best-price"></span>
+          </span>
+          <span class="chev">›</span>
+        </button>
+      </div>
 
-<section id="history" class="screen app-page hidden"><div class="screen-head page-head"><div><span class="page-eyebrow">HISTORY</span><h2>履歴一覧</h2><p>すべての記録を時系列で確認</p></div></div><div class="tabs"><button onclick="renderHistory('all')">すべて</button><button onclick="renderHistory('fuel')">給油</button><button onclick="renderHistory('maintenance')">整備</button><button onclick="renderHistory('expense')">支出</button></div><div id="historyList"></div></section>
+      <div class="product-detail hidden">
+        <div class="detail-toolbar">
+          <button class="btn-edit-product ghost mini" type="button">商品設定</button>
+          <button class="btn-history ghost mini" type="button">変更履歴</button>
+          <button class="btn-add-store primary mini" type="button">＋店舗</button>
+        </div>
 
-<section id="costs" class="screen app-page hidden"><div class="screen-head page-head"><div><span class="page-eyebrow">ANALYTICS</span><h2>維持費・分析</h2><p>年間・月別の支出を比較</p></div></div><div class="card yearpick"><button onclick="changeYear(-1)">‹</button><b id="costYear"></b><button onclick="changeYear(1)">›</button></div><button id="costCardTotal" class="card total cost-switch active" onclick="setCostChart('total')"><span>年間合計</span><b id="costTotal">0 円</b></button><div class="grid"><button id="costCardFuel" class="card metric cost-switch" onclick="setCostChart('fuel')"><span>ガソリン</span><b id="costFuel">0 円</b></button><button id="costCardMaint" class="card metric cost-switch" onclick="setCostChart('maint')"><span>整備・維持</span><b id="costMaint">0 円</b></button><button id="costCardOther" class="card metric cost-switch" onclick="setCostChart('other')"><span>その他</span><b id="costOther">0 円</b></button><button id="costCardAvg" class="card metric cost-switch" onclick="setCostChart('avg')"><span>月平均</span><b id="costAvg">0 円</b></button></div><div class="card"><h3 id="monthChartTitle">月別 年間合計</h3><div id="monthBars" class="bars"></div></div></section>
+        <div class="store-scroll">
+          <div class="store-table">
+            <div class="store-head">
+              <span class="mark-head"></span><span>店舗</span><span>入力価格</span><span>税込</span><span>税率</span><span>クーポン</span><span>値</span><span>価格(クーポン適用)</span><span>単価(クーポン適用)</span><span></span>
+            </div>
+            <div class="store-list"></div>
+          </div>
+        </div>
+        <div class="product-edit-actions">
+          <button class="btn-delete-product-detail danger ghost" type="button">商品削除</button>
+          <button class="btn-cancel-product-edit ghost" type="button">キャンセル</button>
+          <button class="btn-save-product-edit primary" type="button">保存</button>
+        </div>
+      </div>
+    </article>
+  </template>
 
-<section id="driving" class="screen app-page hidden"><div class="screen-head page-head"><div><span class="page-eyebrow">DRIVING</span><h2>走行データ</h2><p>走行距離・給油量・燃費を確認</p></div></div>
-<div class="grid driving-grid">
-<button id="driveCardDistance" class="card metric cost-switch active" onclick="setDriveChart('distance')"><span>走行距離</span><b id="driveDistance">0 km</b></button>
-<button id="driveCardLiters" class="card metric cost-switch" onclick="setDriveChart('liters')"><span>給油量</span><b id="driveLiters">0 L</b></button>
-<button id="driveCardCount" class="card metric cost-switch" onclick="setDriveChart('count')"><span>給油回数</span><b id="driveCount">0 回</b></button>
-<button id="driveCardEconomy" class="card metric cost-switch" onclick="setDriveChart('economy')"><span>平均燃費</span><b id="driveEconomy">---</b></button>
-<button id="driveCardPrice" class="card metric cost-switch" onclick="setDriveChart('price')"><span>平均単価</span><b id="drivePrice">---</b></button>
-<button id="driveCardFuelKm" class="card metric cost-switch" onclick="setDriveChart('fuelkm')"><span>1km燃料代</span><b id="driveFuelKm">---</b></button>
-</div><div class="card"><h3 id="driveChartTitle">月別 走行距離</h3><div id="driveBars" class="bars"></div></div></section>
-<section id="vehicles" class="screen app-page hidden"><div class="screen-head page-head"><div><span class="page-eyebrow">VEHICLES</span><h2>車両管理</h2><p>登録車両の追加・切替・編集</p></div></div><div id="vehicleList"></div><button class="primary" onclick="openVehicleEdit()">＋ 車両を追加</button></section>
-<section id="vehicleEdit" class="screen hidden"><div class="screen-head"><button onclick="openVehicleManager()">‹</button><h2 id="vehicleEditTitle">車両を追加</h2><span></span></div>
-<div class="card form">
-<label>車両名<input id="editCarName"></label>
-<label>メーカー<input id="editCarMaker"></label>
-<label>型式<input id="editCarModel"></label>
-<label>年式<input id="editCarYear" inputmode="numeric"></label>
-<div class="vehicle-image-setting full">
-<h3>車両イメージ</h3>
-<p class="help">車種名からは自動判定しません。車の形と色を選んでください。</p>
-<label>ボディタイプ
-<select id="editCarBodyType" onchange="renderVehicleColorPreview()">
-<option value="kei">軽自動車</option>
-<option value="kei-tall">軽ハイトワゴン</option>
-<option value="compact">コンパクトカー</option>
-<option value="sedan">セダン</option>
-<option value="wagon">ワゴン</option>
-<option value="compact-minivan">コンパクトミニバン</option>
-<option value="minivan">ミニバン</option>
-<option value="suv">SUV</option>
-<option value="coupe">スポーツ・クーペ</option>
-<option value="van">商用バン</option>
-</select></label>
-<div id="bodyTypeChoices" class="body-type-choices"></div>
-</div>
-<label>ボディカラー<select id="editCarColor" onchange="renderVehicleColorPreview()"><option value="white">ホワイト</option>
-<option value="black">ブラック</option>
-<option value="silver">シルバー</option>
-<option value="gray">グレー</option>
-<option value="red">レッド</option>
-<option value="blue">ブルー</option>
-<option value="brown">ブラウン</option>
-<option value="beige">ベージュ</option></select></label>
-<label>購入日<input id="editCarPurchase" type="date"></label><label>ナンバープレート<input id="editCarPlate"></label>
-<label>現在走行距離（km）<input id="editCarKm" type="number"></label>
-<label>車検満了日<input id="editCarInspection" type="date"></label>
-<label>オイル交換周期（km）<input id="editCarOil" type="number" value="5000"></label>
-<div class="photo-editor">
-<b>画像追加</b>
-<div id="vehiclePhotoPreview" class="vehicle-photo-preview"><div class="vehicle-photo-empty"><span>＋</span><strong>画像を追加</strong></div></div>
-<div class="vehicle-photo-actions">
-<label class="photo-action-btn select">画像を選択<input type="file" accept="image/*" onchange="selectVehiclePhoto(event)"></label>
-<label class="photo-action-btn camera">撮影<input type="file" accept="image/*" capture="environment" onchange="selectVehiclePhoto(event)"></label>
-<button type="button" class="photo-action-btn delete" onclick="removeVehiclePhoto()">削除</button>
-</div>
-</div></div>
-<div class="card memo-section"><h3>装備品・車両メモ</h3><button class="primary memo-add" type="button" onclick="addMemo()">＋ メモを追加</button><div id="memoEditor"></div></div>
-<button class="primary" onclick="saveVehicleEdit()">保存</button><button id="vehicleDelete" class="danger hidden" onclick="deleteVehicle()">この車両を削除</button></section>
+  <template id="storeTemplate">
+    <div class="store-row">
+      <span class="best-mark" aria-hidden="true"></span>
+      <div class="st-store-cell">
+        <input class="st-store" type="text" maxlength="40" placeholder="店舗">
+        <div class="st-quantity-fields hidden">
+          <input class="st-amount" type="text" inputmode="decimal" placeholder="内容量" aria-label="内容量">
+          <select class="st-unit-select" aria-label="単位">
+            <option value="g">g</option><option value="ml">ml</option><option value="m">m</option>
+            <option value="個">個</option><option value="枚">枚</option><option value="粒">粒</option>
+            <option value="本">本</option><option value="袋">袋</option><option value="箱">箱</option>
+            <option value="パック">パック</option><option value="缶">缶</option><option value="瓶">瓶</option>
+          </select>
+        </div>
+      </div>
+      <input class="st-price" type="text" inputmode="decimal" placeholder="価格">
+      <select class="st-price-type" aria-label="税込・税抜">
+        <option value="inc">込</option>
+        <option value="ex">抜</option>
+      </select>
+      <select class="st-tax" aria-label="税率"></select>
+      <select class="st-coupon-type" aria-label="クーポン">
+        <option value="none">なし</option>
+        <option value="percent">%OFF</option>
+        <option value="yen">円引</option>
+      </select>
+      <input class="st-coupon-value" type="text" inputmode="decimal" placeholder="-">
+      <output class="st-price-result">-</output>
+      <output class="st-unit">-</output>
+      <button class="st-delete" type="button" aria-label="店舗行を削除">×</button>
+    </div>
+  </template>
 
-<section id="settings" class="screen app-page hidden"><div class="screen-head page-head"><div><span class="page-eyebrow">SETTINGS</span><h2>設定・使い方</h2><p>バックアップやアプリ設定を管理</p></div></div>
- <button class="card menu" onclick="openVehicleManager()">🚗 車両の追加・切替・編集 <span>›</span></button>
- <button class="card menu" onclick="openDriving()">📊 走行データ <span>›</span></button><button class="card menu" onclick="openHelp()">📖 使い方 <span>›</span></button>
-<div class="card"><h3>データ管理</h3><p class="help">データはこのブラウザ内に保存されます。機種変更やブラウザデータ削除に備えてバックアップしてください。</p><button onclick="exportBackup(false)">データのみバックアップ</button><button onclick="exportBackup(true)">写真込み完全バックアップ</button><button onclick="document.getElementById('importFile').click()">バックアップから復元</button><input class="hidden" id="importFile" type="file" accept=".json" onchange="importBackup(event)"><button onclick="exportCSV()">CSVを書き出す</button></div>
-<div class="guide-grid">
-    <article><b>1. 車両を登録</b><p>車名、メーカー、型式、カラー、走行距離などを登録します。</p></article>
-    <article><b>2. 記録する</b><p>給油、整備・修理、その他支出をそれぞれのページから追加します。</p></article>
-    <article><b>3. 振り返る</b><p>履歴一覧、維持費・分析、走行データから記録を確認します。</p></article>
-    <article><b>4. バックアップ</b><p>設定ページからデータや写真を含むバックアップを保存できます。</p></article>
-  </div>
-</div>
-<div class="about"><b>CarLog Ver.0.66 β</b><span>ローカル保存・公開β</span></div>
-</section>
-<section id="vehicleNotes" class="screen hidden"><div class="screen-head"><button onclick="goHome()">‹</button><h2>車両メモ</h2><button onclick="openVehicleEdit(activeId)">編集</button></div><div id="vehicleNotesList"></div></section>
-<section id="help" class="screen app-page hidden">
-<div class="screen-head page-head"><div><span class="page-eyebrow">GUIDE</span><h2>使い方</h2><p>操作したい内容から各ページへ移動できます</p></div></div>
-<div class="help-link-grid">
-<button class="card help-link" onclick="openVehicleManager()"><span>🚙</span><div><b>車両を登録・編集</b><small>車両の追加、切替、基本情報の変更</small></div><em>›</em></button>
-<button class="card help-link" onclick="openFuel()"><span>⛽</span><div><b>給油を記録</b><small>給油量、走行距離、金額を登録</small></div><em>›</em></button>
-<button class="card help-link" onclick="openMaintenance()"><span>🔧</span><div><b>整備・修理を記録</b><small>オイル交換、タイヤ、点検、修理など</small></div><em>›</em></button>
-<button class="card help-link" onclick="openExpense()"><span>▣</span><div><b>その他支出を記録</b><small>税金、保険、用品、洗車など</small></div><em>›</em></button>
-<button class="card help-link" onclick="openHistory()"><span>☷</span><div><b>履歴を確認・編集</b><small>登録済みの記録を一覧から確認</small></div><em>›</em></button>
-<button class="card help-link" onclick="openCosts()"><span>⌁</span><div><b>維持費を分析</b><small>年間・月別の費用をグラフで確認</small></div><em>›</em></button>
-<button class="card help-link" onclick="openDriving()"><span>▥</span><div><b>走行データを確認</b><small>走行距離、給油量、燃費を確認</small></div><em>›</em></button>
-<button class="card help-link" onclick="openSettings()"><span>⚙</span><div><b>バックアップ・設定</b><small>データ保存、復元、CSV出力</small></div><em>›</em></button>
-</div>
-<div class="card help-notes"><h3>データ保存について</h3><p>通常の記録はこのブラウザ内に保存され、追加した画像はCarLog用データとして保存されます。ブラウザのサイトデータを削除する前や機種変更前は、設定ページからバックアップを保存してください。</p></div>
-</section></main>
+  <div id="saveToast" class="save-toast hidden" role="status" aria-live="polite">保存しました</div>
 
-<div id="adDock" class="ad-area">
-  <div class="ad-label">広告</div>
-  <div class="ad-mobile-slot">
-    <!-- admax -->
-    <script src="https://adm.shinobi.jp/s/c24454920c811708182da21c384cae6f"></script>
-    <!-- admax -->
-  </div>
-  <div class="ad-desktop-slot">
-    <!-- admax -->
-    <script src="https://adm.shinobi.jp/s/8e4d436c428a59763dc390e5315a19f7"></script>
-    <!-- admax -->
-  </div>
-</div>
-<nav id="bottomNav" class="bottom hidden">
-<button onclick="goHome()">⌂<span>ホーム</span></button>
-<button onclick="openFuel()">⛽<span>給油</span></button>
-<button onclick="openMaintenance()">🔧<span>整備</span></button>
-<button onclick="openExpense()">▣<span>その他</span></button>
-<button onclick="openCosts()">⌁<span>分析</span></button>
-</nav>
-<div id="quickBackdrop" class="backdrop hidden" onclick="closeQuick(event)"><div class="sheet"><h2>記録を追加</h2><p>何を記録しますか？</p><div class="quick"><button onclick="closeQuick();openFuel()">⛽<span>給油</span></button><button onclick="closeQuick();openMaintenance()">🔧<span>整備・修理</span></button><button onclick="closeQuick();openExpense()">¥<span>その他支出</span></button></div><button onclick="closeQuick()">キャンセル</button></div></div>
-<script src="app.js?v=0.66"></script><script>
-if("serviceWorker"in navigator&&location.protocol!=="file:")window.addEventListener("load",()=>navigator.serviceWorker.register("./sw.js?v=0.66",{updateViaCache:"none"}).then(r=>r.update()).catch(console.error));
-</script></body></html>
+  <script src="./app.js?v=0.58"></script>
+  <script src="./ads.js?v=0.58"></script>
+</body>
+</html>

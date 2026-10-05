@@ -1,416 +1,4127 @@
-/* Ver.0.50 temporary showcase data.
-   It is inserted only when there are no fuel/maintenance/expense records. */
-(function seedShowcaseData(){
- try{
-  const parse=k=>{try{return JSON.parse(localStorage.getItem(k)||"[]")}catch(e){return[]}};
-  const existing=[...parse("fuelRecords"),...parse("carlog_maintenance"),...parse("carlog_expenses")];
-  if(existing.length) return;
-  let vs=parse("carlog_vehicles");
-  let v=vs[0];
-  if(!v){
-    v={id:"demo-freed",name:"Honda FREED",maker:"Honda",model:"GP3",year:"2014",color:"white",
-       odometer:38842,inspectionDate:"2027-06-15",oilInterval:5000,plate:"",photoId:null,memos:[]};
-    vs=[v]; localStorage.setItem("carlog_vehicles",JSON.stringify(vs)); localStorage.setItem("carlog_vehicle",JSON.stringify(v));
-  }else{
-    v.odometer=Math.max(+v.odometer||0,38842);
-    if(!v.model)v.model="GP3"; if(!v.color)v.color="white"; if(!v.oilInterval)v.oilInterval=5000;
-    localStorage.setItem("carlog_vehicles",JSON.stringify(vs)); localStorage.setItem("carlog_vehicle",JSON.stringify(v));
+(() => {
+'use strict';
+
+const STORAGE_KEY = 'pricelog_v02_data';
+const SETTINGS_KEY = 'pricelog_v02_settings';
+const INITIALIZED_KEY = 'pricelog_initialized_v1';
+const TEMPLATE_KEY = 'pricelog_custom_template_v1';
+const YAHOO_PRODUCT_CACHE_KEY = 'pricelog_yahoo_product_cache_v1';
+const SHOPPING_MEMO_KEY = 'pricelog_shopping_memo_v1';
+const V051_SETTINGS_MIGRATION_KEY = 'pricelog_v051_settings_migrated';
+
+const YAHOO_WORKER_URL = 'https://pricelog-yahoo.pricelog-api.workers.dev';
+
+const defaultSettings = {
+  standardTax: 10,
+  reducedTax: 8,
+  defaultPriceType: 'ex',
+  yahooClientId: '',
+  barcodeNameDefault: 'product'
+};
+
+function normalizeSettingsData(raw = {}) {
+  const value = raw && typeof raw === 'object' ? raw : {};
+
+  return {
+    ...defaultSettings,
+    ...value,
+    standardTax: Number.isFinite(Number(value.standardTax))
+      ? Number(value.standardTax)
+      : defaultSettings.standardTax,
+    reducedTax: Number.isFinite(Number(value.reducedTax))
+      ? Number(value.reducedTax)
+      : defaultSettings.reducedTax,
+    defaultPriceType: value.defaultPriceType === 'inc' ? 'inc' : 'ex',
+    yahooClientId: String(value.yahooClientId || ''),
+    barcodeNameDefault: value.barcodeNameDefault === 'type' ? 'type' : 'product'
+  };
+}
+
+let settings = normalizeSettingsData(loadJson(SETTINGS_KEY, defaultSettings));
+if (localStorage.getItem(V051_SETTINGS_MIGRATION_KEY) !== '1') {
+  settings.defaultPriceType = 'ex';
+  localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings));
+  localStorage.setItem(V051_SETTINGS_MIGRATION_KEY, '1');
+}
+let products = normalizeProductsData(loadJson(STORAGE_KEY, []));
+let openProductId = null;
+let editProductId = null;
+let saveTimer = null;
+let productEditDraft = null;
+let productEditDirty = false;
+let toastTimer = null;
+let bulkMode = false;
+let bulkSelected = new Set();
+let storePurchaseMode = false;
+let openStoreName = null;
+let shoppingMemoFilters = new Map();
+let shoppingMemoChecked = new Set((loadJson(SHOPPING_MEMO_KEY, []) || []).map(String));
+let shoppingMemoEditStore = null;
+let shoppingMemoEditDraft = null;
+let customTemplate = normalizeTemplateData(loadJson(TEMPLATE_KEY, {version:1, products:[], stores:[]}));
+let templateDraft = null;
+let readingWasManuallyEdited = false;
+let productNameIsComposing = false;
+let compositionReadingCandidate = '';
+let barcodeStream = null;
+let barcodeDetector = null;
+let barcodeScanTimer = null;
+let barcodeScanning = false;
+let barcodeLookupData = null;
+let barcodeReadingManuallyEdited = false;
+let yahooRequestChain = Promise.resolve();
+let yahooLastRequestAt = 0;
+const YAHOO_MIN_REQUEST_INTERVAL_MS = 1200;
+const yahooLookupInflight = new Map();
+const yahooLookupCache = new Map();
+const YAHOO_PRODUCT_CACHE_TTL_MS = 30 * 24 * 60 * 60 * 1000;
+const YAHOO_PRODUCT_CACHE_MAX = 50;
+
+function loadPersistentYahooProductCache() {
+  try {
+    const raw = JSON.parse(localStorage.getItem(YAHOO_PRODUCT_CACHE_KEY) || '{}');
+    const now = Date.now();
+    const entries = Object.entries(raw || {})
+      .filter(([, item]) =>
+        item &&
+        item.hit &&
+        Number(item.time) > 0 &&
+        now - Number(item.time) < YAHOO_PRODUCT_CACHE_TTL_MS
+      )
+      .sort((a, b) => Number(b[1].time) - Number(a[1].time))
+      .slice(0, YAHOO_PRODUCT_CACHE_MAX);
+
+    return new Map(entries);
+  } catch {
+    return new Map();
   }
-  localStorage.setItem("carlog_active_vehicle",v.id);
-  const vid=v.id;
-  localStorage.setItem("fuelRecords",JSON.stringify([
-   {id:"show-f1",vehicleId:vid,date:"2026-09-20",time:"15:30",odometer:38842,liters:39.6,store:"ENEOS",amount:6280,fullTank:true,distance:626,fuelEconomy:15.8,pricePerLiter:158.6,createdAt:"2026-09-20T15:30:00"},
-   {id:"show-f2",vehicleId:vid,date:"2026-08-20",time:"16:10",odometer:38216,liters:40.2,store:"コスモ石油",amount:6650,fullTank:true,distance:647,fuelEconomy:16.1,pricePerLiter:165.4,createdAt:"2026-08-20T16:10:00"},
-   {id:"show-f3",vehicleId:vid,date:"2026-07-18",time:"11:20",odometer:37569,liters:38.8,store:"ENEOS",amount:6360,fullTank:true,distance:605,fuelEconomy:15.6,pricePerLiter:163.9,createdAt:"2026-07-18T11:20:00"},
-   {id:"show-f4",vehicleId:vid,date:"2026-06-16",time:"17:05",odometer:36964,liters:39.1,store:"apollostation",amount:6250,fullTank:true,distance:594,fuelEconomy:15.2,pricePerLiter:159.8,createdAt:"2026-06-16T17:05:00"},
-   {id:"show-f5",vehicleId:vid,date:"2026-05-15",time:"12:10",odometer:36370,liters:38.2,store:"ENEOS",amount:6110,fullTank:true,distance:607,fuelEconomy:15.9,pricePerLiter:159.9,createdAt:"2026-05-15T12:10:00"}
-  ]));
-  localStorage.setItem("carlog_maintenance",JSON.stringify([
-   {id:"show-m1",vehicleId:vid,date:"2026-09-12",time:"10:00",type:"オイル交換",odometer:38620,amount:4800,store:"カーショップ",memo:"エンジンオイル交換"},
-   {id:"show-m2",vehicleId:vid,date:"2026-08-28",time:"13:00",type:"タイヤ交換",odometer:37100,amount:28400,store:"タイヤショップ",memo:"後輪2本交換"}
-  ]));
-  localStorage.setItem("carlog_expenses",JSON.stringify([
-   {id:"show-e1",vehicleId:vid,date:"2026-09-05",time:"14:00",category:"洗車",amount:1200,store:"洗車場",memo:"手洗い洗車"},
-   {id:"show-e2",vehicleId:vid,date:"2026-08-10",time:"09:00",category:"用品",amount:1400,store:"カー用品店",memo:"車用品"}
-  ]));
-  localStorage.setItem("carlog_showcase_v050","1");
- }catch(e){console.warn("showcase seed skipped",e)}
+}
+
+let persistentYahooProductCache = loadPersistentYahooProductCache();
+
+function savePersistentYahooProduct(jan, hit) {
+  if (!jan || !hit) return;
+
+  persistentYahooProductCache.set(jan, {
+    time: Date.now(),
+    hit
+  });
+
+  const entries = Array.from(persistentYahooProductCache.entries())
+    .sort((a, b) => Number(b[1]?.time || 0) - Number(a[1]?.time || 0))
+    .slice(0, YAHOO_PRODUCT_CACHE_MAX);
+
+  persistentYahooProductCache = new Map(entries);
+
+  try {
+    localStorage.setItem(
+      YAHOO_PRODUCT_CACHE_KEY,
+      JSON.stringify(Object.fromEntries(entries))
+    );
+  } catch {}
+}
+
+function getPersistentYahooProduct(jan) {
+  const item = persistentYahooProductCache.get(jan);
+  if (!item?.hit) return null;
+
+  if (Date.now() - Number(item.time || 0) >= YAHOO_PRODUCT_CACHE_TTL_MS) {
+    persistentYahooProductCache.delete(jan);
+    return null;
+  }
+
+  return item.hit;
+}
+
+
+let recommendedReadingMap = new Map();
+
+const $ = (id) => document.getElementById(id);
+const listEl = $('productList');
+const productTemplate = $('productTemplate');
+const storeTemplate = $('storeTemplate');
+
+initializeWithoutSamples();
+loadRecommendedReadingMap();
+render();
+
+$('searchInput').addEventListener('input', render);
+$('btnAddProduct').addEventListener('click', () => openProductDialog());
+$('btnBulkStore').addEventListener('click', () => setBulkMode(!bulkMode));
+$('btnBulkCancel').addEventListener('click', () => setBulkMode(false));
+$('btnBulkSelectAll').addEventListener('click', toggleBulkSelectAll);
+$('btnBulkAdd').addEventListener('click', bulkAddStore);
+$('btnEditTemplate').addEventListener('click', exportCurrentTemplateFile);
+$('btnLoadTemplate').addEventListener('click', () => $('templateImportFile').click());
+$('templateImportFile').addEventListener('change', importTemplateFile);
+$('btnLoadRecommendedTemplate').addEventListener('click', loadRecommendedProductsDirect);
+$('btnCloseTemplate').addEventListener('click', () => $('templateDialog').close());
+$('btnAddTemplateProduct').addEventListener('click', addTemplateProduct);
+$('btnAddTemplateStore').addEventListener('click', addTemplateStore);
+$('btnTemplateProductsAll').addEventListener('click', () => setTemplateSelection('products', true));
+$('btnTemplateProductsNone').addEventListener('click', () => setTemplateSelection('products', false));
+$('btnTemplateStoresAll').addEventListener('click', () => setTemplateSelection('stores', true));
+$('btnTemplateStoresNone').addEventListener('click', () => setTemplateSelection('stores', false));
+$('btnImportRecommendedProducts').addEventListener('click', importRecommendedProductsToDraft);
+$('btnSaveTemplate').addEventListener('click', saveTemplateDraft);
+$('btnExportTemplateFile').addEventListener('click', exportTemplateFile);
+$('btnStorePurchase').addEventListener('click', () => setStorePurchaseMode(!storePurchaseMode));
+$('storePurchaseSearch').addEventListener('input', renderStorePurchaseView);
+$('btnDeleteAllProducts').addEventListener('click', deleteAllProducts);
+$('btnSettings').addEventListener('click', openSettings);
+$('btnToggleYahooClientId').addEventListener('click', toggleYahooClientIdVisibility);
+$('btnTestYahooApi').addEventListener('click', testYahooShoppingApi);
+
+$('productForm').addEventListener('submit', (e) => {
+  e.preventDefault();
+  saveProductFromDialog();
+});
+
+$('settingsForm').addEventListener('submit', (e) => {
+  e.preventDefault();
+  const st = clampNumber($('standardTax').value, 0, 100, 10);
+  const rt = clampNumber($('reducedTax').value, 0, 100, 8);
+
+  settings = normalizeSettingsData({
+    standardTax: st,
+    reducedTax: rt,
+    defaultPriceType: $('defaultPriceType').value === 'ex' ? 'ex' : 'inc',
+    yahooClientId: $('yahooClientId').value.trim(),
+    barcodeNameDefault: $('barcodeNameDefault').value === 'type' ? 'type' : 'product'
+  });
+
+  localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings));
+  $('settingsDialog').close();
+  render();
+});
+
+$('btnExport').addEventListener('click', exportBackup);
+$('btnImport').addEventListener('click', () => $('importFile').click());
+$('importFile').addEventListener('change', importBackup);
+$('btnCloseHistory').addEventListener('click', () => $('historyDialog').close());
+
+$('btnCloseProductDialog').addEventListener('click', (e) => {
+  e.preventDefault();
+  e.stopPropagation();
+
+  const dialog = $('productDialog');
+  if (dialog.open) dialog.close();
+});
+
+$('productDialog').addEventListener('cancel', (e) => {
+  e.preventDefault();
+  $('productDialog').close();
+});
+
+
+$('btnBarcodeAdd').addEventListener('click', openBarcodeDialog);
+$('btnCloseBarcode').addEventListener('click', closeBarcodeDialog);
+$('btnBarcodeRescan').addEventListener('click', resetBarcodeLookupView);
+$('btnStartBarcodeCamera').addEventListener('click', startBarcodeCamera);
+$('btnLookupBarcode').addEventListener('click', () => {
+  const code = normalizeBarcodeCode($('barcodeManualCode').value);
+  if (code) lookupBarcodeProduct(code);
+});
+$('barcodeManualCode').addEventListener('keydown', (e) => {
+  if (e.key === 'Enter') {
+    e.preventDefault();
+    const code = normalizeBarcodeCode($('barcodeManualCode').value);
+    if (code) lookupBarcodeProduct(code);
+  }
+});
+$('barcodeProductNameEdit').addEventListener('input', () => {
+  syncBarcodeChoiceLabels();
+  if ($('barcodeChoiceProduct').checked) {
+    syncBarcodeQuantityForChoice();
+    if (!barcodeReadingManuallyEdited) updateBarcodeReadingFromChoice();
+  }
+});
+$('barcodeTypeNameEdit').addEventListener('input', () => {
+  syncBarcodeChoiceLabels();
+  if ($('barcodeChoiceProduct').checked) {
+    syncBarcodeQuantityForChoice();
+  }
+  if ($('barcodeChoiceType').checked && !barcodeReadingManuallyEdited) {
+    updateBarcodeReadingFromChoice();
+  }
+});
+$('barcodeChoiceProduct').addEventListener('change', () => {
+  if (!$('barcodeChoiceProduct').checked) return;
+  barcodeReadingManuallyEdited = false;
+  syncBarcodeQuantityForChoice();
+  updateBarcodeReadingFromChoice();
+});
+$('barcodeChoiceType').addEventListener('change', () => {
+  if (!$('barcodeChoiceType').checked) return;
+  barcodeReadingManuallyEdited = false;
+  syncBarcodeQuantityForChoice();
+  updateBarcodeReadingFromChoice();
+});
+$('barcodeAmount').addEventListener('input', () => {
+  if (!barcodeLookupData) return;
+
+  const amount = Number($('barcodeAmount').value);
+
+  // 商品名で登録する場合の「1」は初期値。ユーザーが自由に編集できる。
+  if ($('barcodeChoiceProduct').checked) {
+    barcodeLookupData.productAmount = amount > 0 ? amount : null;
+    return;
+  }
+
+  const unit = $('barcodeUnit').value;
+  barcodeLookupData.typeQuantity = amount > 0 && unit ? { amount, unit } : null;
+});
+$('barcodeUnit').addEventListener('change', () => {
+  if (!barcodeLookupData) return;
+
+  if ($('barcodeChoiceProduct').checked) {
+    barcodeLookupData.productUnit = $('barcodeUnit').value;
+    return;
+  }
+
+  const amount = Number($('barcodeAmount').value);
+  const unit = $('barcodeUnit').value;
+  barcodeLookupData.typeQuantity = amount > 0 && unit ? { amount, unit } : null;
+});
+$('barcodeReading').addEventListener('input', () => {
+  barcodeReadingManuallyEdited = true;
+});
+$('btnRegisterBarcodeProduct').addEventListener('click', registerBarcodeProduct);
+$('barcodeDialog').addEventListener('close', stopBarcodeCamera);
+
+$('productKind').addEventListener('change', syncProductKindFields);
+
+$('productName').addEventListener('compositionstart', () => {
+  productNameIsComposing = true;
+  readingWasManuallyEdited = false;
+  compositionReadingCandidate = '';
+});
+
+$('productName').addEventListener('input', (e) => {
+  readingWasManuallyEdited = false;
+
+  const candidate = makeReadingCandidate($('productName').value);
+
+  if (productNameIsComposing || e.isComposing) {
+    // 変換前のかなを記憶しておく。
+    // 変換途中で漢字になっても、よみがな欄は消さない。
+    if (candidate) {
+      compositionReadingCandidate = candidate;
+      $('productReading').value = candidate;
+    }
+    return;
+  }
+
+  autoFillProductReading();
+});
+
+$('productName').addEventListener('compositionend', () => {
+  productNameIsComposing = false;
+  readingWasManuallyEdited = false;
+
+  const finalCandidate = makeReadingCandidate($('productName').value);
+
+  if (finalCandidate) {
+    $('productReading').value = finalCandidate;
+  } else if (compositionReadingCandidate) {
+    $('productReading').value = compositionReadingCandidate;
+  }
+
+  compositionReadingCandidate = '';
+});
+
+$('productName').addEventListener('blur', () => {
+  if (!readingWasManuallyEdited && !productNameIsComposing) {
+    const candidate = makeReadingCandidate($('productName').value);
+    if (candidate) $('productReading').value = candidate;
+  }
+});
+
+$('productReading').addEventListener('input', () => {
+  readingWasManuallyEdited = true;
+});
+
+document.addEventListener('focusin', (e) => {
+  const el = e.target;
+  if (!(el instanceof HTMLInputElement)) return;
+  if (el.type === 'file' || el.disabled || el.readOnly) return;
+
+  const selectable =
+    el.type === 'text' ||
+    el.type === 'search' ||
+    el.inputMode === 'decimal' ||
+    el.inputMode === 'numeric';
+
+  if (!selectable) return;
+
+  requestAnimationFrame(() => {
+    try {
+      el.select();
+    } catch {}
+  });
+});
+
+window.addEventListener('beforeunload', (e) => {
+  if (!productEditDirty) return;
+  e.preventDefault();
+  e.returnValue = '';
+});
+
+if ('serviceWorker' in navigator) {
+  window.addEventListener('load', () => navigator.serviceWorker.register('./sw.js?v=0.58').catch(() => {}));
+}
+
+function loadJson(key, fallback) {
+  try {
+    const raw = localStorage.getItem(key);
+    return raw ? JSON.parse(raw) : structuredCloneSafe(fallback);
+  } catch {
+    return structuredCloneSafe(fallback);
+  }
+}
+
+function structuredCloneSafe(v) {
+  return JSON.parse(JSON.stringify(v));
+}
+
+function makeId(prefix) {
+  return prefix + '_' + Date.now().toString(36) + '_' + Math.random().toString(36).slice(2, 7);
+}
+
+function initializeWithoutSamples() {
+  // 新規利用時は商品0件で開始する。サンプル商品は自動登録しない。
+  if (localStorage.getItem(INITIALIZED_KEY) !== '1') {
+    localStorage.setItem(INITIALIZED_KEY, '1');
+  }
+}
+
+function normalizeProductsData(list) {
+  if (!Array.isArray(list)) return [];
+
+  return list.map(raw => {
+    const product = raw && typeof raw === 'object' ? raw : {};
+    const kind = product.kind === 'type' ? 'type' : 'product';
+    const amount = kind === 'type'
+      ? (Number(product.amount) > 0 ? Number(product.amount) : '')
+      : (Number(product.amount) > 0 ? Number(product.amount) : 1);
+    const unit = String(product.unit || '').trim();
+    const stores = Array.isArray(product.stores) ? product.stores : [];
+
+    return {
+      ...product,
+      id: String(product.id || makeId('p')),
+      kind,
+      name: String(product.name || '').trim(),
+      reading: normalizeReadingInput(product.reading || ''),
+      amount,
+      unit,
+      defaultTax: Number.isFinite(Number(product.defaultTax)) ? Number(product.defaultTax) : settings.reducedTax,
+      history: Array.isArray(product.history) ? product.history.slice(0, 20) : [],
+      stores: stores.map(rawRow => {
+        const row = rawRow && typeof rawRow === 'object' ? rawRow : {};
+        return {
+          ...row,
+          id: String(row.id || makeId('s')),
+          store: String(row.store || ''),
+          price: row.price ?? '',
+          priceType: row.priceType === 'inc' ? 'inc' : 'ex',
+          tax: Number.isFinite(Number(row.tax)) ? Number(row.tax) : Number(product.defaultTax ?? settings.reducedTax),
+          couponType: ['percent','yen'].includes(row.couponType) ? row.couponType : 'none',
+          couponValue: row.couponValue ?? '',
+          amount: kind === 'type' && row.amount === ''
+            ? ''
+            : (Number(row.amount) > 0 ? Number(row.amount) : amount),
+          unit: String(row.unit || unit).trim() || (kind === 'type' ? '個' : unit)
+        };
+      })
+    };
+  }).filter(product => product.name);
+}
+
+function persistSoon() {
+  clearTimeout(saveTimer);
+  saveTimer = setTimeout(persistNow, 250);
+}
+
+function persistNow() {
+  clearTimeout(saveTimer);
+  localStorage.setItem(STORAGE_KEY, JSON.stringify(products));
+}
+
+function taxOptions(selected) {
+  const values = Array.from(new Set([Number(settings.reducedTax), Number(settings.standardTax), Number(selected)]))
+    .filter(v => Number.isFinite(v) && v >= 0);
+  return values.map(v => `<option value="${escapeAttr(v)}"${Number(v)===Number(selected)?' selected':''}>${v}%</option>`).join('');
+}
+
+function beginProductEdit(productId) {
+  const source = products.find(product => product.id === productId);
+  if (!source) {
+    productEditDraft = null;
+    productEditDirty = false;
+    return;
+  }
+  productEditDraft = structuredCloneSafe(source);
+  productEditDirty = false;
+}
+
+function confirmDiscardProductEdit() {
+  if (!productEditDraft || !productEditDirty) return true;
+  return window.confirm('保存していない変更があります。変更を破棄して移動しますか？');
+}
+
+function closeProductEdit({discard = false} = {}) {
+  if (!discard && !confirmDiscardProductEdit()) return false;
+  openProductId = null;
+  productEditDraft = null;
+  productEditDirty = false;
+  render();
+  return true;
+}
+
+function markProductEditDirty() {
+  productEditDirty = true;
+}
+
+function showSaveToast(message = '保存しました') {
+  const toast = $('saveToast');
+  if (!toast) return;
+  clearTimeout(toastTimer);
+  toast.textContent = message;
+  toast.classList.remove('hidden');
+  requestAnimationFrame(() => toast.classList.add('show'));
+  toastTimer = setTimeout(() => {
+    toast.classList.remove('show');
+    setTimeout(() => toast.classList.add('hidden'), 180);
+  }, 2000);
+}
+
+function saveProductEdit(productId) {
+  if (!productEditDraft || productEditDraft.id !== productId) return;
+  const index = products.findIndex(product => product.id === productId);
+  if (index < 0) return;
+
+  const original = products[index];
+  const draft = structuredCloneSafe(productEditDraft);
+  const history = Array.isArray(original.history) ? structuredCloneSafe(original.history) : [];
+  const originalRows = new Map((original.stores || []).map(row => [row.id, row]));
+
+  for (const row of draft.stores || []) {
+    const beforeRow = originalRows.get(row.id);
+    if (!beforeRow) continue;
+    const before = historyPriceValue(beforeRow.price);
+    const after = historyPriceValue(row.price);
+    if (before !== null && after !== null && !sameHistoryPrice(before, after)) {
+      history.unshift({
+        id: makeId('h'),
+        updatedAt: new Date().toISOString(),
+        store: (row.store || beforeRow.store || '店舗未入力').trim() || '店舗未入力',
+        beforePrice: Number(before),
+        afterPrice: Number(after)
+      });
+    }
+  }
+
+  draft.history = history.slice(0, 20);
+  products[index] = draft;
+  persistNow();
+  openProductId = null;
+  productEditDraft = null;
+  productEditDirty = false;
+  render();
+  showSaveToast('保存しました');
+}
+
+function deleteProductFromDetail(productId) {
+  const product = products.find(item => item.id === productId);
+  if (!product) return;
+  if (!window.confirm(`「${product.name}」を削除しますか？`)) return;
+
+  products = products.filter(item => item.id !== productId);
+  openProductId = null;
+  productEditDraft = null;
+  productEditDirty = false;
+  persistNow();
+  render();
+  showSaveToast('商品を削除しました');
+}
+
+function render() {
+  const q = $('searchInput').value.trim().toLowerCase();
+
+  document.body.classList.toggle('focus-mode', !!openProductId && !storePurchaseMode);
+
+  $('storePurchaseView').classList.toggle('hidden', !storePurchaseMode);
+  $('productList').classList.toggle('hidden', storePurchaseMode);
+  $('searchInput').closest('.searchbar').classList.toggle('hidden', storePurchaseMode);
+  $('btnBulkStore').classList.toggle('hidden', storePurchaseMode);
+  const legend = document.querySelector('.best-legend');
+  if (legend) legend.classList.toggle('hidden', storePurchaseMode);
+
+  if (storePurchaseMode) {
+    $('emptyState').classList.add('hidden');
+    $('bulkStoreBar').classList.add('hidden');
+    renderStorePurchaseView();
+    return;
+  }
+
+  listEl.innerHTML = '';
+  listEl.classList.toggle('bulk-mode', bulkMode);
+
+  const visible = products
+    .filter(p => !q || p.name.toLowerCase().includes(q) || (p.reading || '').toLowerCase().includes(q))
+    .slice()
+    .sort(compareProducts);
+
+  $('productCount').textContent = `${visible.length}/${products.length}`;
+  $('emptyState').classList.toggle('hidden', visible.length !== 0);
+
+  let lastGroup = null;
+
+  visible.forEach(product => {
+    const group = productGroup(product);
+    if (group !== lastGroup) {
+      const label = document.createElement('div');
+      label.className = 'product-group-label';
+      label.textContent = group;
+      listEl.appendChild(label);
+      lastGroup = group;
+    }
+
+    const node = productTemplate.content.firstElementChild.cloneNode(true);
+    node.dataset.id = product.id;
+
+    const isOpen = !bulkMode && openProductId === product.id;
+    if (isOpen && (!productEditDraft || productEditDraft.id !== product.id)) beginProductEdit(product.id);
+    const displayProduct = isOpen && productEditDraft ? productEditDraft : product;
+    const bests = getBests(displayProduct);
+
+    node.querySelector('.product-name').textContent = displayProduct.name;
+    node.querySelector('.product-size').textContent = displayProduct.kind === 'type'
+      ? '種類比較'
+      : '';
+
+    const bestWrap = node.querySelector('.best-wrap');
+    const bestPrice = node.querySelector('.best-price');
+    if (bests.before) {
+      const baseCalc = bests.before.calc;
+      bestPrice.textContent = `${fmtPrice(baseCalc.grossBefore)}円`;
+      bestWrap.classList.remove('no-best');
+      node.classList.add('has-best');
+    } else {
+      bestPrice.textContent = '価格未登録';
+      bestWrap.classList.add('no-best');
+    }
+
+    const bulkWrap = node.querySelector('.bulk-check-wrap');
+    const bulkCheck = node.querySelector('.bulk-check');
+    bulkWrap.classList.toggle('hidden', !bulkMode);
+    bulkCheck.checked = bulkSelected.has(product.id);
+    bulkCheck.addEventListener('change', () => {
+      if (bulkCheck.checked) bulkSelected.add(product.id);
+      else bulkSelected.delete(product.id);
+      updateBulkSelectedCount();
+    });
+
+    const summary = node.querySelector('.product-summary');
+    summary.addEventListener('click', () => {
+      if (bulkMode) {
+        bulkCheck.checked = !bulkCheck.checked;
+        if (bulkCheck.checked) bulkSelected.add(product.id);
+        else bulkSelected.delete(product.id);
+        updateBulkSelectedCount();
+        return;
+      }
+
+      if (openProductId === product.id) {
+        closeProductEdit();
+        return;
+      }
+
+      if (!confirmDiscardProductEdit()) return;
+      openProductId = product.id;
+      beginProductEdit(product.id);
+      render();
+    });
+
+    const detail = node.querySelector('.product-detail');
+    detail.classList.toggle('hidden', !isOpen);
+    node.classList.toggle('open', isOpen);
+
+    if (isOpen && productEditDraft) {
+      const draft = productEditDraft;
+      node.querySelector('.btn-edit-product').addEventListener('click', () => openProductDialog(product.id));
+      node.querySelector('.btn-history').addEventListener('click', () => openHistoryDialog(product.id));
+      node.querySelector('.btn-add-store').addEventListener('click', () => {
+        draft.stores.push({
+          id: makeId('s'),
+          store: '',
+          price: '',
+          priceType: settings.defaultPriceType,
+          tax: draft.defaultTax,
+          couponType: 'none',
+          couponValue: '',
+          amount: draft.kind === 'type'
+            ? (Number(draft.amount) > 0 ? Number(draft.amount) : '')
+            : (Number(draft.amount) > 0 ? Number(draft.amount) : 1),
+          unit: draft.unit || '個'
+        });
+        markProductEditDirty();
+        render();
+        requestAnimationFrame(() => {
+          const card = listEl.querySelector(`[data-id="${cssEscape(product.id)}"]`);
+          const rows = card?.querySelectorAll('.store-row');
+          rows?.[rows.length - 1]?.querySelector('.st-store')?.focus();
+        });
+      });
+
+      const storeList = node.querySelector('.store-list');
+      draft.stores.forEach(row => {
+        const flags = {
+          before: bests.before?.row.id === row.id,
+          after: bests.after?.row.id === row.id
+        };
+        storeList.appendChild(renderStoreRow(draft, row, flags));
+      });
+
+      if (!draft.stores.length) {
+        const hint = document.createElement('div');
+        hint.className = 'empty';
+        hint.textContent = '「＋店舗」で価格を追加';
+        storeList.appendChild(hint);
+      }
+
+      node.querySelector('.btn-save-product-edit').addEventListener('click', () => saveProductEdit(product.id));
+      node.querySelector('.btn-cancel-product-edit').addEventListener('click', () => closeProductEdit({discard:true}));
+      node.querySelector('.btn-delete-product-detail').addEventListener('click', () => deleteProductFromDetail(product.id));
+    }
+
+    listEl.appendChild(node);
+  });
+}
+
+function renderStoreRow(product, row, bestFlags = {before:false, after:false}) {
+  const el = storeTemplate.content.firstElementChild.cloneNode(true);
+  const bestMark = el.querySelector('.best-mark');
+  applyBestFlags(el, bestMark, bestFlags);
+
+  const store = el.querySelector('.st-store');
+  const price = el.querySelector('.st-price');
+  const priceType = el.querySelector('.st-price-type');
+  const tax = el.querySelector('.st-tax');
+  const couponType = el.querySelector('.st-coupon-type');
+  const couponValue = el.querySelector('.st-coupon-value');
+  const amount = el.querySelector('.st-amount');
+  const unitSelect = el.querySelector('.st-unit-select');
+  const quantityFields = el.querySelector('.st-quantity-fields');
+  const priceResultOut = el.querySelector('.st-price-result');
+  const unitOut = el.querySelector('.st-unit');
+
+  store.value = row.store ?? '';
+  price.value = row.price ?? '';
+  priceType.value = row.priceType === 'inc' ? 'inc' : 'ex';
+  tax.innerHTML = taxOptions(row.tax ?? product.defaultTax);
+  couponType.value = ['percent','yen'].includes(row.couponType) ? row.couponType : 'none';
+  couponValue.value = row.couponValue ?? '';
+
+  const isType = product.kind === 'type';
+  quantityFields.classList.toggle('hidden', !isType);
+  if (isType) {
+    amount.value = Number(row.amount) > 0 ? row.amount : (product.amount || 1);
+    setSelectValueWithOption(unitSelect, row.unit || product.unit || '個');
+  }
+
+  function updateOutputs() {
+    couponValue.disabled = couponType.value === 'none';
+    couponValue.placeholder = couponType.value === 'percent' ? '%' : couponType.value === 'yen' ? '円' : '-';
+    const calc = calcRow(product, row);
+    if (calc) {
+      priceResultOut.textContent = `${fmtPrice(calc.grossBefore)}[${fmtPrice(calc.afterTotal)}](${fmtPriceDelta(calc.afterTotal - calc.grossBefore)})`;
+      unitOut.textContent = `${fmtUnit(calc.beforeUnit)}[${fmtUnit(calc.afterUnit)}](${fmtUnitDelta(calc.afterUnit - calc.beforeUnit)})`;
+    } else {
+      priceResultOut.textContent = '-';
+      unitOut.textContent = '-';
+    }
+  }
+
+  function sync() {
+    row.store = store.value.trim();
+    row.price = numberOrBlank(price.value);
+    row.priceType = priceType.value;
+    row.tax = Number(tax.value);
+    row.couponType = couponType.value;
+    row.couponValue = numberOrBlank(couponValue.value);
+    if (isType) {
+      row.amount = numberOrBlank(amount.value);
+      row.unit = unitSelect.value || product.unit || '個';
+    }
+    markProductEditDirty();
+    updateOutputs();
+    refreshBestOnly(product.id);
+  }
+
+  [store, price, priceType, tax, couponType, couponValue, amount, unitSelect].forEach(ctrl => {
+    if (!ctrl) return;
+    ctrl.addEventListener('input', sync);
+    ctrl.addEventListener('change', sync);
+  });
+
+  el.querySelector('.st-delete').addEventListener('click', () => {
+    product.stores = product.stores.filter(item => item.id !== row.id);
+    productEditDraft = product;
+    markProductEditDirty();
+    render();
+  });
+
+  updateOutputs();
+  return el;
+}
+
+function setSelectValueWithOption(select, value) {
+  const normalized = String(value || '').trim();
+  if (!normalized) {
+    if (Array.from(select.options).some(option => option.value === '')) select.value = '';
+    return;
+  }
+  if (!Array.from(select.options).some(option => option.value === normalized)) {
+    const option = document.createElement('option');
+    option.value = normalized;
+    option.textContent = normalized;
+    select.appendChild(option);
+  }
+  select.value = normalized;
+}
+
+function refreshBestOnly(productId) {
+  const product = productEditDraft?.id === productId
+    ? productEditDraft
+    : products.find(p => p.id === productId);
+  const card = listEl.querySelector(`[data-id="${cssEscape(productId)}"]`);
+  if (!product || !card) return;
+
+  const bests = getBests(product);
+  const hasBest = !!bests.before;
+  const bestWrap = card.querySelector('.best-wrap');
+  const bestPrice = card.querySelector('.best-price');
+
+  if (hasBest) {
+    bestPrice.textContent = `${fmtPrice(bests.before.calc.grossBefore)}円`;
+    bestWrap?.classList.remove('no-best');
+  } else {
+    bestPrice.textContent = '価格未登録';
+    bestWrap?.classList.add('no-best');
+  }
+
+  card.classList.toggle('has-best', hasBest);
+
+  const rowEls = card.querySelectorAll('.store-row');
+  rowEls.forEach((rowEl, i) => {
+    const row = product.stores[i];
+    const calc = row ? calcRow(product, row) : null;
+    const priceResultOut = rowEl.querySelector('.st-price-result');
+    const unitOut = rowEl.querySelector('.st-unit');
+    const mark = rowEl.querySelector('.best-mark');
+
+    if (priceResultOut) {
+      priceResultOut.textContent = calc
+        ? `${fmtPrice(calc.grossBefore)}[${fmtPrice(calc.afterTotal)}](${fmtPriceDelta(calc.afterTotal - calc.grossBefore)})`
+        : '-';
+    }
+    if (unitOut) {
+      unitOut.textContent = calc
+        ? `${fmtUnit(calc.beforeUnit)}[${fmtUnit(calc.afterUnit)}](${fmtUnitDelta(calc.afterUnit - calc.beforeUnit)})`
+        : '-';
+    }
+    applyBestFlags(rowEl, mark, {
+      before: !!bests.before && bests.before.row.id === row?.id,
+      after: !!bests.after && bests.after.row.id === row?.id
+    });
+  });
+}
+
+function calcRow(product, row) {
+  const price = Number(row.price);
+  const amount = Number(product.kind === 'type' ? row.amount : product.amount);
+  const tax = Number(row.tax);
+  if (!(price > 0) || !(amount > 0) || !(tax >= 0)) return null;
+
+  const grossBefore = row.priceType === 'ex' ? price * (1 + tax / 100) : price;
+  const netBefore = row.priceType === 'ex' ? price : price / (1 + tax / 100);
+
+  let afterTotal = grossBefore;
+  const cv = Math.max(0, Number(row.couponValue) || 0);
+
+  if (row.couponType === 'percent') {
+    afterTotal = grossBefore * (1 - Math.min(cv, 100) / 100);
+  } else if (row.couponType === 'yen') {
+    afterTotal = Math.max(0, grossBefore - cv);
+  }
+
+  return {
+    grossBefore,
+    netBefore,
+    afterTotal,
+    beforeUnit: grossBefore / amount,
+    afterUnit: afterTotal / amount
+  };
+}
+
+function getBests(product) {
+  let before = null;
+
+  // ★ = クーポンを使わない通常時の最安店舗
+  product.stores.forEach(row => {
+    const calc = calcRow(product, row);
+    if (!calc) return;
+
+    if (!before || calc.beforeUnit < before.calc.beforeUnit) {
+      before = { row, store: row.store, calc, unit: product.kind === 'type' ? (row.unit || product.unit) : product.unit };
+    }
+  });
+
+  if (!before) return { before: null, after: null };
+
+  // ◆ = ★とは別店舗で、クーポン使用後価格が
+  // ★店舗の通常価格・クーポン適用後価格の両方より安い場合だけ表示。
+  let after = null;
+
+  product.stores.forEach(row => {
+    if (row.id === before.row.id) return;
+
+    const calc = calcRow(product, row);
+    if (!calc) return;
+
+    const beatsBaseBefore = calc.afterUnit < before.calc.beforeUnit;
+    const beatsBaseAfter = calc.afterUnit < before.calc.afterUnit;
+
+    if (!beatsBaseBefore || !beatsBaseAfter) return;
+
+    if (!after || calc.afterUnit < after.calc.afterUnit) {
+      after = { row, store: row.store, calc, unit: product.kind === 'type' ? (row.unit || product.unit) : product.unit };
+    }
+  });
+
+  return { before, after };
+}
+
+function createPriceBadge(kind, compact = false) {
+  const badge = document.createElement('span');
+  badge.className = `price-badge ${kind === 'special' ? 'badge-special' : 'badge-low'}${compact ? ' mini-badge' : ''}`;
+  const icon = document.createElement('span');
+  icon.className = 'badge-icon';
+  icon.textContent = kind === 'special' ? '◆' : '♛';
+  badge.append(icon, document.createTextNode(kind === 'special' ? '特安' : '最安'));
+  return badge;
+}
+
+function renderBestStoreSummary(container, bests) {
+  container.innerHTML = '';
+  if (!bests.before) {
+    container.textContent = '価格未登録';
+    return;
+  }
+
+  const add = (kind, store) => {
+    const wrap = document.createElement('span');
+    wrap.className = 'best-store-item';
+    wrap.append(createPriceBadge(kind, true), document.createTextNode(store || '店舗未入力'));
+    container.appendChild(wrap);
+  };
+
+  add('low', bests.before.store);
+  if (bests.after) add('special', bests.after.store);
+}
+
+function applyBestFlags(rowEl, markEl, flags) {
+  if (!markEl) return;
+  markEl.innerHTML = '';
+  if (flags.before) markEl.appendChild(createPriceBadge('low', true));
+  else if (flags.after) markEl.appendChild(createPriceBadge('special', true));
+}
+
+function ensureHistory(product) {
+  if (!Array.isArray(product.history)) product.history = [];
+  if (product.history.length > 20) product.history = product.history.slice(0, 20);
+  return product.history;
+}
+
+function historyPriceValue(value) {
+  if (value === '' || value === null || value === undefined) return null;
+  const n = Number(value);
+  return Number.isFinite(n) ? n : null;
+}
+
+function sameHistoryPrice(a, b) {
+  return Math.abs(Number(a) - Number(b)) < 0.0001;
+}
+
+function addPriceHistory(product, storeName, beforePrice, afterPrice) {
+  if (beforePrice === null || afterPrice === null || sameHistoryPrice(beforePrice, afterPrice)) return;
+
+  const history = ensureHistory(product);
+  history.unshift({
+    id: makeId('h'),
+    updatedAt: new Date().toISOString(),
+    store: (storeName || '店舗未入力').trim() || '店舗未入力',
+    beforePrice: Number(beforePrice),
+    afterPrice: Number(afterPrice)
+  });
+
+  if (history.length > 20) history.length = 20;
+  persistNow();
+}
+
+function openHistoryDialog(productId) {
+  const product = products.find(p => p.id === productId);
+  if (!product) return;
+
+  const history = ensureHistory(product);
+  $('historyProductName').textContent = product.name;
+  const list = $('historyList');
+  list.innerHTML = '';
+
+  history.forEach(item => {
+    const row = document.createElement('div');
+    row.className = 'history-grid history-row';
+
+    const date = document.createElement('span');
+    date.textContent = formatHistoryDate(item.updatedAt);
+
+    const store = document.createElement('span');
+    store.className = 'history-store';
+    store.textContent = item.store || '店舗未入力';
+
+    const before = document.createElement('span');
+    before.className = 'history-price';
+    before.textContent = `${fmtPrice(item.beforePrice)}円`;
+
+    const after = document.createElement('span');
+    after.className = 'history-price';
+    after.textContent = `${fmtPrice(item.afterPrice)}円`;
+
+    row.append(date, store, before, after);
+    list.appendChild(row);
+  });
+
+  $('historyTableWrap').classList.toggle('hidden', history.length === 0);
+  $('historyEmpty').classList.toggle('hidden', history.length !== 0);
+  $('historyDialog').showModal();
+}
+
+function formatHistoryDate(iso) {
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return '-';
+
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  const h = String(d.getHours()).padStart(2, '0');
+  const min = String(d.getMinutes()).padStart(2, '0');
+  return `${y}/${m}/${day} ${h}:${min}`;
+}
+
+function setStorePurchaseMode(enabled) {
+  if (!!enabled && !confirmDiscardProductEdit()) return;
+  if (!!enabled && openProductId) {
+    openProductId = null;
+    productEditDraft = null;
+    productEditDirty = false;
+  }
+
+  if (!enabled && shoppingMemoEditStore) {
+    const ok = window.confirm('買い物メモで保存していない価格・容量の変更があります。破棄して商品一覧へ戻りますか？');
+    if (!ok) return;
+    shoppingMemoEditStore = null;
+    shoppingMemoEditDraft = null;
+  }
+
+  storePurchaseMode = !!enabled;
+
+  if (storePurchaseMode) {
+    bulkMode = false;
+    bulkSelected.clear();
+    $('btnStorePurchase').textContent = '商品一覧';
+  } else {
+    openStoreName = null;
+    $('storePurchaseSearch').value = '';
+    $('btnStorePurchase').textContent = '買い物メモ';
+  }
+
+  render();
+}
+
+function persistShoppingMemoChecked() {
+  localStorage.setItem(SHOPPING_MEMO_KEY, JSON.stringify(Array.from(shoppingMemoChecked)));
+}
+
+function shoppingMemoKey(item) {
+  return String(item.row.id);
+}
+
+function shoppingMemoGrossPrice(row) {
+  const price = Number(row?.price);
+  const tax = Number(row?.tax);
+  if (!(price >= 0) || row?.price === '' || !(tax >= 0)) return null;
+  return row.priceType === 'ex' ? price * (1 + tax / 100) : price;
+}
+
+function buildStorePurchaseMap() {
+  const map = new Map();
+
+  products.forEach(product => {
+    const bests = getBests(product);
+
+    (product.stores || []).forEach(row => {
+      const storeName = String(row.store || '').trim() || '店舗未入力';
+      if (!map.has(storeName)) map.set(storeName, []);
+      map.get(storeName).push({
+        product,
+        row,
+        calc: calcRow(product, row),
+        grossPrice: shoppingMemoGrossPrice(row),
+        mark: bests.before?.row.id === row.id ? 'low' : ''
+      });
+    });
+  });
+
+  return map;
+}
+
+function pruneShoppingMemoChecked(storeMap) {
+  const valid = new Set();
+  storeMap.forEach(items => items.forEach(item => valid.add(shoppingMemoKey(item))));
+  const next = new Set(Array.from(shoppingMemoChecked).filter(key => valid.has(key)));
+  if (next.size !== shoppingMemoChecked.size) {
+    shoppingMemoChecked = next;
+    persistShoppingMemoChecked();
+  }
+}
+
+function getShoppingMemoDuplicates(storeMap) {
+  const selectedByProduct = new Map();
+
+  storeMap.forEach((items, storeName) => {
+    items.forEach(item => {
+      if (!shoppingMemoChecked.has(shoppingMemoKey(item))) return;
+      if (!selectedByProduct.has(item.product.id)) {
+        selectedByProduct.set(item.product.id, {product: item.product, stores: []});
+      }
+      selectedByProduct.get(item.product.id).stores.push(storeName);
+    });
+  });
+
+  return Array.from(selectedByProduct.values())
+    .map(entry => ({
+      product: entry.product,
+      stores: Array.from(new Set(entry.stores))
+    }))
+    .filter(entry => entry.stores.length > 1);
+}
+
+function updateShoppingMemoDuplicateWarning(storeMap) {
+  const duplicates = getShoppingMemoDuplicates(storeMap);
+  const warning = $('shoppingMemoDuplicate');
+  if (!duplicates.length) {
+    warning.classList.add('hidden');
+    warning.textContent = '';
+    return;
+  }
+
+  const lines = duplicates.map(entry => `${entry.product.name}：${entry.stores.join('・')}`);
+  warning.textContent = `購入予定が重複しています\n${lines.join('\n')}`;
+  warning.classList.remove('hidden');
+}
+
+function getShoppingMemoFilter(storeName) {
+  return shoppingMemoFilters.get(storeName) || 'all';
+}
+
+function shoppingMemoItemVisible(item, storeName) {
+  const checked = shoppingMemoChecked.has(shoppingMemoKey(item));
+  const filter = getShoppingMemoFilter(storeName);
+  if (filter === 'checked') return checked;
+  if (filter === 'unchecked') return !checked;
+  return true;
+}
+
+function startShoppingMemoEdit(storeName, items) {
+  shoppingMemoEditStore = storeName;
+  shoppingMemoEditDraft = items.map(item => {
+    const amount = item.product.kind === 'type' ? item.row.amount : item.product.amount;
+    const unit = item.product.kind === 'type' ? item.row.unit : item.product.unit;
+    return {
+      productId: item.product.id,
+      rowId: item.row.id,
+      grossPrice: item.grossPrice !== null ? Number(item.grossPrice) : '',
+      amount: amount ?? '',
+      unit: String(unit || '')
+    };
+  });
+  renderStorePurchaseView();
+}
+
+function cancelShoppingMemoEdit() {
+  shoppingMemoEditStore = null;
+  shoppingMemoEditDraft = null;
+  renderStorePurchaseView();
+}
+
+function saveShoppingMemoEdit() {
+  if (!shoppingMemoEditStore || !Array.isArray(shoppingMemoEditDraft)) return;
+
+  shoppingMemoEditDraft.forEach(edit => {
+    const product = products.find(item => item.id === edit.productId);
+    const row = product?.stores?.find(item => item.id === edit.rowId);
+    if (!product || !row) return;
+
+    const beforePrice = historyPriceValue(row.price);
+    const grossPrice = edit.grossPrice === '' ? null : Number(edit.grossPrice);
+
+    if (grossPrice !== null && Number.isFinite(grossPrice) && grossPrice >= 0) {
+      const taxRate = Number(row.tax) || 0;
+      const rawPrice = row.priceType === 'ex'
+        ? grossPrice / (1 + taxRate / 100)
+        : grossPrice;
+      row.price = Math.round(rawPrice * 10000) / 10000;
+    } else if (edit.grossPrice === '') {
+      row.price = '';
+    }
+
+    const amount = Number(edit.amount);
+    const unit = String(edit.unit || '').trim();
+    if (product.kind === 'type') {
+      row.amount = amount > 0 ? amount : '';
+      row.unit = unit;
+    } else {
+      product.amount = amount > 0 ? amount : 1;
+      product.unit = unit;
+    }
+
+    const afterPrice = historyPriceValue(row.price);
+    if (beforePrice !== null && afterPrice !== null && !sameHistoryPrice(beforePrice, afterPrice)) {
+      const history = ensureHistory(product);
+      history.unshift({
+        id: makeId('h'),
+        updatedAt: new Date().toISOString(),
+        store: (row.store || '店舗未入力').trim() || '店舗未入力',
+        beforePrice: Number(beforePrice),
+        afterPrice: Number(afterPrice)
+      });
+      if (history.length > 20) history.length = 20;
+    }
+  });
+
+  persistNow();
+  shoppingMemoEditStore = null;
+  shoppingMemoEditDraft = null;
+  renderStorePurchaseView();
+  showSaveToast('買い物メモの変更を保存しました');
+}
+
+function shoppingMemoUnitSelect(value, onChange) {
+  const select = document.createElement('select');
+  select.className = 'shopping-edit-unit';
+  select.setAttribute('aria-label', '単位');
+  const units = ['', 'g', 'ml', 'm', '個', '枚', '粒', '本', '袋', '箱', 'パック', '缶', '瓶'];
+  const normalized = String(value || '');
+  if (normalized && !units.includes(normalized)) units.push(normalized);
+  units.forEach(unit => {
+    const option = document.createElement('option');
+    option.value = unit;
+    option.textContent = unit;
+    select.appendChild(option);
+  });
+  select.value = normalized;
+  select.addEventListener('change', () => onChange(select.value));
+  return select;
+}
+
+function getStoreIllustrationCategory(storeName) {
+  const name = String(storeName || '').normalize('NFKC').toLowerCase();
+  const has = (...words) => words.some(word => name.includes(word));
+
+  if (has('amazon','アマゾン','楽天','yahoo','ネット','オンライン','通販')) return 'online';
+  if (has('ドラッグ','薬局','くすり','クスリ','スギ','ウエルシア','welcia','マツキヨ','マツモトキヨシ','コスモス','サンドラッグ')) return 'drug';
+  if (has('ホームセンター','コーナン','カインズ','dcm','アヤハ','ナフコ','コメリ')) return 'home';
+  if (has('コンビニ','セブン','ローソン','ファミマ','ファミリーマート','ミニストップ','デイリー')) return 'convenience';
+  if (has('スーパー','マート','イオン','西友','平和堂','フレンドマート','バロー','ライフ','業務','マックスバリュ','ラムー','ラ・ムー','イズミヤ','アルプラザ','アル・プラザ')) return 'supermarket';
+  return 'shop';
+}
+
+function storeIllustrationAccent(storeName) {
+  const palette = ['#6f9d63','#c7835a','#d2a343','#6f95a8','#8f806d','#9b7f91'];
+  let hash = 0;
+  for (const ch of String(storeName || '')) hash = ((hash * 31) + ch.codePointAt(0)) >>> 0;
+  return palette[hash % palette.length];
+}
+
+function createStoreIllustration(storeName) {
+  const category = getStoreIllustrationCategory(storeName);
+  const icon = document.createElement('span');
+  icon.className = `store-illustration store-illustration-${category}`;
+  icon.setAttribute('aria-hidden', 'true');
+  icon.style.setProperty('--store-accent', storeIllustrationAccent(storeName));
+
+  const svgs = {
+    supermarket: `<svg viewBox="0 0 48 48" focusable="false"><rect x="7" y="19" width="34" height="22" rx="5" fill="#fffaf0"/><path d="M6 18h36l-4-9H10z" fill="var(--store-accent)"/><path d="M10 9h28l1.7 4H8.3z" fill="#f3dfb6"/><path d="M12 18v5M20 18v5M28 18v5M36 18v5" stroke="#fff" stroke-width="3" stroke-linecap="round"/><rect x="13" y="27" width="9" height="14" rx="2" fill="#d9e9d1"/><rect x="26" y="27" width="10" height="7" rx="2" fill="#f1d7a7"/></svg>`,
+    drug: `<svg viewBox="0 0 48 48" focusable="false"><rect x="7" y="18" width="34" height="23" rx="5" fill="#fffaf0"/><path d="M6 18h36l-4-8H10z" fill="var(--store-accent)"/><circle cx="24" cy="29" r="8" fill="#eef5e8"/><path d="M24 24v10M19 29h10" stroke="#5d8f59" stroke-width="3.4" stroke-linecap="round"/><rect x="11" y="25" width="6" height="16" rx="2" fill="#f0ddbd"/></svg>`,
+    home: `<svg viewBox="0 0 48 48" focusable="false"><path d="M6 21L24 7l18 14v20H6z" fill="#fffaf0"/><path d="M5 21L24 6l19 15-4 4-15-12L9 25z" fill="var(--store-accent)"/><rect x="12" y="27" width="10" height="14" rx="2" fill="#d8e7d0"/><path d="M29 27l7 7M36 27l-7 7" stroke="#b17a56" stroke-width="3" stroke-linecap="round"/></svg>`,
+    convenience: `<svg viewBox="0 0 48 48" focusable="false"><rect x="7" y="18" width="34" height="23" rx="5" fill="#fffaf0"/><path d="M6 18h36l-3-8H9z" fill="#f1dfb9"/><path d="M10 10h7v8h-7zM17 10h7v8h-7zM24 10h7v8h-7zM31 10h7v8h-7z" fill="var(--store-accent)"/><rect x="12" y="26" width="9" height="15" rx="2" fill="#dbead3"/><rect x="26" y="26" width="10" height="7" rx="2" fill="#d8e7ef"/></svg>`,
+    online: `<svg viewBox="0 0 48 48" focusable="false"><rect x="9" y="12" width="30" height="25" rx="6" fill="#fffaf0" stroke="var(--store-accent)" stroke-width="3"/><path d="M15 20h18M15 26h13" stroke="#c6b18e" stroke-width="3" stroke-linecap="round"/><path d="M29 31l9 4-4 2 2 4-3 1-2-5-3 1z" fill="var(--store-accent)"/></svg>`,
+    shop: `<svg viewBox="0 0 48 48" focusable="false"><rect x="7" y="18" width="34" height="23" rx="5" fill="#fffaf0"/><path d="M6 18h36l-4-9H10z" fill="var(--store-accent)"/><path d="M10 18v5M20 18v5M28 18v5M38 18v5" stroke="#fff" stroke-width="3" stroke-linecap="round"/><rect x="12" y="27" width="10" height="14" rx="2" fill="#d9e9d1"/><rect x="27" y="27" width="9" height="8" rx="2" fill="#f0ddbd"/></svg>`
+  };
+  icon.innerHTML = svgs[category] || svgs.shop;
+  return icon;
+}
+
+function renderStorePurchaseView() {
+  const container = $('storePurchaseList');
+  if (!container) return;
+
+  container.innerHTML = '';
+
+  const q = $('storePurchaseSearch').value.trim().toLowerCase();
+  const storeMap = buildStorePurchaseMap();
+  pruneShoppingMemoChecked(storeMap);
+  updateShoppingMemoDuplicateWarning(storeMap);
+
+  const stores = Array.from(storeMap.entries())
+    .filter(([storeName]) => !q || storeName.toLowerCase().includes(q))
+    .map(([storeName, items]) => [storeName, items.slice().sort((a, b) => compareProducts(a.product, b.product))])
+    .sort((a, b) => a[0].localeCompare(b[0], 'ja', { sensitivity: 'base', numeric: true }));
+
+  $('storePurchaseEmpty').classList.toggle('hidden', stores.length !== 0);
+
+  stores.forEach(([storeName, items]) => {
+    const card = document.createElement('article');
+    card.className = 'store-card';
+    const isOpen = openStoreName === storeName;
+    const isEditing = shoppingMemoEditStore === storeName;
+    if (isOpen) card.classList.add('open');
+    if (isEditing) card.classList.add('editing');
+
+    const header = document.createElement('div');
+    header.className = 'store-summary';
+
+    const toggle = document.createElement('button');
+    toggle.type = 'button';
+    toggle.className = 'store-summary-toggle';
+
+    const name = document.createElement('span');
+    name.className = 'store-summary-name';
+    name.textContent = storeName;
+
+    const storeCheckedItems = items.filter(item => shoppingMemoChecked.has(shoppingMemoKey(item)));
+    const storeTotal = storeCheckedItems.reduce((sum, item) => sum + (item.grossPrice ?? 0), 0);
+    const count = document.createElement('span');
+    count.className = 'store-summary-count';
+    count.textContent = `予定${storeCheckedItems.length}品 / ${fmtPrice(storeTotal)}円（税込）`;
+
+    const chev = document.createElement('span');
+    chev.className = 'store-summary-chev';
+    chev.textContent = '›';
+
+    const storeIllustration = createStoreIllustration(storeName);
+    toggle.append(storeIllustration, name, count, chev);
+    toggle.addEventListener('click', () => {
+      if (isEditing) return;
+      if (shoppingMemoEditStore && shoppingMemoEditStore !== storeName) {
+        if (!window.confirm('別の店舗に保存していない変更があります。破棄して移動しますか？')) return;
+        shoppingMemoEditStore = null;
+        shoppingMemoEditDraft = null;
+      }
+      openStoreName = openStoreName === storeName ? null : storeName;
+      renderStorePurchaseView();
+    });
+
+    const actions = document.createElement('div');
+    actions.className = 'store-summary-actions';
+
+    if (isEditing) {
+      const cancel = document.createElement('button');
+      cancel.type = 'button';
+      cancel.className = 'ghost mini shopping-store-action';
+      cancel.textContent = 'キャンセル';
+      cancel.addEventListener('click', cancelShoppingMemoEdit);
+
+      const save = document.createElement('button');
+      save.type = 'button';
+      save.className = 'primary mini shopping-store-action';
+      save.textContent = '保存';
+      save.addEventListener('click', saveShoppingMemoEdit);
+      actions.append(cancel, save);
+    } else {
+      const edit = document.createElement('button');
+      edit.type = 'button';
+      edit.className = 'ghost mini shopping-store-action';
+      edit.textContent = '価格・容量編集';
+      edit.addEventListener('click', () => {
+        openStoreName = storeName;
+        startShoppingMemoEdit(storeName, items);
+      });
+
+      const reset = document.createElement('button');
+      reset.type = 'button';
+      reset.className = 'ghost mini shopping-store-action';
+      reset.textContent = 'チェックをリセット';
+      reset.dataset.shoppingReset = '1';
+      reset.disabled = storeCheckedItems.length === 0;
+      reset.addEventListener('click', () => {
+        items.forEach(item => shoppingMemoChecked.delete(shoppingMemoKey(item)));
+        persistShoppingMemoChecked();
+        renderStorePurchaseView();
+      });
+      actions.append(edit, reset);
+    }
+
+    header.append(toggle, actions);
+    card.appendChild(header);
+
+    if (isOpen && !isEditing) {
+      const filterBar = document.createElement('div');
+      filterBar.className = 'shopping-store-filters';
+      filterBar.setAttribute('role', 'group');
+      filterBar.setAttribute('aria-label', `${storeName}の購入予定フィルター`);
+      [
+        ['all', 'すべて'],
+        ['checked', 'チェック済み'],
+        ['unchecked', 'チェックなし']
+      ].forEach(([value, label]) => {
+        const filterButton = document.createElement('button');
+        filterButton.type = 'button';
+        filterButton.className = 'shopping-filter';
+        if (getShoppingMemoFilter(storeName) === value) filterButton.classList.add('active');
+        filterButton.textContent = label;
+        filterButton.addEventListener('click', () => {
+          shoppingMemoFilters.set(storeName, value);
+          renderStorePurchaseView();
+        });
+        filterBar.appendChild(filterButton);
+      });
+      card.appendChild(filterBar);
+    }
+
+    if (isOpen) {
+      const productList = document.createElement('div');
+      productList.className = 'store-product-list';
+
+      const visibleItems = isEditing ? items : items.filter(item => shoppingMemoItemVisible(item, storeName));
+      visibleItems.forEach(item => {
+        const row = document.createElement('div');
+        row.className = 'store-product-row';
+
+        const mark = document.createElement('span');
+        mark.className = 'store-product-mark';
+        if (item.mark === 'low') mark.appendChild(createPriceBadge('low', true));
+
+        const checkbox = document.createElement('input');
+        checkbox.type = 'checkbox';
+        checkbox.className = 'store-product-check';
+        checkbox.checked = shoppingMemoChecked.has(shoppingMemoKey(item));
+        checkbox.setAttribute('aria-label', `${item.product.name}を購入予定にする`);
+        checkbox.addEventListener('change', () => {
+          const key = shoppingMemoKey(item);
+          if (checkbox.checked) shoppingMemoChecked.add(key);
+          else shoppingMemoChecked.delete(key);
+          persistShoppingMemoChecked();
+
+          if (getShoppingMemoFilter(storeName) !== 'all' && !isEditing) {
+            renderStorePurchaseView();
+            return;
+          }
+
+          const refreshedMap = buildStorePurchaseMap();
+          updateShoppingMemoDuplicateWarning(refreshedMap);
+          const refreshedItems = refreshedMap.get(storeName) || [];
+          const checkedItems = refreshedItems.filter(entry => shoppingMemoChecked.has(shoppingMemoKey(entry)));
+          const checkedTotal = checkedItems.reduce((sum, entry) => sum + (entry.grossPrice ?? 0), 0);
+          count.textContent = `予定${checkedItems.length}品 / ${fmtPrice(checkedTotal)}円（税込）`;
+          const resetButton = actions.querySelector('[data-shopping-reset]');
+          if (resetButton) resetButton.disabled = checkedItems.length === 0;
+        });
+
+        const productName = document.createElement('span');
+        productName.className = 'store-product-name';
+        productName.textContent = item.product.name;
+        productName.title = item.product.name;
+
+        if (isEditing) {
+          const edit = shoppingMemoEditDraft?.find(d => d.productId === item.product.id && d.rowId === item.row.id);
+          if (!edit) return;
+
+          const amountWrap = document.createElement('span');
+          amountWrap.className = 'shopping-edit-amount-wrap';
+          const amountInput = document.createElement('input');
+          amountInput.className = 'shopping-edit-amount';
+          amountInput.type = 'text';
+          amountInput.inputMode = 'decimal';
+          amountInput.value = edit.amount ?? '';
+          amountInput.setAttribute('aria-label', `${item.product.name}の容量`);
+          amountInput.addEventListener('input', () => { edit.amount = amountInput.value; });
+          const unitSelect = shoppingMemoUnitSelect(edit.unit, value => { edit.unit = value; });
+          amountWrap.append(amountInput, unitSelect);
+
+          const priceWrap = document.createElement('span');
+          priceWrap.className = 'shopping-edit-price-wrap';
+          const priceInput = document.createElement('input');
+          priceInput.className = 'shopping-edit-price';
+          priceInput.type = 'text';
+          priceInput.inputMode = 'decimal';
+          priceInput.value = edit.grossPrice === '' ? '' : fmtPrice(edit.grossPrice);
+          priceInput.setAttribute('aria-label', `${item.product.name}の税込価格`);
+          priceInput.addEventListener('input', () => {
+            edit.grossPrice = priceInput.value.replace(/,/g, '');
+          });
+          const yen = document.createElement('span');
+          yen.textContent = '円';
+          priceWrap.append(priceInput, yen);
+
+          row.append(mark, checkbox, productName, amountWrap, priceWrap);
+        } else {
+          const itemAmount = item.product.kind === 'type' ? item.row.amount : item.product.amount;
+          const itemUnit = item.product.kind === 'type' ? item.row.unit : item.product.unit;
+
+          const amount = document.createElement('span');
+          amount.className = 'store-product-amount';
+          amount.textContent = itemAmount !== '' && itemAmount !== null && itemAmount !== undefined
+            ? `${fmt(itemAmount)}${itemUnit || ''}`
+            : '';
+
+          const price = document.createElement('span');
+          price.className = 'store-product-price';
+          price.textContent = item.grossPrice !== null ? `${fmtPrice(item.grossPrice)}円` : '-';
+
+          row.append(mark, checkbox, productName, amount, price);
+        }
+
+        productList.appendChild(row);
+      });
+
+      if (!visibleItems.length) {
+        const empty = document.createElement('div');
+        empty.className = 'shopping-store-empty';
+        const activeFilter = getShoppingMemoFilter(storeName);
+        empty.textContent = activeFilter === 'checked'
+          ? 'チェック済みの商品はありません。'
+          : activeFilter === 'unchecked'
+            ? 'チェックなしの商品はありません。'
+            : '商品はありません。';
+        productList.appendChild(empty);
+      }
+
+      card.appendChild(productList);
+    }
+
+    container.appendChild(card);
+  });
+}
+
+function deleteAllProducts() {
+  const msg = $('deleteAllMessage');
+
+  if (!products.length) {
+    msg.textContent = '削除する商品はないよ。';
+    return;
+  }
+
+  const ok = window.confirm(
+    `登録中の${products.length}商品をすべて削除する？\n店舗価格と変更履歴も消えるよ。`
+  );
+
+  if (!ok) return;
+
+  products = [];
+  openProductId = null;
+  openStoreName = null;
+  bulkSelected.clear();
+  shoppingMemoChecked.clear();
+  persistShoppingMemoChecked();
+
+  persistNow();
+  localStorage.setItem(INITIALIZED_KEY, '1');
+
+  msg.textContent = '全商品を削除したよ。';
+  render();
+}
+
+function setBulkMode(enabled) {
+  if (enabled && !confirmDiscardProductEdit()) return;
+  if (enabled && openProductId) {
+    openProductId = null;
+    productEditDraft = null;
+    productEditDirty = false;
+  }
+  if (enabled) storePurchaseMode = false;
+  bulkMode = !!enabled;
+  if (!bulkMode) {
+    bulkSelected.clear();
+    $('bulkStoreName').value = '';
+    $('bulkMessage').textContent = '';
+  } else {
+    openProductId = null;
+  }
+
+  $('bulkStoreBar').classList.toggle('hidden', !bulkMode);
+  $('btnBulkStore').textContent = bulkMode ? '追加対象選択中' : '店舗一括追加';
+  updateBulkSelectedCount();
+  render();
+
+  if (bulkMode) {
+    requestAnimationFrame(() => $('bulkStoreName').focus());
+  }
+}
+
+function updateBulkSelectedCount() {
+  $('bulkSelectedCount').textContent = `${bulkSelected.size}件選択`;
+}
+
+function toggleBulkSelectAll() {
+  const q = $('searchInput').value.trim().toLowerCase();
+  const visible = products.filter(p =>
+    !q ||
+    p.name.toLowerCase().includes(q) ||
+    (p.reading || '').toLowerCase().includes(q)
+  );
+
+  const allSelected = visible.length > 0 && visible.every(p => bulkSelected.has(p.id));
+
+  visible.forEach(p => {
+    if (allSelected) bulkSelected.delete(p.id);
+    else bulkSelected.add(p.id);
+  });
+
+  updateBulkSelectedCount();
+  render();
+}
+
+function bulkAddStore() {
+  const storeName = $('bulkStoreName').value.trim();
+
+  if (!storeName) {
+    $('bulkMessage').textContent = '店舗名を入力してね。';
+    $('bulkStoreName').focus();
+    return;
+  }
+
+  if (bulkSelected.size === 0) {
+    $('bulkMessage').textContent = '商品を1つ以上選択してね。';
+    return;
+  }
+
+  let added = 0;
+  let skipped = 0;
+
+  products.forEach(product => {
+    if (!bulkSelected.has(product.id)) return;
+
+    const duplicate = product.stores.some(row =>
+      String(row.store || '').trim().toLowerCase() === storeName.toLowerCase()
+    );
+
+    if (duplicate) {
+      skipped += 1;
+      return;
+    }
+
+    product.stores.push({
+      id: makeId('s'),
+      store: storeName,
+      price: '',
+      priceType: settings.defaultPriceType,
+      tax: product.defaultTax,
+      couponType: 'none',
+      couponValue: '',
+      amount: product.kind === 'type' ? '' : (Number(product.amount) > 0 ? Number(product.amount) : 1),
+      unit: product.unit || '個'
+    });
+
+    added += 1;
+  });
+
+  persistNow();
+
+  $('bulkMessage').textContent = skipped
+    ? `${added}商品に追加。${skipped}商品は同じ店舗があるのでスキップ。`
+    : `${added}商品に「${storeName}」を追加したよ。`;
+
+  bulkSelected.clear();
+  updateBulkSelectedCount();
+  render();
+}
+
+async function loadRecommendedProductsDirect() {
+  const msg = $('templateMessage');
+  const btn = $('btnLoadRecommendedTemplate');
+  btn.disabled = true;
+  msg.textContent = 'おすすめ商品を読み込み中…';
+  try {
+    const response = await fetch('./template-products.json?v=1', {cache:'no-store'});
+    if (!response.ok) throw new Error('fetch failed');
+    const data = await response.json();
+    if (!Array.isArray(data.products)) throw new Error('invalid');
+
+    const keys = new Set(products.map(productTemplateKey));
+    let added = 0;
+    data.products.forEach(item => {
+      const product = {
+        id: makeId('p'),
+        name: String(item.name || '').trim(),
+        reading: normalizeReadingInput(item.reading || ''),
+        kind: 'product',
+        amount: Number(item.amount),
+        unit: String(item.unit || '').trim(),
+        defaultTax: Number.isFinite(Number(item.defaultTax)) ? Number(item.defaultTax) : settings.reducedTax,
+        history: [],
+        stores: []
+      };
+      if (!product.name || !(product.amount > 0) || !product.unit) return;
+      const key = productTemplateKey(product);
+      if (keys.has(key)) return;
+      products.push(product);
+      keys.add(key);
+      added += 1;
+    });
+    persistNow();
+    render();
+    updateTemplateSummary();
+    msg.textContent = added ? `おすすめ商品を${added}件追加したよ。` : '追加できるおすすめ商品はなかったよ。';
+  } catch {
+    msg.textContent = 'おすすめ商品を読み込めなかったよ。';
+  } finally {
+    btn.disabled = false;
+  }
+}
+
+function exportCurrentTemplateFile() {
+  const msg = $('templateMessage');
+  if (!products.length) {
+    msg.textContent = 'テンプレートにする商品がまだないよ。';
+    return;
+  }
+
+  const payload = {
+    app: 'PriceLog',
+    type: 'current-products-template',
+    version: 2,
+    createdAt: new Date().toISOString(),
+    products: products.map(product => ({
+      name: product.name,
+      reading: product.reading || '',
+      kind: product.kind === 'type' ? 'type' : 'product',
+      barcode: product.kind === 'type' ? '' : String(product.barcode || ''),
+      amount: Number(product.amount) > 0 ? Number(product.amount) : 1,
+      unit: product.unit || '',
+      defaultTax: Number(product.defaultTax),
+      stores: (product.stores || []).map(row => ({
+        name: String(row.store || '').trim(),
+        amount: product.kind === 'type'
+          ? (Number(row.amount) > 0 ? Number(row.amount) : Number(product.amount) || 1)
+          : undefined,
+        unit: product.kind === 'type' ? (row.unit || product.unit || '個') : undefined,
+        price: '',
+        priceType: 'ex',
+        tax: Number(product.defaultTax),
+        couponType: 'none',
+        couponValue: ''
+      })).filter(row => row.name)
+    }))
+  };
+
+  const blob = new Blob([JSON.stringify(payload, null, 2)], {type:'application/json'});
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `PriceLog-template-${new Date().toISOString().slice(0,10)}.json`;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  URL.revokeObjectURL(url);
+  msg.textContent = `現在の商品${products.length}件をテンプレートに書き出したよ。価格・クーポン・履歴は含めていないよ。`;
+}
+
+function importTemplateFile(e) {
+  const file = e.target.files?.[0];
+  if (!file) return;
+  const msg = $('templateMessage');
+  const reader = new FileReader();
+
+  reader.onload = () => {
+    try {
+      const data = JSON.parse(String(reader.result));
+      if (data?.app !== 'PriceLog' || !Array.isArray(data.products)) throw new Error('invalid');
+
+      const productByKey = new Map(products.map(product => [productTemplateKey(product), product]));
+      let addedProducts = 0;
+      let addedStores = 0;
+
+      data.products.forEach(raw => {
+        const kind = raw.kind === 'type' ? 'type' : 'product';
+        const amount = Number(raw.amount) > 0 ? Number(raw.amount) : 1;
+        const unit = String(raw.unit || (kind === 'type' ? '個' : '')).trim();
+        const candidate = {
+          id: makeId('p'),
+          name: String(raw.name || '').trim(),
+          reading: normalizeReadingInput(raw.reading || ''),
+          kind,
+          barcode: kind === 'product' ? normalizeBarcodeCode(raw.barcode || '') : '',
+          amount,
+          unit,
+          defaultTax: Number.isFinite(Number(raw.defaultTax)) ? Number(raw.defaultTax) : settings.reducedTax,
+          history: [],
+          stores: []
+        };
+        if (!candidate.name) return;
+
+        const key = productTemplateKey(candidate);
+        let product = productByKey.get(key);
+        if (!product) {
+          if (candidate.barcode && findProductByBarcode(candidate.barcode)) candidate.barcode = '';
+          product = candidate;
+          products.push(product);
+          productByKey.set(key, product);
+          addedProducts += 1;
+        }
+
+        const sourceStores = Array.isArray(raw.stores) ? raw.stores : [];
+        sourceStores.forEach(storeRaw => {
+          const storeName = String(storeRaw?.name ?? storeRaw?.store ?? '').trim();
+          if (!storeName) return;
+          const exists = product.stores.some(row =>
+            String(row.store || '').trim().toLowerCase() === storeName.toLowerCase()
+          );
+          if (exists) return;
+
+          product.stores.push({
+            id: makeId('s'),
+            store: storeName,
+            price: '',
+            priceType: 'ex',
+            tax: Number(product.defaultTax),
+            couponType: 'none',
+            couponValue: '',
+            amount: product.kind === 'type'
+              ? (Number(storeRaw?.amount) > 0 ? Number(storeRaw.amount) : Number(product.amount) || 1)
+              : Number(product.amount) || 1,
+            unit: product.kind === 'type'
+              ? (String(storeRaw?.unit || product.unit || '個').trim() || '個')
+              : product.unit
+          });
+          addedStores += 1;
+        });
+      });
+
+      products = normalizeProductsData(products);
+      persistNow();
+      render();
+      msg.textContent = `商品${addedProducts}件、店舗行${addedStores}件を差分追加したよ。価格は空欄・税抜で読み込んだよ。`;
+    } catch {
+      msg.textContent = 'テンプレートファイルを読み込めなかったよ。';
+    } finally {
+      e.target.value = '';
+    }
+  };
+
+  reader.readAsText(file);
+}
+
+function normalizeTemplateData(data) {
+  const result = { version: 1, products: [], stores: [] };
+
+  if (data && Array.isArray(data.products)) {
+    result.products = data.products
+      .map(item => ({
+        id: String(item.id || makeId('tp')),
+        selected: item.selected !== false,
+        name: String(item.name || '').trim(),
+        reading: normalizeReadingInput(item.reading || ''),
+        amount: Number(item.amount),
+        unit: String(item.unit || '').trim(),
+        defaultTax: Number.isFinite(Number(item.defaultTax)) ? Number(item.defaultTax) : settings.reducedTax
+      }))
+      .filter(item => item.name && item.amount > 0 && item.unit);
+  }
+
+  if (data && Array.isArray(data.stores)) {
+    result.stores = data.stores
+      .map(item => ({
+        id: String(item.id || makeId('ts')),
+        selected: item.selected !== false,
+        name: String(item.name || '').trim()
+      }))
+      .filter(item => item.name);
+  }
+
+  return result;
+}
+
+function cloneTemplate(data) {
+  return JSON.parse(JSON.stringify(normalizeTemplateData(data)));
+}
+
+function persistTemplateNow() {
+  customTemplate = normalizeTemplateData(customTemplate);
+  localStorage.setItem(TEMPLATE_KEY, JSON.stringify(customTemplate));
+  updateTemplateSummary();
+}
+
+function selectedTemplateProducts(data = customTemplate) {
+  return normalizeTemplateData(data).products.filter(item => item.selected);
+}
+
+function selectedTemplateStores(data = customTemplate) {
+  return normalizeTemplateData(data).stores.filter(item => item.selected);
+}
+
+function updateTemplateSummary() {
+  const el = $('templateSummary');
+  if (!el) return;
+  const storeCount = products.reduce((sum, product) => sum + (product.stores || []).filter(row => String(row.store || '').trim()).length, 0);
+  el.textContent = `現在の商品 ${products.length}件　店舗行 ${storeCount}件`;
+}
+
+function refreshTemplateTaxOptions() {
+  const select = $('tplProductTax');
+  if (!select) return;
+
+  const current = select.value;
+  const values = Array.from(new Set([Number(settings.reducedTax), Number(settings.standardTax)]))
+    .filter(v => Number.isFinite(v) && v >= 0);
+
+  select.innerHTML = '';
+  values.forEach(v => {
+    const option = document.createElement('option');
+    option.value = String(v);
+    option.textContent = `${v}%`;
+    select.appendChild(option);
+  });
+
+  select.value = values.includes(Number(current))
+    ? String(current)
+    : String(settings.reducedTax);
+}
+
+function openTemplateEditor() {
+  templateDraft = cloneTemplate(customTemplate);
+  refreshTemplateTaxOptions();
+  $('templateEditorMessage').textContent = '';
+  renderTemplateEditor();
+  $('templateDialog').showModal();
+}
+
+function renderTemplateEditor() {
+  if (!templateDraft) return;
+
+  const productList = $('templateProductList');
+  const storeList = $('templateStoreList');
+
+  productList.innerHTML = '';
+  storeList.innerHTML = '';
+
+  const sortedProducts = templateDraft.products
+    .slice()
+    .sort((a, b) => compareProducts(a, b));
+
+  sortedProducts.forEach(item => {
+    const row = document.createElement('div');
+    row.className = 'template-entry-row template-product-row';
+
+    const check = document.createElement('input');
+    check.type = 'checkbox';
+    check.className = 'template-entry-check';
+    check.checked = !!item.selected;
+    check.addEventListener('change', () => {
+      item.selected = check.checked;
+    });
+
+    const name = document.createElement('span');
+    name.className = 'template-entry-name';
+    name.textContent = item.name;
+
+    const reading = document.createElement('span');
+    reading.className = 'template-entry-reading';
+    reading.textContent = item.reading || '-';
+
+    const amount = document.createElement('span');
+    amount.className = 'template-entry-meta';
+    amount.textContent = `${fmt(item.amount)}${item.unit}`;
+
+    const tax = document.createElement('span');
+    tax.className = 'template-entry-meta';
+    tax.textContent = `${item.defaultTax}%`;
+
+    const type = document.createElement('span');
+    type.className = 'template-entry-meta';
+    type.textContent = '商品';
+
+    const del = document.createElement('button');
+    del.type = 'button';
+    del.className = 'template-entry-delete';
+    del.textContent = '×';
+    del.setAttribute('aria-label', `${item.name}を削除`);
+    del.addEventListener('click', () => {
+      templateDraft.products = templateDraft.products.filter(x => x.id !== item.id);
+      renderTemplateEditor();
+    });
+
+    row.append(check, name, reading, amount, tax, type, del);
+    productList.appendChild(row);
+  });
+
+  templateDraft.stores
+    .slice()
+    .sort((a, b) => a.name.localeCompare(b.name, 'ja', {sensitivity:'base', numeric:true}))
+    .forEach(item => {
+      const row = document.createElement('div');
+      row.className = 'template-entry-row template-store-row';
+
+      const check = document.createElement('input');
+      check.type = 'checkbox';
+      check.className = 'template-entry-check';
+      check.checked = !!item.selected;
+      check.addEventListener('change', () => {
+        item.selected = check.checked;
+      });
+
+      const name = document.createElement('span');
+      name.className = 'template-entry-name';
+      name.textContent = item.name;
+
+      const del = document.createElement('button');
+      del.type = 'button';
+      del.className = 'template-entry-delete';
+      del.textContent = '×';
+      del.setAttribute('aria-label', `${item.name}を削除`);
+      del.addEventListener('click', () => {
+        templateDraft.stores = templateDraft.stores.filter(x => x.id !== item.id);
+        renderTemplateEditor();
+      });
+
+      row.append(check, name, del);
+      storeList.appendChild(row);
+    });
+
+  $('templateProductEmpty').classList.toggle('hidden', templateDraft.products.length !== 0);
+  $('templateStoreEmpty').classList.toggle('hidden', templateDraft.stores.length !== 0);
+}
+
+function addTemplateProduct() {
+  if (!templateDraft) return;
+
+  const name = $('tplProductName').value.trim();
+  const reading = normalizeReadingInput($('tplProductReading').value);
+  const amount = Number($('tplProductAmount').value);
+  const unit = $('tplProductUnit').value;
+  const tax = Number($('tplProductTax').value);
+
+  if (!name || !(amount > 0) || !unit) {
+    $('templateEditorMessage').textContent = '商品名・内容量・単位を確認してね。';
+    return;
+  }
+
+  const candidate = {
+    id: makeId('tp'),
+    selected: true,
+    name,
+    reading,
+    kind: 'product',
+    amount,
+    unit,
+    defaultTax: Number.isFinite(tax) ? tax : settings.reducedTax
+  };
+
+  const key = productTemplateKey(candidate);
+  const duplicate = templateDraft.products.some(item => productTemplateKey(item) === key);
+
+  if (duplicate) {
+    $('templateEditorMessage').textContent = '同じ商品はすでにテンプレートにあるよ。';
+    return;
+  }
+
+  templateDraft.products.push(candidate);
+
+  $('tplProductName').value = '';
+  $('tplProductReading').value = '';
+  $('templateEditorMessage').textContent = `${name}を追加したよ。`;
+  renderTemplateEditor();
+  $('tplProductName').focus();
+}
+
+function addTemplateStore() {
+  if (!templateDraft) return;
+
+  const name = $('tplStoreName').value.trim();
+  if (!name) {
+    $('templateEditorMessage').textContent = '店舗名を入力してね。';
+    return;
+  }
+
+  const duplicate = templateDraft.stores.some(item =>
+    item.name.trim().toLowerCase() === name.toLowerCase()
+  );
+
+  if (duplicate) {
+    $('templateEditorMessage').textContent = '同じ店舗はすでにテンプレートにあるよ。';
+    return;
+  }
+
+  templateDraft.stores.push({
+    id: makeId('ts'),
+    selected: true,
+    name
+  });
+
+  $('tplStoreName').value = '';
+  $('templateEditorMessage').textContent = `${name}を追加したよ。`;
+  renderTemplateEditor();
+  $('tplStoreName').focus();
+}
+
+function setTemplateSelection(type, selected) {
+  if (!templateDraft || !Array.isArray(templateDraft[type])) return;
+  templateDraft[type].forEach(item => item.selected = !!selected);
+  renderTemplateEditor();
+}
+
+async function importRecommendedProductsToDraft() {
+  if (!templateDraft) return;
+
+  const btn = $('btnImportRecommendedProducts');
+  btn.disabled = true;
+  $('templateEditorMessage').textContent = 'おすすめ商品を読み込み中…';
+
+  try {
+    const response = await fetch('./template-products.json?v=1', { cache: 'no-store' });
+    if (!response.ok) throw new Error('recommended template fetch failed');
+
+    const data = await response.json();
+    if (!Array.isArray(data.products)) throw new Error('invalid recommended template');
+
+    const keys = new Set(templateDraft.products.map(productTemplateKey));
+    let added = 0;
+
+    data.products.forEach(item => {
+      const candidate = {
+        id: makeId('tp'),
+        selected: true,
+        name: String(item.name || '').trim(),
+        reading: normalizeReadingInput(item.reading || ''),
+        amount: Number(item.amount),
+        unit: String(item.unit || '').trim(),
+        defaultTax: Number.isFinite(Number(item.defaultTax))
+          ? Number(item.defaultTax)
+          : settings.reducedTax
+      };
+
+      if (!candidate.name || !(candidate.amount > 0) || !candidate.unit) return;
+
+      const key = productTemplateKey(candidate);
+      if (keys.has(key)) return;
+
+      templateDraft.products.push(candidate);
+      keys.add(key);
+      added += 1;
+    });
+
+    $('templateEditorMessage').textContent =
+      added ? `おすすめ商品を${added}件追加したよ。` : '追加できるおすすめ商品はなかったよ。';
+
+    renderTemplateEditor();
+  } catch {
+    $('templateEditorMessage').textContent = 'おすすめ商品を読み込めなかったよ。';
+  } finally {
+    btn.disabled = false;
+  }
+}
+
+function saveTemplateDraft() {
+  if (!templateDraft) return;
+
+  customTemplate = normalizeTemplateData(templateDraft);
+  persistTemplateNow();
+
+  const p = selectedTemplateProducts().length;
+  const st = selectedTemplateStores().length;
+
+  $('templateEditorMessage').textContent =
+    `テンプレートを保存したよ。商品${p}件、店舗${st}件が読み込み対象。`;
+
+  updateTemplateSummary();
+}
+
+function getSelectedTemplatePayload(source = customTemplate) {
+  const normalized = normalizeTemplateData(source);
+
+  return {
+    app: 'PriceLog',
+    type: 'custom-template',
+    version: 1,
+    createdAt: new Date().toISOString(),
+    products: normalized.products
+      .filter(item => item.selected)
+      .map(item => ({
+        name: item.name,
+        reading: item.reading,
+        amount: item.amount,
+        unit: item.unit,
+        defaultTax: item.defaultTax
+      })),
+    stores: normalized.stores
+      .filter(item => item.selected)
+      .map(item => ({ name: item.name }))
+  };
+}
+
+function exportTemplateFile() {
+  if (!templateDraft) return;
+
+  const selectedProducts = templateDraft.products.filter(item => item.selected);
+  const selectedStores = templateDraft.stores.filter(item => item.selected);
+
+  if (!selectedProducts.length) {
+    $('templateEditorMessage').textContent = '商品を1つ以上チェックしてね。';
+    return;
+  }
+
+  const payload = getSelectedTemplatePayload(templateDraft);
+  const blob = new Blob([JSON.stringify(payload, null, 2)], {type:'application/json'});
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `PriceLog-template-${new Date().toISOString().slice(0,10)}.json`;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  URL.revokeObjectURL(url);
+
+  $('templateEditorMessage').textContent =
+    `商品${selectedProducts.length}件・店舗${selectedStores.length}件のテンプレートJSONを書き出したよ。`;
+}
+
+function loadProductTemplate() {
+  const msg = $('templateMessage');
+  const templateProducts = selectedTemplateProducts();
+  const templateStores = selectedTemplateStores();
+
+  if (!templateProducts.length) {
+    msg.textContent = 'テンプレートの商品を1つ以上選択してね。';
+    return;
+  }
+
+  const productByKey = new Map(products.map(product => [productTemplateKey(product), product]));
+  let addedProducts = 0;
+  let addedStoreRows = 0;
+
+  templateProducts.forEach(item => {
+    const key = productTemplateKey(item);
+    let product = productByKey.get(key);
+
+    if (!product) {
+      product = {
+        id: makeId('p'),
+        name: item.name,
+        reading: item.reading,
+        amount: item.amount,
+        unit: item.unit,
+        defaultTax: item.defaultTax,
+        history: [],
+        stores: []
+      };
+
+      products.push(product);
+      productByKey.set(key, product);
+      addedProducts += 1;
+    }
+
+    templateStores.forEach(storeItem => {
+      const storeName = storeItem.name.trim();
+      if (!storeName) return;
+
+      const exists = product.stores.some(row =>
+        String(row.store || '').trim().toLowerCase() === storeName.toLowerCase()
+      );
+
+      if (exists) return;
+
+      product.stores.push({
+        id: makeId('s'),
+        store: storeName,
+        price: '',
+        priceType: settings.defaultPriceType,
+        tax: product.defaultTax,
+        couponType: 'none',
+        couponValue: ''
+      });
+
+      addedStoreRows += 1;
+    });
+  });
+
+  persistNow();
+  render();
+
+  msg.textContent =
+    `商品${addedProducts}件、店舗行${addedStoreRows}件を差分追加したよ。既存データはそのまま。`;
+}
+
+
+function productTemplateKey(product) {
+  const name = katakanaToHiragana(String(product.name || ''))
+    .normalize('NFKC')
+    .trim()
+    .toLowerCase();
+  const kind = product.kind === 'type' ? 'type' : 'product';
+  if (kind === 'type') return `${kind}|${name}`;
+
+  const unit = String(product.unit || '').normalize('NFKC').trim().toLowerCase();
+  const amount = Number(product.amount);
+  return `${kind}|${name}|${Number.isFinite(amount) ? amount : ''}|${unit}`;
+}
+
+function openBarcodeDialog() {
+  stopBarcodeCamera();
+  barcodeLookupData = null;
+  barcodeReadingManuallyEdited = false;
+
+  $('barcodeResult').classList.add('hidden');
+  $('barcodeManualCode').value = '';
+  $('barcodeCameraMessage').textContent = 'カメラを起動してね。';
+  $('barcodeProductNameEdit').value = '';
+  $('barcodeTypeNameEdit').value = '';
+  $('barcodeReading').value = '';
+  $('barcodeAmount').value = '';
+  $('barcodeUnit').value = '';
+
+  $('barcodeChoiceProduct').checked = settings.barcodeNameDefault !== 'type';
+  $('barcodeChoiceType').checked = settings.barcodeNameDefault === 'type';
+
+  $('barcodeCameraSection').classList.remove('hidden');
+  $('barcodeManualSection').classList.remove('hidden');
+
+  if ($('productDialog').open) $('productDialog').close();
+  $('barcodeDialog').showModal();
+}
+
+function resetBarcodeLookupView() {
+  stopBarcodeCamera();
+  barcodeLookupData = null;
+  barcodeReadingManuallyEdited = false;
+  $('barcodeResult').classList.add('hidden');
+  $('barcodeCameraSection').classList.remove('hidden');
+  $('barcodeManualSection').classList.remove('hidden');
+  $('barcodeManualCode').value = '';
+  $('barcodeCameraMessage').textContent = 'カメラを起動してね。';
+  $('barcodeProductNameEdit').value = '';
+  $('barcodeTypeNameEdit').value = '';
+  $('barcodeReading').value = '';
+  $('barcodeAmount').value = '';
+  setBarcodeUnit('');
+}
+
+function closeBarcodeDialog() {
+  stopBarcodeCamera();
+  if ($('barcodeDialog').open) $('barcodeDialog').close();
+}
+
+async function createBarcodeDetector() {
+  if (!('BarcodeDetector' in globalThis)) return null;
+
+  try {
+    const supported = await BarcodeDetector.getSupportedFormats();
+    const wanted = ['ean_13', 'ean_8', 'upc_a', 'upc_e'];
+    const formats = wanted.filter(f => supported.includes(f));
+    return new BarcodeDetector(formats.length ? { formats } : undefined);
+  } catch {
+    try {
+      return new BarcodeDetector({ formats: ['ean_13', 'ean_8'] });
+    } catch {
+      return null;
+    }
+  }
+}
+
+async function startBarcodeCamera() {
+  stopBarcodeCamera();
+
+  const msg = $('barcodeCameraMessage');
+  msg.textContent = 'カメラを起動中…';
+
+  if (!window.isSecureContext) {
+    msg.textContent = 'カメラはHTTPS接続でのみ使用できます。JANコードを直接入力してください。';
+    return;
+  }
+
+  if (!navigator.mediaDevices?.getUserMedia) {
+    msg.textContent = 'このブラウザーではカメラを使用できません。JANコードを直接入力してください。';
+    return;
+  }
+
+  barcodeDetector = await createBarcodeDetector();
+  if (!barcodeDetector) {
+    msg.textContent = 'このブラウザーはバーコード自動読み取りに未対応です。Chromeを最新版にするか、JANコードを直接入力してください。';
+    return;
+  }
+
+  try {
+    barcodeStream = await navigator.mediaDevices.getUserMedia({
+      video: {
+        facingMode: { ideal: 'environment' },
+        width: { ideal: 1280 },
+        height: { ideal: 720 }
+      },
+      audio: false
+    });
+
+    const video = $('barcodeVideo');
+    video.srcObject = barcodeStream;
+    await video.play();
+
+    barcodeScanning = true;
+    msg.textContent = 'バーコードを枠の中央に合わせてください。';
+    scanBarcodeFrame();
+  } catch (err) {
+    const name = String(err?.name || '');
+    if (name === 'NotAllowedError' || name === 'SecurityError') {
+      msg.textContent = 'カメラの使用が許可されていません。ブラウザーのサイト設定でカメラを許可するか、JANコードを直接入力してください。';
+    } else if (name === 'NotFoundError' || name === 'DevicesNotFoundError') {
+      msg.textContent = '使用できるカメラが見つかりません。JANコードを直接入力してください。';
+    } else if (name === 'NotReadableError' || name === 'TrackStartError') {
+      msg.textContent = 'カメラを使用できません。他のアプリでカメラを閉じてから、もう一度試してください。';
+    } else if (name === 'OverconstrainedError') {
+      msg.textContent = 'この端末のカメラ設定では起動できませんでした。JANコードを直接入力してください。';
+    } else {
+      msg.textContent = 'カメラを起動できませんでした。カメラ権限を確認するか、JANコードを直接入力してください。';
+    }
+  }
+}
+
+async function scanBarcodeFrame() {
+  if (!barcodeScanning || !barcodeDetector) return;
+
+  const video = $('barcodeVideo');
+
+  try {
+    if (video.readyState >= 2) {
+      const codes = await barcodeDetector.detect(video);
+
+      if (codes?.length) {
+        const raw = normalizeBarcodeCode(codes[0].rawValue || '');
+
+        if (raw) {
+          barcodeScanning = false;
+          $('barcodeManualCode').value = raw;
+          $('barcodeCameraMessage').textContent = `読み取り成功: ${raw}`;
+          stopBarcodeCamera(false);
+          await lookupBarcodeProduct(raw);
+          return;
+        }
+      }
+    }
+  } catch {}
+
+  barcodeScanTimer = setTimeout(scanBarcodeFrame, 180);
+}
+
+function stopBarcodeCamera(clearVideo = true) {
+  barcodeScanning = false;
+
+  if (barcodeScanTimer) {
+    clearTimeout(barcodeScanTimer);
+    barcodeScanTimer = null;
+  }
+
+  if (barcodeStream) {
+    barcodeStream.getTracks().forEach(track => track.stop());
+    barcodeStream = null;
+  }
+
+  if (clearVideo) {
+    const video = $('barcodeVideo');
+    if (video) video.srcObject = null;
+  }
+}
+
+function normalizeBarcodeCode(value) {
+  let digits = String(value || '')
+    .normalize('NFKC')
+    .replace(/\D/g, '');
+
+  // 一部ブラウザがEAN-13をGTIN-14の先頭0付きで返す場合に補正。
+  if (digits.length === 14 && digits.startsWith('0')) {
+    digits = digits.slice(1);
+  }
+
+  return digits;
+}
+
+
+function findProductByBarcode(code) {
+  const normalized = normalizeBarcodeCode(code);
+  return products.find(
+    product => normalizeBarcodeCode(product.barcode || '') === normalized
+  );
+}
+
+async function lookupBarcodeProduct(code) {
+  code = normalizeBarcodeCode(code);
+  if (!code) return;
+
+  stopBarcodeCamera(false);
+
+  const result = $('barcodeResult');
+  const status = $('barcodeLookupStatus');
+
+  result.classList.remove('hidden');
+  $('barcodeCameraSection').classList.add('hidden');
+  $('barcodeManualSection').classList.add('hidden');
+  $('barcodeResultCode').textContent = code;
+  requestAnimationFrame(() => result.scrollIntoView({block:'start'}));
+  status.textContent = '商品情報を検索中…';
+
+  // 1) PriceLog内の登録済みJAN
+  const existing = findProductByBarcode(code);
+  if (existing) {
+    const existingTypeName = deriveKnownBarcodeTypeFromText(existing.name || '');
+    barcodeLookupData = {
+      code,
+      source: 'pricelog',
+      typeQuantity: Number(existing.amount) > 0 && existing.unit
+        ? { amount: Number(existing.amount), unit: existing.unit }
+        : null,
+      productUnit: ''
+    };
+
+    status.textContent = `PriceLog内で「${existing.name}」が見つかったよ。`;
+    $('barcodeProductNameEdit').value = existing.name;
+    $('barcodeTypeNameEdit').value = existingTypeName;
+    applyBarcodeRegisterDefaults();
+    return;
+  }
+
+  barcodeLookupData = { code };
+
+  // 2) Yahoo!ショッピング
+  const yahooClientId = String(settings.yahooClientId || '').trim();
+  const yahooWorkerUrl = YAHOO_WORKER_URL;
+
+  if (yahooClientId) {
+    status.textContent = 'Yahoo!ショッピングで検索中…';
+
+    try {
+      const yahooHit = await lookupYahooShopping(code, yahooClientId, yahooWorkerUrl);
+
+      if (yahooHit) {
+        applyYahooShoppingResult(code, yahooHit);
+        status.textContent = 'Yahoo!ショッピングで商品が見つかったよ。登録する名前を選んでね。';
+        return;
+      }
+
+      status.textContent = 'Yahoo!では未登録だったので、無料データベースも検索中…';
+    } catch (err) {
+      if (err?.code === 'YAHOO_RATE_LIMIT') {
+        status.textContent =
+          'Yahoo! APIの利用制限中。自動再試行でも通らなかったので、無料データベースも検索中…';
+      } else {
+        status.textContent =
+          'Yahoo!検索に接続できなかったので、無料データベースも検索中…';
+      }
+    }
+  } else {
+    status.textContent = 'Yahoo! Client ID未設定。無料データベースを検索中…';
+  }
+
+  // 3) Open Facts
+  let firstNetworkError = false;
+  let product = null;
+
+  try {
+    product = await lookupOpenFacts(code);
+  } catch {
+    firstNetworkError = true;
+  }
+
+  if (product) {
+    applyOpenFactsResult(code, product);
+    status.textContent = 'Open Factsで商品情報が見つかったよ。登録する名前を選んでね。';
+    return;
+  }
+
+  status.textContent = firstNetworkError
+    ? 'Open Factsに接続できなかったので、別のデータベースを検索中…'
+    : 'Open Factsでは未登録だったので、別のデータベースを検索中…';
+
+  // 4) UPCitemdb
+  let secondNetworkError = false;
+  let item = null;
+
+  try {
+    item = await lookupUpcItemDb(code);
+  } catch {
+    secondNetworkError = true;
+  }
+
+  if (item) {
+    applyUpcItemDbResult(code, item);
+    status.textContent = 'UPCitemdbで商品情報が見つかったよ。登録する名前を選んでね。';
+    return;
+  }
+
+  // 5) 手入力
+  prepareBarcodeManualResult(code);
+
+  if (firstNetworkError && secondNetworkError) {
+    status.textContent =
+      '無料データベースへ接続できなかったよ。商品名を手入力して登録してね。';
+  } else {
+    status.textContent =
+      '商品情報が見つからなかったよ。商品名と種類を手入力して登録できるよ。';
+  }
+}
+
+function normalizeWorkerUrl(value) {
+  return String(value || '')
+    .trim()
+    .replace(/\/+$/, '');
+}
+
+function sleep(ms) {
+  return new Promise(resolve => setTimeout(resolve, ms));
+}
+
+function makeYahooError(message, code = '') {
+  const err = new Error(message);
+  if (code) err.code = code;
+  return err;
+}
+
+async function runYahooRateLimited(task) {
+  const run = yahooRequestChain.then(async () => {
+    const elapsed = Date.now() - yahooLastRequestAt;
+    const waitMs = Math.max(0, YAHOO_MIN_REQUEST_INTERVAL_MS - elapsed);
+
+    if (waitMs > 0) {
+      await sleep(waitMs);
+    }
+
+    try {
+      return await task();
+    } finally {
+      yahooLastRequestAt = Date.now();
+    }
+  });
+
+  // 失敗しても次のリクエストキューは止めない。
+  yahooRequestChain = run.catch(() => {});
+  return run;
+}
+
+async function fetchYahooViaWorker(payload, clientId, workerUrl) {
+  clientId = String(clientId || '').trim();
+  workerUrl = normalizeWorkerUrl(workerUrl);
+
+  if (!clientId) throw makeYahooError('Yahoo Client ID is missing');
+  if (!workerUrl) throw makeYahooError('Yahoo Worker URL is missing');
+
+  return runYahooRateLimited(async () => {
+    let lastError = null;
+
+    for (let attempt = 0; attempt < 2; attempt++) {
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), 10000);
+
+      try {
+        const response = await fetch(`${workerUrl}/yahoo`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json'
+          },
+          cache: 'no-store',
+          signal: controller.signal,
+          body: JSON.stringify({
+            clientId,
+            ...payload
+          })
+        });
+
+        let data = null;
+        try {
+          data = await response.json();
+        } catch {}
+
+        if (response.status === 429) {
+          lastError = makeYahooError(
+            'Yahoo API rate limit',
+            'YAHOO_RATE_LIMIT'
+          );
+
+          // 1回だけ自動で待って再試行。
+          if (attempt === 0) {
+            await sleep(1800);
+            continue;
+          }
+
+          throw lastError;
+        }
+
+        if (!response.ok) {
+          const detail =
+            data?.detail ||
+            data?.error ||
+            data?.message ||
+            `HTTP ${response.status}`;
+
+          throw makeYahooError(String(detail));
+        }
+
+        return data;
+      } catch (err) {
+        if (err?.name === 'AbortError') {
+          lastError = makeYahooError('Yahoo request timeout', 'YAHOO_TIMEOUT');
+        } else {
+          lastError = err;
+        }
+
+        if (attempt === 0 && err?.code === 'YAHOO_RATE_LIMIT') {
+          continue;
+        }
+
+        throw lastError;
+      } finally {
+        clearTimeout(timer);
+      }
+    }
+
+    throw lastError || makeYahooError('Yahoo request failed');
+  });
+}
+
+async function lookupYahooShopping(
+  code,
+  clientId = settings.yahooClientId,
+  workerUrl = YAHOO_WORKER_URL
+) {
+  const jan = normalizeBarcodeCode(code);
+  if (!jan) return null;
+
+  // 1) この画面を開いている間の成功キャッシュ
+  const cached = yahooLookupCache.get(jan);
+  if (cached && cached.hit && Date.now() - cached.time < 5 * 60 * 1000) {
+    return cached.hit;
+  }
+
+  // 2) 過去30日以内にこの端末で見つけた成功結果
+  const persistentHit = getPersistentYahooProduct(jan);
+  if (persistentHit) {
+    yahooLookupCache.set(jan, { time: Date.now(), hit: persistentHit });
+    return persistentHit;
+  }
+
+  if (yahooLookupInflight.has(jan)) {
+    return yahooLookupInflight.get(jan);
+  }
+
+  const promise = (async () => {
+    let janHits = [];
+    let queryHits = [];
+
+    // 3) Yahoo! JAN検索 1回目
+    let janData = await fetchYahooViaWorker(
+      { janCode: jan, results: 10 },
+      clientId,
+      workerUrl
+    );
+    janHits = Array.isArray(janData?.hits) ? janData.hits : [];
+
+    // JAN検索が0件なら、同じJANでもう1回だけ再検索。
+    // fetchYahooViaWorker側で1.2秒以上の間隔を必ず空ける。
+    if (!janHits.length) {
+      const status = $('barcodeLookupStatus');
+      if (status) status.textContent = 'Yahoo!ショッピングでもう一度確認中…';
+
+      janData = await fetchYahooViaWorker(
+        { janCode: jan, results: 10 },
+        clientId,
+        workerUrl
+      );
+      janHits = Array.isArray(janData?.hits) ? janData.hits : [];
+    }
+
+    // 4) 2回とも0件なら、最後にJANコードを検索キーワードとして試す。
+    if (!janHits.length) {
+      const status = $('barcodeLookupStatus');
+      if (status) status.textContent = 'JANコードを別の検索方法でも確認中…';
+
+      const queryData = await fetchYahooViaWorker(
+        { query: jan, results: 10 },
+        clientId,
+        workerUrl
+      );
+      queryHits = Array.isArray(queryData?.hits) ? queryData.hits : [];
+    }
+
+    const hits = janHits.length ? janHits : queryHits;
+
+    // 0件はキャッシュしない。次回は必ず再検索する。
+    if (!hits.length) return null;
+
+    const exactJanHits = hits.filter(
+      hit => normalizeBarcodeCode(hit?.janCode || '') === jan
+    );
+
+    const candidates = exactJanHits.length ? exactJanHits : hits;
+    candidates.sort((a, b) => yahooHitScore(b) - yahooHitScore(a));
+
+    const hit = candidates[0] || null;
+
+    if (hit) {
+      yahooLookupCache.set(jan, { time: Date.now(), hit });
+      savePersistentYahooProduct(jan, hit);
+    }
+
+    return hit;
+  })();
+
+  yahooLookupInflight.set(jan, promise);
+
+  try {
+    return await promise;
+  } finally {
+    yahooLookupInflight.delete(jan);
+  }
+}
+
+function yahooHitScore(hit) {
+  let score = 0;
+  if (hit?.name) score += 5;
+  if (hit?.brand?.name) score += 2;
+  if (hit?.genreCategory?.name) score += 2;
+  if (Array.isArray(hit?.parentGenreCategories)) score += hit.parentGenreCategories.length;
+  if (hit?.description) score += 1;
+  return score;
+}
+
+
+function normalizeBarcodeNameForCompare(value) {
+  return String(value || '')
+    .normalize('NFKC')
+    .toLowerCase()
+    .replace(/[【】［］\[\]（）()「」『』"'`・:：\-‐‑‒–—―_,，.。\/\\]/g, '')
+    .replace(/\s+/g, '');
+}
+
+function cleanBarcodeProductNameCandidate(value) {
+  return cleanBarcodeText(
+    String(value || '')
+      .replace(/<[^>]*>/g, ' ')
+      .replace(/&nbsp;/gi, ' ')
+      .replace(/&amp;/gi, '&')
+  )
+    .replace(/[【［].*?[】］]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function chooseBarcodeProductName(candidates, typeName = '') {
+  const unique = [];
+  const seen = new Set();
+
+  for (const candidate of candidates || []) {
+    const cleaned = cleanBarcodeProductNameCandidate(candidate);
+    if (!cleaned) continue;
+
+    const key = normalizeBarcodeNameForCompare(cleaned);
+    if (!key || seen.has(key)) continue;
+
+    seen.add(key);
+    unique.push(cleaned);
+  }
+
+  if (!unique.length) return '';
+
+  const typeKey = normalizeBarcodeNameForCompare(typeName);
+  const primary = unique[0];
+  const primaryKey = normalizeBarcodeNameForCompare(primary);
+
+  // APIの正式商品名を最優先する。
+  // ただし「牛乳」「ガム」など種類名だけだった場合は、
+  // 同じAPIレスポンス内にある、より具体的な商品名へ切り替える。
+  if (!typeKey || primaryKey !== typeKey) return primary;
+
+  const richer = unique
+    .slice(1)
+    .filter(name => {
+      const key = normalizeBarcodeNameForCompare(name);
+      return key && key !== typeKey && name.length <= 120;
+    })
+    .sort((a, b) => b.length - a.length)[0];
+
+  return richer || primary;
+}
+
+function applyResolvedBarcodeFields({ exactName, typeName, quantity }) {
+  // 商品名・種類・内容量は完全に独立して反映する。
+  // 種類候補が商品名を上書きすることはない。
+  const cleanExactName = cleanBarcodeProductNameCandidate(exactName);
+  const cleanTypeName = cleanBarcodeText(typeName);
+  $('barcodeProductNameEdit').value = cleanExactName;
+  $('barcodeTypeNameEdit').value = cleanTypeName;
+
+  if (barcodeLookupData) {
+    barcodeLookupData.typeQuantity = quantity || null;
+    barcodeLookupData.productUnit = '';
+  }
+
+  // 検索結果が変わるたび、必ず「正式商品名」を初期選択に戻す。
+  $('barcodeChoiceProduct').checked = true;
+  $('barcodeChoiceType').checked = false;
+  syncBarcodeChoiceLabels();
+  syncBarcodeQuantityForChoice();
+}
+
+function applyYahooShoppingResult(code, hit) {
+  const exactName = cleanYahooProductName(hit?.name || '');
+  const typeName = deriveYahooType(hit, exactName);
+  const quantity = parseQuantityFromYahoo(hit);
+
+  barcodeLookupData = {
+    code,
+    source: 'yahoo',
+    yahooHit: hit,
+    product: { product_type: isYahooLikelyFood(hit) ? 'food' : 'other' },
+    typeQuantity: quantity || null,
+    productUnit: ''
+  };
+
+  $('barcodeProductNameEdit').value = exactName;
+  $('barcodeTypeNameEdit').value = typeName;
+
+  applyBarcodeRegisterDefaults();
+}
+
+function cleanYahooProductName(value) {
+  return cleanBarcodeText(value)
+    .replace(/[【［].*?[】］]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function yahooSearchText(hit, exactName = '') {
+  return [
+    exactName,
+    hit?.name || '',
+    hit?.description || '',
+    hit?.headLine || '',
+    hit?.brand?.name || '',
+    hit?.genreCategory?.name || '',
+    ...(Array.isArray(hit?.parentGenreCategories)
+      ? hit.parentGenreCategories.map(x => x?.name || '')
+      : [])
+  ].join(' ').toLowerCase();
+}
+
+function deriveKnownBarcodeTypeFromText(value) {
+  const haystack = String(value || '').normalize('NFKC').toLowerCase();
+
+  const rules = [
+    [['低脂肪乳'], '低脂肪乳'],
+    [['加工乳'], '加工乳'],
+    [['牛乳','ミルク'], '牛乳'],
+    [['豆乳'], '豆乳'],
+    [['ヨーグルト'], 'ヨーグルト'],
+    [['インスタントコーヒー','ソリュブルコーヒー'], 'インスタントコーヒー'],
+    [['コーヒー'], 'コーヒー'],
+    [['紅茶'], '紅茶'],
+    [['緑茶'], '緑茶'],
+    [['麦茶'], '麦茶'],
+    [['炭酸水'], '炭酸水'],
+    [['ミネラルウォーター'], '水'],
+    [['スポーツドリンク'], 'スポーツドリンク'],
+    [['ジュース','果汁飲料'], 'ジュース'],
+    [['コーラ'], 'コーラ'],
+    [['食パン'], '食パン'],
+    [['パン'], 'パン'],
+    [['たまご','卵'], '卵'],
+    [['納豆'], '納豆'],
+    [['豆腐'], '豆腐'],
+    [['味噌','みそ'], '味噌'],
+    [['醤油','しょうゆ'], '醤油'],
+    [['マヨネーズ'], 'マヨネーズ'],
+    [['ケチャップ'], 'ケチャップ'],
+    [['ウスターソース','中濃ソース','とんかつソース'], 'ソース'],
+    [['みりん'], 'みりん'],
+    [['料理酒'], '料理酒'],
+    [['穀物酢','米酢','りんご酢','酢'], '酢'],
+    [['オリーブオイル'], 'オリーブオイル'],
+    [['サラダ油','キャノーラ油','食用油'], '食用油'],
+    [['砂糖'], '砂糖'],
+    [['食塩','塩'], '塩'],
+    [['薄力粉'], '薄力粉'],
+    [['強力粉'], '強力粉'],
+    [['小麦粉'], '小麦粉'],
+    [['うどん'], 'うどん'],
+    [['ラーメン'], 'ラーメン'],
+    [['パスタ','スパゲッティ'], 'パスタ'],
+    [['チーズ'], 'チーズ'],
+    [['バター'], 'バター'],
+    [['粒ガム','板ガム','ボトルガム','チューインガム','chewing gum','ガム','キシリトール','xylitol','クロレッツ','clorets','リカルデント','recaldent','ブラックブラック','black black','グリーンガム','フィッツ','fits','acuo','アクオ','ポスカ','pos-ca','ミンティア','フリスク','frisk'], 'ガム'],
+    [['チョコレート'], 'チョコレート'],
+    [['アイスクリーム','アイス'], 'アイス'],
+    [['米','こめ'], '米'],
+    [['歯磨き粉','歯みがき粉','ハミガキ','歯磨き'], '歯磨き粉'],
+    [['歯ブラシ'], '歯ブラシ'],
+    [['アルミホイル','アルミ箔'], 'アルミホイル'],
+    [['食品ラップ','キッチンラップ','ラップ'], 'ラップ'],
+    [['キッチンペーパー'], 'キッチンペーパー'],
+    [['トイレットペーパー'], 'トイレットペーパー'],
+    [['ボックスティッシュ','箱ティッシュ','ティッシュ'], 'ティッシュ'],
+    [['食器用洗剤','台所用洗剤'], '食器用洗剤'],
+    [['洗濯洗剤','衣料用洗剤'], '洗濯洗剤'],
+    [['柔軟剤'], '柔軟剤'],
+    [['シャンプー'], 'シャンプー'],
+    [['コンディショナー','リンス'], 'コンディショナー'],
+    [['ボディソープ'], 'ボディソープ'],
+    [['ハンドソープ'], 'ハンドソープ'],
+    [['ゴミ袋','ごみ袋'], 'ゴミ袋'],
+    [['乾電池','電池'], '電池']
+  ];
+
+  for (const [keywords, label] of rules) {
+    if (keywords.some(keyword => haystack.includes(keyword.toLowerCase()))) return label;
+  }
+
+  return '';
+}
+
+function deriveYahooType(hit, exactName = '') {
+  const text = yahooSearchText(hit, exactName);
+  const known = deriveKnownBarcodeTypeFromText(text);
+  if (known) return known;
+
+  // 「味」「風味」「フレーバー」などは比較カテゴリではないため種類候補にしない。
+  const genreCandidates = [
+    hit?.genreCategory?.name || '',
+    ...(Array.isArray(hit?.parentGenreCategories)
+      ? hit.parentGenreCategories.map(x => x?.name || '')
+      : [])
+  ];
+  for (const candidate of genreCandidates) {
+    const clean = cleanBarcodeText(candidate);
+    if (!clean || /^(?:味|風味|フレーバー|香り|タイプ)$/i.test(clean)) continue;
+    const resolved = deriveKnownBarcodeTypeFromText(clean);
+    if (resolved) return resolved;
+  }
+  return '';
+}
+
+function normalizeQuantityText(value) {
+  return String(value || '')
+    .normalize('NFKC')
+    .replace(/(\d),(?=\d{3}(?:\D|$))/g, '$1')
+    .replace(/[×xX＊*]/g, 'x')
+    .replace(/\s+/g, ' ')
+    .toLowerCase();
+}
+
+function parseQuantityFromText(value) {
+  const text = normalizeQuantityText(value);
+
+  // 500ml x 2、200g×3袋 などは商品の総内容量として扱う。
+  let m = text.match(/(\d+(?:\.\d+)?)\s*(kg|g|ml|l|m)\s*x\s*(\d+)/i);
+  if (m) {
+    let amount = Number(m[1]) * Number(m[3]);
+    let unit = m[2].toLowerCase();
+    if (unit === 'kg') { amount *= 1000; unit = 'g'; }
+    if (unit === 'l') { amount *= 1000; unit = 'ml'; }
+    if (amount > 0) return { amount, unit };
+  }
+
+  m = text.match(/(\d+(?:\.\d+)?)\s*(kg|g|ml|l|m)(?=\s|$|[^a-z])/i);
+  if (m) {
+    let amount = Number(m[1]);
+    let unit = m[2].toLowerCase();
+    if (unit === 'kg') { amount *= 1000; unit = 'g'; }
+    if (unit === 'l') { amount *= 1000; unit = 'ml'; }
+    if (amount > 0) return { amount, unit };
+  }
+
+  // ガム・錠菓・小分け商品など。Yahooの商品名に「14粒」「9枚」のように入るケースを拾う。
+  m = text.match(/(\d+(?:\.\d+)?)\s*(粒|枚|個|本|袋|箱)(?:\s*(?:入|入り|セット))?/);
+  if (m) return { amount: Number(m[1]), unit: m[2] };
+
+  return null;
+}
+
+function parseQuantityFromYahoo(hit) {
+  return parseQuantityFromText([
+    hit?.name || '',
+    hit?.headLine || '',
+    hit?.description || ''
+  ].join(' '));
+}
+
+function isYahooLikelyFood(hit) {
+  const text = yahooSearchText(hit);
+  const nonFood = [
+    '日用品','ティッシュ','トイレットペーパー','洗剤','シャンプー',
+    'ボディソープ','歯磨き','化粧品','コスメ','ペット','家電','ファッション'
+  ];
+
+  if (nonFood.some(word => text.includes(word))) return false;
+
+  const food = [
+    '食品','飲料','牛乳','乳製品','コーヒー','お茶','水','菓子','米',
+    '調味料','麺','パン','卵','豆腐','納豆','ヨーグルト'
+  ];
+
+  return food.some(word => text.includes(word));
+}
+
+
+async function fetchJsonWithTimeout(url, timeoutMs = 7000) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+
+  try {
+    const response = await fetch(url, {
+      method: 'GET',
+      headers: { 'Accept': 'application/json' },
+      signal: controller.signal,
+      cache: 'no-store'
+    });
+
+    if (response.status === 404) return { found: false, data: null };
+    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+
+    return { found: true, data: await response.json() };
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+async function lookupOpenFacts(code) {
+  const fields = [
+    'code','product_name','product_name_ja','generic_name','generic_name_ja',
+    'brands','quantity','product_quantity','product_quantity_unit',
+    'categories','categories_tags'
+  ].join(',');
+
+  const domains = [
+    'world.openfoodfacts.org',
+    'world.openproductsfacts.org',
+    'world.openbeautyfacts.org',
+    'world.openpetfoodfacts.org'
+  ];
+
+  let gotResponse = false;
+  let lastError = null;
+
+  for (const domain of domains) {
+    const url =
+      `https://${domain}/api/v2/product/${encodeURIComponent(code)}.json` +
+      `?cc=jp&lc=ja&fields=${encodeURIComponent(fields)}`;
+
+    try {
+      const res = await fetchJsonWithTimeout(url);
+
+      if (!res.found) {
+        gotResponse = true;
+        continue;
+      }
+
+      gotResponse = true;
+      const data = res.data;
+
+      if (data?.status === 0 || !data?.product) continue;
+      return data.product;
+    } catch (err) {
+      lastError = err;
+    }
+  }
+
+  if (!gotResponse && lastError) throw lastError;
+  return null;
+}
+
+function applyOpenFactsResult(code, product) {
+  const exactName = cleanBarcodeText(
+    product.product_name_ja || product.product_name || product.brands || ''
+  );
+
+  const typeName = deriveBarcodeType(product, exactName);
+  const quantity = parseBarcodeQuantity(product);
+
+  barcodeLookupData = {
+    code,
+    product,
+    source: 'openfacts',
+    typeQuantity: quantity || null,
+    productUnit: ''
+  };
+
+  $('barcodeProductNameEdit').value = exactName;
+  $('barcodeTypeNameEdit').value = typeName;
+
+  applyBarcodeRegisterDefaults();
+}
+
+async function lookupUpcItemDb(code) {
+  const url = `https://api.upcitemdb.com/prod/trial/lookup?upc=${encodeURIComponent(code)}`;
+  const res = await fetchJsonWithTimeout(url);
+
+  if (!res.found) return null;
+
+  const data = res.data;
+  if (!data || !Array.isArray(data.items) || !data.items.length) return null;
+
+  return data.items[0];
+}
+
+function applyUpcItemDbResult(code, item) {
+  const exactName = cleanBarcodeText(
+    item.title || [item.brand, item.model].filter(Boolean).join(' ') || ''
+  );
+
+  const typeName = deriveUpcItemType(item, exactName);
+  const quantity = parseQuantityFromUpcItem(item);
+
+  barcodeLookupData = {
+    code,
+    source: 'upcitemdb',
+    upcItem: item,
+    product: { product_type: 'food' },
+    typeQuantity: quantity || null,
+    productUnit: ''
+  };
+
+  $('barcodeProductNameEdit').value = exactName;
+  $('barcodeTypeNameEdit').value = typeName;
+
+  applyBarcodeRegisterDefaults();
+}
+
+function deriveUpcItemType(item, exactName = '') {
+  const haystack = [
+    exactName,
+    item?.category || '',
+    item?.description || ''
+  ].join(' ');
+
+  const known = deriveKnownBarcodeTypeFromText(haystack);
+  if (known) return known;
+
+  const lower = haystack.toLowerCase();
+  const englishRules = [
+    [['low fat milk','low-fat milk'], '低脂肪乳'],
+    [['soy milk','soya milk'], '豆乳'],
+    [['milk'], '牛乳'],
+    [['yogurt','yoghurt'], 'ヨーグルト'],
+    [['instant coffee'], 'インスタントコーヒー'],
+    [['coffee'], 'コーヒー'],
+    [['black tea'], '紅茶'],
+    [['green tea'], '緑茶'],
+    [['sparkling water'], '炭酸水'],
+    [['mineral water'], '水'],
+    [['sliced bread','sandwich bread'], '食パン'],
+    [['bread'], 'パン'],
+    [['egg'], '卵'],
+    [['natto'], '納豆'],
+    [['tofu'], '豆腐'],
+    [['miso'], '味噌'],
+    [['soy sauce'], '醤油'],
+    [['mayonnaise'], 'マヨネーズ'],
+    [['ketchup'], 'ケチャップ'],
+    [['udon'], 'うどん'],
+    [['ramen'], 'ラーメン'],
+    [['pasta'], 'パスタ'],
+    [['cheese'], 'チーズ'],
+    [['butter'], 'バター'],
+    [['juice'], 'ジュース'],
+    [['chocolate'], 'チョコレート'],
+    [['ice cream'], 'アイス'],
+    [['rice'], '米'],
+    [['toothpaste'], '歯磨き粉'],
+    [['aluminum foil','aluminium foil'], 'アルミホイル'],
+    [['toilet paper'], 'トイレットペーパー'],
+    [['tissue'], 'ティッシュ']
+  ];
+
+  for (const [keywords, label] of englishRules) {
+    if (keywords.some(keyword => lower.includes(keyword))) return label;
+  }
+  return '';
+}
+
+function parseQuantityFromUpcItem(item) {
+  return parseQuantityFromText([
+    item?.title || '',
+    item?.description || '',
+    item?.size || '',
+    item?.weight || ''
+  ].join(' '));
+}
+
+function prepareBarcodeManualResult(code) {
+  barcodeLookupData = {
+    code,
+    typeQuantity: null,
+    productUnit: ''
+  };
+
+  $('barcodeProductNameEdit').value = '';
+  $('barcodeTypeNameEdit').value = '';
+  $('barcodeReading').value = '';
+  $('barcodeAmount').value = '';
+  setBarcodeUnit('');
+
+  applyBarcodeRegisterDefaults();
+}
+
+function cleanBarcodeText(value) {
+  return String(value || '')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function deriveBarcodeType(product, exactName = '') {
+  const generic = cleanBarcodeText(
+    product?.generic_name_ja ||
+    product?.generic_name ||
+    ''
+  );
+
+  const text = [
+    exactName,
+    generic,
+    product?.categories || '',
+    ...(Array.isArray(product?.categories_tags) ? product.categories_tags : [])
+  ].join(' ');
+
+  return deriveKnownBarcodeTypeFromText(text);
+}
+
+function simplifyGenericType(value) {
+  return deriveKnownBarcodeTypeFromText(cleanBarcodeText(value));
+}
+
+function parseBarcodeQuantity(product) {
+  let amount = Number(product?.product_quantity);
+  let unit = String(product?.product_quantity_unit || '').normalize('NFKC').toLowerCase();
+
+  if (Number.isFinite(amount) && amount > 0 && unit) {
+    if (unit === 'kg') { amount *= 1000; unit = 'g'; }
+    if (unit === 'l') { amount *= 1000; unit = 'ml'; }
+    if (['g','ml','m'].includes(unit)) return { amount, unit };
+  }
+
+  return parseQuantityFromText(product?.quantity || '');
+}
+
+function deriveProductRegistrationUnit(value, typeName = '') {
+  const text = String(value || '').normalize('NFKC').toLowerCase();
+  const type = String(typeName || '').normalize('NFKC').toLowerCase();
+  const all = `${type} ${text}`;
+
+  // 種類として数える量ではなく「その商品1つを何と数えるか」を決める。
+  // 例: 食パン6枚切りでも、商品名登録では 1商品として扱う。
+  const typeRules = [
+    [['食パン','パン'], '袋'],
+    [['米','こめ'], '袋'],
+    [['牛乳','低脂肪乳','加工乳','豆乳','ジュース','お茶','緑茶','麦茶','炭酸水','水','コーヒー','紅茶','スポーツドリンク'], '本'],
+    [['醤油','しょうゆ','みりん','料理酒','酢','オリーブオイル','サラダ油','食用油','ケチャップ','マヨネーズ','ソース'], '本'],
+    [['ラップ','アルミホイル'], '本'],
+    [['卵','たまご'], 'パック'],
+    [['納豆','豆腐','ヨーグルト','チーズ','バター','ガム','チョコレート','アイス','歯磨き粉','歯ブラシ','電池'], '個'],
+    [['ティッシュ'], '箱'],
+    [['トイレットペーパー','キッチンペーパー','ゴミ袋'], '袋'],
+    [['洗濯洗剤','食器用洗剤','柔軟剤','シャンプー','コンディショナー','ボディソープ','ハンドソープ'], '本']
+  ];
+
+  for (const [keywords, unit] of typeRules) {
+    if (keywords.some(keyword => type.includes(keyword))) return unit;
+  }
+
+  // 商品名や説明に包装形態が明記されている場合はそれを使う。
+  // 「6枚切り」「14粒」など中身の個数表現はここでは単位判定に使わない。
+  const packagingRules = [
+    [/(?:パウチ|袋入り|袋詰め|袋詰|バッグ(?:入り)?)/, '袋'],
+    [/(?:ボックス|box|箱入り|箱詰め|箱詰)/, '箱'],
+    [/(?:パック入り|パック詰め|パック詰)/, 'パック'],
+    [/(?:ペットボトル|ボトル)/, '本'],
+    [/(?:びん|瓶)/, '瓶'],
+    [/(?:缶入り|缶詰|缶タイプ)/, '缶'],
+    [/(?:シート|シート状)/, '枚']
+  ];
+
+  for (const [pattern, unit] of packagingRules) {
+    if (pattern.test(text)) return unit;
+  }
+
+  // 種類が取れない商品は、明確な商品形状だけ補助判定する。
+  if (/(?:マスク|シートマスク|フェイスマスク|カード|シール|ステッカー)/.test(all)) return '枚';
+  if (/(?:袋|パウチ)/.test(text)) return '袋';
+  if (/(?:箱|box)/.test(text)) return '箱';
+  if (/(?:ボトル|ペットボトル)/.test(text)) return '本';
+  if (/(?:缶)/.test(text)) return '缶';
+  if (/(?:瓶|びん)/.test(text)) return '瓶';
+  if (/(?:パック)/.test(text)) return 'パック';
+
+  return '個';
+}
+
+function syncBarcodeQuantityForChoice() {
+  const amountInput = $('barcodeAmount');
+  const isProduct = $('barcodeChoiceProduct').checked;
+
+  if (isProduct) {
+    // 「1」は固定値ではなく初期値。商品ごとの実際の内容量へ変更できる。
+    amountInput.readOnly = false;
+    amountInput.value = String(barcodeLookupData?.productAmount ?? 1);
+    setBarcodeUnit(barcodeLookupData?.productUnit || '');
+    return;
+  }
+
+  amountInput.readOnly = false;
+  const quantity = barcodeLookupData?.typeQuantity;
+
+  if (quantity && Number(quantity.amount) > 0 && quantity.unit) {
+    amountInput.value = String(quantity.amount);
+    setBarcodeUnit(quantity.unit);
+  } else {
+    amountInput.value = '';
+    setBarcodeUnit('');
+  }
+}
+
+function setBarcodeUnit(unit) {
+  const select = $('barcodeUnit');
+  const exists = Array.from(select.options).some(option => option.value === unit);
+
+  if (!exists) {
+    const option = document.createElement('option');
+    option.value = unit;
+    option.textContent = unit;
+    select.appendChild(option);
+  }
+
+  select.value = unit;
+}
+
+function updateBarcodeReadingFromChoice() {
+  if (barcodeReadingManuallyEdited) return;
+
+  const choice =
+    document.querySelector('input[name="barcodeNameChoice"]:checked')?.value ||
+    'product';
+
+  const name = choice === 'type'
+    ? $('barcodeTypeNameEdit').value.trim()
+    : $('barcodeProductNameEdit').value.trim();
+
+  $('barcodeReading').value = barcodeReadingForName(name);
+}
+
+function applyBarcodeRegisterDefaults() {
+  barcodeReadingManuallyEdited = false;
+
+  const hasProduct = !!$('barcodeProductNameEdit').value.trim();
+  const hasType = !!$('barcodeTypeNameEdit').value.trim();
+  const preferType = settings.barcodeNameDefault === 'type';
+
+  if (preferType && hasType) {
+    $('barcodeChoiceType').checked = true;
+    $('barcodeChoiceProduct').checked = false;
+  } else {
+    $('barcodeChoiceProduct').checked = true;
+    $('barcodeChoiceType').checked = false;
+  }
+
+  // 商品名がなく、種類だけ取れた場合は種類へフォールバック。
+  if (!hasProduct && hasType) {
+    $('barcodeChoiceType').checked = true;
+    $('barcodeChoiceProduct').checked = false;
+  }
+
+
+  syncBarcodeChoiceLabels();
+  syncBarcodeQuantityForChoice();
+  updateBarcodeReadingFromChoice();
+}
+
+
+function syncBarcodeChoiceLabels() {
+  const exact = $('barcodeProductNameEdit').value.trim();
+  const type = $('barcodeTypeNameEdit').value.trim();
+
+  $('barcodeProductName').textContent = exact;
+  $('barcodeTypeName').textContent = type;
+
+  const typeChoice = $('barcodeChoiceType');
+  const typeLabel = typeChoice.closest('.barcode-choice');
+
+  typeChoice.disabled = !type;
+  typeLabel.classList.toggle('disabled', !type);
+
+  if (!type && typeChoice.checked) {
+    $('barcodeChoiceProduct').checked = true;
+  }
+}
+
+function barcodeReadingForName(name) {
+  const raw = String(name || '').trim();
+  if (!raw) return '';
+
+  const known = findKnownReading(raw);
+  if (known) return known;
+
+  const exactMap = new Map([
+    ['牛乳','ぎゅうにゅう'],
+    ['低脂肪乳','ていしぼうにゅう'],
+    ['加工乳','かこうにゅう'],
+    ['豆乳','とうにゅう'],
+    ['ヨーグルト','よーぐると'],
+    ['インスタントコーヒー','いんすたんとこーひー'],
+    ['コーヒー','こーひー'],
+    ['紅茶','こうちゃ'],
+    ['緑茶','りょくちゃ'],
+    ['麦茶','むぎちゃ'],
+    ['炭酸水','たんさんすい'],
+    ['水','みず'],
+    ['食パン','しょくぱん'],
+    ['パン','ぱん'],
+    ['卵','たまご'],
+    ['納豆','なっとう'],
+    ['豆腐','とうふ'],
+    ['味噌','みそ'],
+    ['醤油','しょうゆ'],
+    ['マヨネーズ','まよねーず'],
+    ['ケチャップ','けちゃっぷ'],
+    ['うどん','うどん'],
+    ['ラーメン','らーめん'],
+    ['パスタ','ぱすた'],
+    ['チーズ','ちーず'],
+    ['バター','ばたー'],
+    ['ジュース','じゅーす'],
+    ['ガム','がむ'],
+    ['チョコレート','ちょこれーと'],
+    ['アイス','あいす'],
+    ['米','こめ'],
+    ['歯磨き粉','はみがきこ'],
+    ['歯ブラシ','はぶらし'],
+    ['アルミホイル','あるみほいる'],
+    ['ラップ','らっぷ'],
+    ['キッチンペーパー','きっちんぺーぱー'],
+    ['トイレットペーパー','といれっとぺーぱー'],
+    ['ティッシュ','てぃっしゅ'],
+    ['食器用洗剤','しょっきようせんざい'],
+    ['洗濯洗剤','せんたくせんざい'],
+    ['柔軟剤','じゅうなんざい'],
+    ['シャンプー','しゃんぷー'],
+    ['コンディショナー','こんでぃしょなー'],
+    ['ボディソープ','ぼでぃそーぷ'],
+    ['ハンドソープ','はんどそーぷ'],
+    ['ゴミ袋','ごみぶくろ'],
+    ['電池','でんち']
+  ]);
+
+  if (exactMap.has(raw)) return exactMap.get(raw);
+
+  // 漢字を含まない商品名は、カタカナをひらがなへ変換すればそのまま読みとして使える。
+  if (!hasKanji(raw)) {
+    return katakanaToHiragana(raw).normalize('NFKC').toLowerCase();
+  }
+
+  // バーコードの商品名で頻出するブランド名・商品語だけローカル辞書で変換する。
+  // 未知の漢字が残る場合は誤読を作らず空欄にして、手修正できるようにする。
+  const replacements = [
+    ['江崎グリコ','えざきぐりこ'],
+    ['雪印メグミルク','ゆきじるしめぐみるく'],
+    ['雪印','ゆきじるし'],
+    ['森永乳業','もりながにゅうぎょう'],
+    ['森永製菓','もりながせいか'],
+    ['明治','めいじ'],
+    ['味の素','あじのもと'],
+    ['日清食品','にっしんしょくひん'],
+    ['日清','にっしん'],
+    ['東洋水産','とうようすいさん'],
+    ['伊藤園','いとうえん'],
+    ['山崎製パン','やまざきせいぱん'],
+    ['旭化成','あさひかせい'],
+    ['大王製紙','だいおうせいし'],
+    ['日本製紙','にっぽんせいし'],
+    ['王子ネピア','おうじねぴあ'],
+    ['牛乳石鹸','ぎゅうにゅうせっけん'],
+    ['低脂肪乳','ていしぼうにゅう'],
+    ['加工乳','かこうにゅう'],
+    ['牛乳','ぎゅうにゅう'],
+    ['豆乳','とうにゅう'],
+    ['無糖','むとう'],
+    ['微糖','びとう'],
+    ['加糖','かとう'],
+    ['濃厚','のうこう'],
+    ['無添加','むてんか'],
+    ['国産','こくさん'],
+    ['北海道','ほっかいどう'],
+    ['食パン','しょくぱん'],
+    ['薄力粉','はくりきこ'],
+    ['強力粉','きょうりきこ'],
+    ['小麦粉','こむぎこ'],
+    ['砂糖','さとう'],
+    ['食塩','しょくえん'],
+    ['料理酒','りょうりしゅ'],
+    ['醤油','しょうゆ'],
+    ['味噌','みそ'],
+    ['緑茶','りょくちゃ'],
+    ['麦茶','むぎちゃ'],
+    ['紅茶','こうちゃ'],
+    ['炭酸水','たんさんすい'],
+    ['食器用','しょっきよう'],
+    ['洗濯','せんたく'],
+    ['衣料用','いりょうよう'],
+    ['洗剤','せんざい'],
+    ['柔軟剤','じゅうなんざい'],
+    ['歯磨き粉','はみがきこ'],
+    ['歯磨き','はみがき'],
+    ['歯ブラシ','はぶらし'],
+    ['箱','はこ'],
+    ['袋','ふくろ'],
+    ['種','しゅ'],
+    ['粒','つぶ'],
+    ['枚','まい'],
+    ['個','こ'],
+    ['本','ほん'],
+    ['入','いり']
+  ].sort((a, b) => b[0].length - a[0].length);
+
+  let converted = raw.normalize('NFKC');
+
+  for (const [from, to] of replacements) {
+    converted = converted.split(from).join(to);
+  }
+
+  converted = katakanaToHiragana(converted).toLowerCase();
+
+  // 漢字が残るなら読みを推測しない。
+  if (hasKanji(converted)) return '';
+
+  return converted.replace(/\s+/g, ' ').trim();
+}
+
+function registerBarcodeProduct() {
+  const code = normalizeBarcodeCode(
+    barcodeLookupData?.code || $('barcodeManualCode').value || ''
+  );
+
+  if (!code) {
+    $('barcodeLookupStatus').textContent = 'バーコードを読み取るか入力してね。';
+    return;
+  }
+
+  const choice =
+    document.querySelector('input[name="barcodeNameChoice"]:checked')?.value ||
+    'product';
+
+  // 正式商品名で登録する場合だけJANを商品へ紐づける。
+  // 種類で登録する場合は、汎用カテゴリに特定商品のJANを持たせない。
+  const barcodeForProduct = choice === 'product' ? code : '';
+
+  if (barcodeForProduct) {
+    const existing = findProductByBarcode(barcodeForProduct);
+    if (existing) {
+      $('barcodeLookupStatus').textContent =
+        `「${existing.name}」として登録済みだよ。`;
+      return;
+    }
+  }
+
+  const exactName = $('barcodeProductNameEdit').value.trim();
+  const typeName = $('barcodeTypeNameEdit').value.trim();
+  const name = choice === 'type' ? typeName : exactName;
+
+  // 商品名で登録する場合も内容量は編集可能。
+  // 初期値は1、単位は自動判定せず空欄からユーザーが必要に応じて選ぶ。
+  // 種類で登録する場合は従来どおり取得した内容量・単位を初期値にする。
+  const amount = Number($('barcodeAmount').value);
+  const unit = $('barcodeUnit').value;
+
+  if (!name) {
+    $('barcodeLookupStatus').textContent = '登録する商品名を入力してね。';
+    return;
+  }
+
+  if (!(amount > 0) || (choice === 'type' && !unit)) {
+    $('barcodeLookupStatus').textContent = '内容量と単位を確認してね。';
+    return;
+  }
+
+  let reading = normalizeReadingInput($('barcodeReading').value);
+  if (!reading) {
+    reading = barcodeReadingForName(name);
+  }
+
+  const productType = barcodeLookupData?.product?.product_type || 'food';
+  const defaultTax = productType === 'food'
+    ? Number(settings.reducedTax)
+    : Number(settings.standardTax);
+
+  const product = {
+    id: makeId('p'),
+    barcode: barcodeForProduct,
+    name,
+    reading,
+    kind: choice === 'type' ? 'type' : 'product',
+    amount,
+    unit,
+    defaultTax,
+    history: [],
+    stores: []
+  };
+
+  products.push(product);
+  persistNow();
+  openProductId = product.id;
+  closeBarcodeDialog();
+  render();
+
+  requestAnimationFrame(() => {
+    const card = listEl.querySelector(`[data-id="${cssEscape(product.id)}"]`);
+    if (card) card.scrollIntoView({behavior:'smooth', block:'center'});
+  });
+}
+
+function normalizeProductNameKey(value) {
+  return String(value || '').normalize('NFKC').trim().toLowerCase();
+}
+
+function hasKanji(value) {
+  return /[\u3400-\u4DBF\u4E00-\u9FFF]/.test(String(value || ''));
+}
+
+async function loadRecommendedReadingMap() {
+  try {
+    const response = await fetch('./template-products.json?v=1', { cache: 'no-store' });
+    if (!response.ok) return;
+    const data = await response.json();
+    if (!Array.isArray(data.products)) return;
+    const map = new Map();
+    data.products.forEach(item => {
+      const key = normalizeProductNameKey(item?.name);
+      const reading = normalizeReadingInput(item?.reading || '');
+      if (key && reading) map.set(key, reading);
+    });
+    recommendedReadingMap = map;
+    if ($('productDialog')?.open && !readingWasManuallyEdited && !$('productReading').value.trim()) autoFillProductReading();
+  } catch {}
+}
+
+function findKnownReading(name) {
+  const key = normalizeProductNameKey(name);
+  if (!key) return '';
+  for (const p of products) {
+    if (normalizeProductNameKey(p?.name) === key && p?.reading) return normalizeReadingInput(p.reading);
+  }
+  if (customTemplate?.products) {
+    for (const p of customTemplate.products) {
+      if (normalizeProductNameKey(p?.name) === key && p?.reading) return normalizeReadingInput(p.reading);
+    }
+  }
+  if (templateDraft?.products) {
+    for (const p of templateDraft.products) {
+      if (normalizeProductNameKey(p?.name) === key && p?.reading) return normalizeReadingInput(p.reading);
+    }
+  }
+  return recommendedReadingMap.get(key) || '';
+}
+
+function makeReadingCandidate(name) {
+  const raw = String(name || '').trim();
+  if (!raw) return '';
+  const known = findKnownReading(raw);
+  if (known) return known;
+  if (!hasKanji(raw)) return katakanaToHiragana(raw).normalize('NFKC').toLowerCase();
+  return '';
+}
+
+function autoFillProductReading() {
+  const candidate = makeReadingCandidate($('productName').value);
+
+  // 読みを作れる時だけ更新。
+  // IMEで漢字へ変換した場合は compositionend で
+  // 変換前のかな読みを残す。
+  if (candidate) $('productReading').value = candidate;
+}
+
+function normalizeReadingInput(value) {
+  return String(value || '').trim();
+}
+
+function katakanaToHiragana(value) {
+  return String(value || '').replace(/[\u30A1-\u30F6]/g, ch =>
+    String.fromCharCode(ch.charCodeAt(0) - 0x60)
+  );
+}
+
+function normalizeSortText(product) {
+  const raw = (product.reading || product.name || '').trim();
+  return katakanaToHiragana(raw)
+    .normalize('NFKC')
+    .toLowerCase();
+}
+
+function productGroup(product) {
+  const text = normalizeSortText(product);
+  if (!text) return 'その他';
+
+  const ch = text[0];
+
+  if (/[a-z]/.test(ch)) return ch.toUpperCase();
+
+  const rows = [
+    ['あ', /^[ぁあぃいうぅえぇお]/],
+    ['か', /^[かがきぎくぐけげこご]/],
+    ['さ', /^[さざしじすずせぜそぞ]/],
+    ['た', /^[ただちぢっつづてでとど]/],
+    ['な', /^[なにぬねの]/],
+    ['は', /^[はばぱひびぴふぶぷへべぺほぼぽ]/],
+    ['ま', /^[まみむめも]/],
+    ['や', /^[ゃやゅゆょよ]/],
+    ['ら', /^[らりるれろ]/],
+    ['わ', /^[ゎわをん]/]
+  ];
+
+  for (const [label, pattern] of rows) {
+    if (pattern.test(ch)) return label;
+  }
+
+  if (/[0-9]/.test(ch)) return '0-9';
+
+  return 'その他';
+}
+
+function groupRank(group) {
+  const jp = ['あ','か','さ','た','な','は','ま','や','ら','わ'];
+  const jpIndex = jp.indexOf(group);
+  if (jpIndex >= 0) return jpIndex;
+
+  if (/^[A-Z]$/.test(group)) return 100 + group.charCodeAt(0) - 65;
+  if (group === '0-9') return 200;
+  return 300;
+}
+
+function compareProducts(a, b) {
+  const ga = productGroup(a);
+  const gb = productGroup(b);
+
+  const groupDiff = groupRank(ga) - groupRank(gb);
+  if (groupDiff !== 0) return groupDiff;
+
+  const sa = normalizeSortText(a);
+  const sb = normalizeSortText(b);
+
+  const byReading = sa.localeCompare(sb, 'ja', {
+    sensitivity: 'base',
+    numeric: true
+  });
+  if (byReading !== 0) return byReading;
+
+  return String(a.name || '').localeCompare(String(b.name || ''), 'ja', {
+    sensitivity: 'base',
+    numeric: true
+  });
+}
+
+function syncProductKindFields() {
+  const isType = $('productKind').value === 'type';
+  $('productAmountGroup').classList.toggle('hidden', isType);
+}
+
+function openProductDialog(id = null) {
+  if (!id && productEditDraft) {
+    if (!confirmDiscardProductEdit()) return;
+    openProductId = null;
+    productEditDraft = null;
+    productEditDirty = false;
+  }
+  editProductId = id;
+  const persisted = id ? products.find(x => x.id === id) : null;
+  const p = id && productEditDraft?.id === id ? productEditDraft : persisted;
+
+  readingWasManuallyEdited = false;
+  productNameIsComposing = false;
+  compositionReadingCandidate = '';
+
+  $('productDialogTitle').textContent = p ? '商品設定' : '商品追加';
+  $('productName').value = p?.name ?? '';
+  $('productReading').value = p?.reading ?? '';
+  $('productKind').value = p?.kind === 'type' ? 'type' : 'product';
+  $('productAmount').value = p?.amount ?? 100;
+  setSelectValueWithOption($('productUnit'), p?.unit ?? 'g');
+  syncProductKindFields();
+
+  const taxSelect = $('productTax');
+  const selectedTax = p?.defaultTax ?? settings.reducedTax;
+  taxSelect.innerHTML = taxOptions(selectedTax);
+  taxSelect.value = String(selectedTax);
+
+  const dialog = $('productDialog');
+  dialog.showModal();
+
+  requestAnimationFrame(() => {
+    dialog.scrollTop = 0;
+    $('productForm').scrollTop = 0;
+    const nameInput = $('productName');
+    try { nameInput.focus({ preventScroll: true }); }
+    catch { nameInput.focus(); }
+    requestAnimationFrame(() => {
+      dialog.scrollTop = 0;
+      $('productForm').scrollTop = 0;
+    });
+  });
+}
+
+function saveProductFromDialog() {
+  const name = $('productName').value.trim();
+  const kind = $('productKind').value === 'type' ? 'type' : 'product';
+
+  if (!$('productReading').value.trim()) {
+    const candidate = makeReadingCandidate(name);
+    if (candidate) $('productReading').value = candidate;
+  }
+
+  let amount = Number($('productAmount').value);
+  let unit = $('productUnit').value || '個';
+  if (kind === 'type') {
+    const current = editProductId
+      ? (productEditDraft?.id === editProductId ? productEditDraft : products.find(x => x.id === editProductId))
+      : null;
+    amount = current?.kind === 'type' ? (current.amount ?? '') : (Number(current?.amount) > 0 ? Number(current.amount) : '');
+    unit = current?.kind === 'type' ? (current.unit || '') : (current?.unit || '');
+  }
+
+  if (!name || (kind === 'product' && !(amount > 0))) return;
+
+  if (editProductId) {
+    const persisted = products.find(x => x.id === editProductId);
+    let target = productEditDraft?.id === editProductId ? productEditDraft : (persisted ? structuredCloneSafe(persisted) : null);
+    if (target) {
+      const previousKind = target.kind === 'type' ? 'type' : 'product';
+      target.name = name;
+      target.reading = normalizeReadingInput($('productReading').value);
+      target.kind = kind;
+      target.amount = amount;
+      target.unit = unit;
+      target.defaultTax = Number($('productTax').value);
+
+      if (previousKind !== kind && kind === 'type') {
+        target.stores.forEach(row => {
+          if (!(Number(row.amount) > 0)) row.amount = Number(target.amount) > 0 ? Number(target.amount) : '';
+          if (!row.unit) row.unit = target.unit || '個';
+        });
+      }
+
+      if (openProductId === editProductId) {
+        productEditDraft = target;
+        markProductEditDirty();
+      } else {
+        const index = products.findIndex(x => x.id === editProductId);
+        if (index >= 0) products[index] = target;
+        persistNow();
+      }
+    }
+  } else {
+    const defaultTax = Number($('productTax').value);
+    const p = {
+      id: makeId('p'),
+      name,
+      reading: normalizeReadingInput($('productReading').value),
+      kind,
+      amount,
+      unit,
+      defaultTax,
+      history: [],
+      stores: [{
+        id: makeId('s'),
+        store: '',
+        price: '',
+        priceType: settings.defaultPriceType,
+        tax: defaultTax,
+        couponType: 'none',
+        couponValue: '',
+        amount: kind === 'type' ? '' : amount,
+        unit: kind === 'type' ? '個' : unit
+      }]
+    };
+    products.unshift(p);
+    persistNow();
+    openProductId = p.id;
+    beginProductEdit(p.id);
+  }
+
+  $('productDialog').close();
+  render();
+}
+
+function toggleYahooClientIdVisibility() {
+  const input = $('yahooClientId');
+  const visible = input.type === 'text';
+  input.type = visible ? 'password' : 'text';
+  $('btnToggleYahooClientId').textContent = visible ? '表示' : '隠す';
+}
+
+async function testYahooShoppingApi() {
+  const clientId = $('yahooClientId').value.trim();
+  const workerUrl = YAHOO_WORKER_URL;
+  const status = $('yahooApiStatus');
+
+  if (!clientId) {
+    status.textContent = 'Client IDを入力してね。';
+    return;
+  }
+
+  const btn = $('btnTestYahooApi');
+  btn.disabled = true;
+  status.textContent = 'PriceLog専用サーバー経由でYahoo!へ接続中…';
+
+  try {
+    const data = await fetchYahooViaWorker(
+      { query: '牛乳', results: 1 },
+      clientId,
+      workerUrl
+    );
+
+    if (!data || !Array.isArray(data.hits)) {
+      throw new Error('Unexpected Yahoo response');
+    }
+
+    status.textContent = '接続できたよ。設定を保存すればバーコード検索で使える。';
+  } catch (err) {
+    status.textContent =
+      `接続できなかったよ。Client IDまたは中継サーバーの状態を確認してね。${err?.message ? ` (${err.message})` : ''}`;
+  } finally {
+    btn.disabled = false;
+  }
+}
+
+
+function openSettings() {
+  if (productEditDraft) {
+    if (!confirmDiscardProductEdit()) return;
+    openProductId = null;
+    productEditDraft = null;
+    productEditDirty = false;
+    render();
+  }
+  $('standardTax').value = settings.standardTax;
+  $('reducedTax').value = settings.reducedTax;
+  $('defaultPriceType').value = settings.defaultPriceType;
+  $('barcodeNameDefault').value =
+    settings.barcodeNameDefault === 'type' ? 'type' : 'product';
+  $('yahooClientId').value = settings.yahooClientId || '';
+  $('yahooClientId').type = 'password';
+  $('btnToggleYahooClientId').textContent = '表示';
+  $('yahooApiStatus').textContent = '';
+  updateTemplateSummary();
+  $('templateMessage').textContent = '';
+  $('settingsDialog').showModal();
+}
+
+function exportBackup() {
+  const payload = {
+    app: 'PriceLog',
+    version: 2,
+    exportedAt: new Date().toISOString(),
+    settings,
+    products,
+    customTemplate,
+    shoppingMemoChecked: Array.from(shoppingMemoChecked)
+  };
+  const blob = new Blob([JSON.stringify(payload, null, 2)], {type:'application/json'});
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `PriceLog-backup-${new Date().toISOString().slice(0,10)}.json`;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  URL.revokeObjectURL(url);
+}
+
+function importBackup(e) {
+  const file = e.target.files?.[0];
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = () => {
+    try {
+      const data = JSON.parse(String(reader.result));
+      if (!Array.isArray(data.products)) throw new Error('invalid');
+      settings = normalizeSettingsData(data.settings || {});
+      products = normalizeProductsData(data.products);
+      shoppingMemoChecked = new Set(Array.isArray(data.shoppingMemoChecked) ? data.shoppingMemoChecked.map(String) : []);
+      persistShoppingMemoChecked();
+
+      if (data.customTemplate) {
+        customTemplate = normalizeTemplateData(data.customTemplate);
+        localStorage.setItem(TEMPLATE_KEY, JSON.stringify(customTemplate));
+      }
+
+      persistNow();
+      localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings));
+      localStorage.setItem(INITIALIZED_KEY, '1');
+      updateTemplateSummary();
+      $('settingsDialog').close();
+      render();
+    } catch {
+      alert('バックアップファイルを読み込めなかったよ。');
+    } finally {
+      e.target.value = '';
+    }
+  };
+  reader.readAsText(file);
+}
+
+function numberOrBlank(v) {
+  if (v === '') return '';
+  const n = Number(v);
+  return Number.isFinite(n) ? n : '';
+}
+
+function clampNumber(v, min, max, fallback) {
+  const n = Number(v);
+  if (!Number.isFinite(n)) return fallback;
+  return Math.min(max, Math.max(min, n));
+}
+
+function fmt(v) {
+  return Number(v).toLocaleString('ja-JP', {maximumFractionDigits:2});
+}
+
+function fmtUnit(v) {
+  return Number(v).toLocaleString('ja-JP', {minimumFractionDigits:2, maximumFractionDigits:2});
+}
+
+function fmtPrice(v) {
+  return Number(v).toLocaleString('ja-JP', {maximumFractionDigits:1});
+}
+
+function fmtPriceDelta(v) {
+  const n = Math.abs(Number(v)) < 0.05 ? 0 : Number(v);
+  if (n === 0) return '0';
+  return (n > 0 ? '+' : '') + n.toLocaleString('ja-JP', {maximumFractionDigits:1});
+}
+
+function fmtUnitDelta(v) {
+  const n = Math.abs(Number(v)) < 0.005 ? 0 : Number(v);
+  if (n === 0) return '0';
+  return (n > 0 ? '+' : '') + n.toLocaleString('ja-JP', {minimumFractionDigits:2, maximumFractionDigits:2});
+}
+
+function fmtYen(v) {
+  return Number(v).toLocaleString('ja-JP', {maximumFractionDigits:1}) + '円';
+}
+
+function escapeAttr(v) {
+  return String(v).replace(/[&<>"']/g, ch => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[ch]));
+}
+
+function cssEscape(v) {
+  return window.CSS?.escape ? CSS.escape(v) : String(v).replace(/["\\]/g, '\\$&');
+}
 })();
-
-
-
-const KEY={vehicles:"carlog_vehicles",active:"carlog_active_vehicle",legacy:"carlog_vehicle",fuel:"fuelRecords",maint:"carlog_maintenance",expense:"carlog_expenses"};
-const load=(k,d)=>{try{let v=localStorage.getItem(k);return v?JSON.parse(v):d}catch{return d}},save=(k,v)=>localStorage.setItem(k,JSON.stringify(v));
-const uid=p=>p+"_"+(crypto.randomUUID?crypto.randomUUID():Date.now()+"_"+Math.random().toString(16).slice(2));
-const today=()=>{let d=new Date();return new Date(d-d.getTimezoneOffset()*60000).toISOString().slice(0,10)},nowTime=()=>new Date().toTimeString().slice(0,5),nf=v=>Number(v||0).toLocaleString("ja-JP"),esc=s=>String(s??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#039;"}[c]));
-let vehicles=load(KEY.vehicles,[]),activeId=localStorage.getItem(KEY.active)||"",fuelRecords=load(KEY.fuel,[]),maintenanceRecords=load(KEY.maint,[]),expenseRecords=load(KEY.expense,[]);
-let edit={fuel:null,maintenance:null,expense:null,vehicle:null},costYear=new Date().getFullYear(),costChartMode="total",driveMode="distance",pendingVehiclePhoto=null,memoDraft=[];
-const COLOR_LABELS={white:"ホワイト",black:"ブラック",silver:"シルバー",gray:"グレー",red:"レッド",blue:"ブルー",navy:"ネイビー",green:"グリーン",beige:"ベージュ",brown:"ブラウン",yellow:"イエロー",orange:"オレンジ",purple:"パープル",other:"その他"};
-const COLOR_HEX={white:"#f4f4f2",black:"#25282d",silver:"#b8bdc5",gray:"#737982",red:"#c93c3c",blue:"#3478c8",navy:"#263f68",green:"#4f7d57",beige:"#d5c4a1",brown:"#795548",yellow:"#e5bf36",orange:"#df7b2c",purple:"#76518d",other:"#8b95a5"};
-function carSvg(color,bodyType="compact-minivan"){
- let fill=COLOR_HEX[color]||"#f4f5f6";
- const shapes={
-  "kei":"M22 59l9-24c3-8 9-12 17-12h70c9 0 15 5 19 13l11 23 15 6v10H13V65z",
-  "kei-tall":"M22 59l8-31c2-8 8-12 17-12h75c9 0 15 5 18 14l9 29 14 6v10H13V65z",
-  "compact":"M20 59l15-22c5-8 12-12 22-12h61c10 0 18 4 24 12l16 22 10 6v10H12V65z",
-  "sedan":"M17 60l24-17c9-7 17-16 31-17h40c14 1 24 9 34 18l20 16 5 5v10H10V65z",
-  "wagon":"M18 59l18-24c6-8 12-11 22-11h70c9 0 16 5 21 13l13 22 8 6v10H10V65z",
-  "compact-minivan":"M18 59l14-28c4-9 11-13 21-13h73c10 0 17 5 22 14l13 27 8 6v10H10V65z",
-  "minivan":"M18 59l12-31c4-10 10-14 21-14h77c10 0 18 6 22 16l11 29 9 6v10H10V65z",
-  "suv":"M16 59l18-25c6-8 14-12 24-12h67c11 0 19 5 25 14l14 23 8 6v10H9V65z",
-  "coupe":"M17 60l28-20c12-9 23-15 38-15h31c15 0 25 8 37 19l16 16 5 5v10H10V65z",
-  "van":"M18 59l9-32c3-10 9-14 20-14h78c11 0 18 6 21 17l8 29 15 6v10H10V65z"
- };
- return `<svg viewBox="0 0 180 90" class="generated-car"><defs><linearGradient id="paint" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#fff" stop-opacity=".72"/><stop offset=".42" stop-color="${fill}"/><stop offset="1" stop-color="${fill}"/></linearGradient></defs><ellipse cx="91" cy="77" rx="70" ry="7" fill="rgba(0,0,0,.22)"/><path fill="url(#paint)" stroke="rgba(25,34,41,.82)" stroke-width="2.4" d="${shapes[bodyType]||shapes["compact-minivan"]}"/><path fill="#cfe0ea" opacity=".9" d="M49 29h30v24H38l9-20zm38 0h32c7 0 11 3 15 9l10 15H87z"/><path d="M34 58h116" stroke="rgba(255,255,255,.45)" stroke-width="2"/><circle cx="47" cy="72" r="12" fill="#20262b"/><circle cx="47" cy="72" r="6" fill="#aab3b9"/><circle cx="137" cy="72" r="12" fill="#20262b"/><circle cx="137" cy="72" r="6" fill="#aab3b9"/></svg>`;
-}
-
-function migrate(){let legacy=load(KEY.legacy,null);if(!vehicles.length&&legacy){vehicles=[legacy];save(KEY.vehicles,vehicles);activeId=legacy.id;localStorage.setItem(KEY.active,activeId)}if(!activeId&&vehicles[0]){activeId=vehicles[0].id;localStorage.setItem(KEY.active,activeId)}if(vehicles.length===1){[fuelRecords,maintenanceRecords,expenseRecords].forEach(a=>a.forEach(r=>{if(!r.vehicleId)r.vehicleId=vehicles[0].id}));persistRecords()}}
-function persistRecords(){save(KEY.fuel,fuelRecords);save(KEY.maint,maintenanceRecords);save(KEY.expense,expenseRecords)}
-const car=()=>vehicles.find(v=>v.id===activeId)||null,fuels=()=>fuelRecords.filter(r=>r.vehicleId===activeId),maints=()=>maintenanceRecords.filter(r=>r.vehicleId===activeId),expenses=()=>expenseRecords.filter(r=>r.vehicleId===activeId);
-function stamp(r){
- const d=r?.date||"";
- const x=r?.createdAt||r?.time||"";
- return `${d}_${x}`;
-}
-function show(id){
- document.querySelectorAll(".screen").forEach(x=>x.classList.add("hidden"));
- const target=document.getElementById(id);
- if(target)target.classList.remove("hidden");
- document.body.dataset.screen=id;
- let hide=id==="setup";
- bottomNav.classList.toggle("hidden",hide);
- adDock.classList.toggle("hidden-ad",hide);
- document.querySelectorAll(".pc-sidebar button").forEach(b=>b.classList.remove("active"));
- const map={home:0,fuel:1,maintenance:2,expense:3,history:4,costs:5,driving:6,vehicles:7,vehicleEdit:7,vehicleNotes:7,settings:8,help:8};
- const buttons=document.querySelectorAll(".pc-sidebar button");
- if(map[id]!=null&&buttons[map[id]])buttons[map[id]].classList.add("active");
- window.scrollTo(0,0);
-}
-document.addEventListener("DOMContentLoaded",()=>{migrate();refreshStoreNames();car()?goHome():show("setup")});
-
-function currentKm(){let c=car();return Math.max(Number(c?.odometer)||0,...fuels().map(r=>+r.odometer||0),...maints().map(r=>+r.odometer||0))}
-function createVehicleFromSetup(){let n=setupName.value.trim(),km=+setupKm.value;if(!n||km<0)return alert("車両名と走行距離を入力してください。");let v={id:uid("vehicle"),name:n,maker:setupMaker.value.trim(),odometer:km,inspectionDate:setupInspection.value,oilInterval:+setupOil.value||5000,createdAt:new Date().toISOString(),memos:[]};vehicles.push(v);activeId=v.id;save(KEY.vehicles,vehicles);localStorage.setItem(KEY.active,activeId);goHome()}
-function goHome(){edit.fuel=edit.maintenance=edit.expense=null;if(!car())return show("setup");show("home");renderHome()}
-function costs(y,m){let same=r=>{let d=(r.date||"").split("-").map(Number);return d[0]===y&&(!m||d[1]===m)},f=fuels().filter(same).reduce((s,r)=>s+(+r.amount||0),0),mt=maints().filter(same).reduce((s,r)=>s+(+r.amount||0),0),e=expenses().filter(same).reduce((s,r)=>s+(+r.amount||0),0);return{fuel:f,maint:mt,other:e,total:f+mt+e}}
-function recomputeFuel(){let rs=fuels().sort((a,b)=>+a.odometer-+b.odometer||stamp(a).localeCompare(stamp(b)));rs.forEach((r,i)=>{let p=rs[i-1];r.distance=p?+r.odometer-+p.odometer:null;r.fuelEconomy=p&&r.fullTank&&p.fullTank&&r.distance>0?r.distance/+r.liters:null;r.pricePerLiter=+r.liters?+r.amount/+r.liters:null});save(KEY.fuel,fuelRecords)}
-async function renderHome(){let c=car(),km=currentKm();c.odometer=km;save(KEY.vehicles,vehicles);homeCarName.textContent=c.name;homeMaker.textContent=c.maker||"";homeCarMeta.textContent=[c.model,c.year,COLOR_LABELS[c.color]||c.color].filter(Boolean).join(" / ");homeKm.textContent=nf(km)+" km";applyHomeHeroScene(c);renderCarThumb(c);
-let d=new Date(),y=d.getFullYear(),m=d.getMonth()+1,mc=costs(y,m);monthFuel.textContent=nf(mc.fuel)+" 円";monthTotal.textContent=nf(mc.total)+" 円";let md=monthDrive(y,m);monthKm.textContent=nf(Math.round(md.distance))+" km";let eco=fuels().filter(r=>+r.fuelEconomy>0).sort((a,b)=>stamp(b).localeCompare(stamp(a)))[0];latestEco.textContent=eco?(+eco.fuelEconomy).toFixed(1)+" km/L":"記録なし";
-let yc=costs(y),elapsed=m;yearTotal.textContent=nf(yc.total)+" 円";yearAvg.textContent=nf(Math.round(yc.total/elapsed))+" 円";let yd=Array.from({length:12},(_,i)=>monthDrive(y,i+1).distance).reduce((a,b)=>a+b,0);yearKm.textContent=nf(Math.round(yd))+" km";perKm.textContent=yd?(yc.total/yd).toFixed(1)+" 円/km":"---";
-if(c.inspectionDate){inspection.textContent=c.inspectionDate.replaceAll("-","/");let days=Math.ceil((new Date(c.inspectionDate+"T00:00:00")-new Date(today()+"T00:00:00"))/86400000);inspectionLeft.textContent=days>=0?"あと "+nf(days)+" 日":"期限切れ"}else{inspection.textContent="未設定";inspectionLeft.textContent=""}
-let oil=maints().filter(r=>["オイル交換","オイル＋フィルター交換"].includes(r.type)).sort((a,b)=>+b.odometer-+a.odometer)[0];if(c.oilInterval){let target=(oil?+oil.odometer:km)+(+c.oilInterval);oilTarget.textContent=nf(target)+" km";let left=target-km;oilLeft.textContent=left>=0?"あと "+nf(left)+" km":nf(Math.abs(left))+" km超過"}else{oilTarget.textContent="未設定";oilLeft.textContent=""}
-let all=allRecords().slice(0,5);recent.innerHTML=all.length?all.map(historyHtml).join(""):'<p class="help">まだ記録がありません。中央の＋から追加できます。</p>';renderHomeMemos(c);renderRecentStable();renderCorrectDashboard(c)}
-async function renderCarThumb(c){if(heroScenePath(c)&&!c.photoId){homeCarThumb.innerHTML="";return}homeCarThumb.innerHTML=vehicleImageMarkup(c.bodyType||"compact-minivan",c.color||"white","home-photo-car");if(c.photoId){let rec=await imageGet(c.photoId);if(rec){let u=URL.createObjectURL(rec.blob);homeCarThumb.innerHTML=`<img src="${u}" onload="URL.revokeObjectURL(this.src)">`}}}
-function allRecords(){let a=[];fuels().forEach(r=>a.push({...r,_kind:"fuel",_title:"給油",_detail:[r.store,r.liters?`${r.liters} L`:""].filter(Boolean).join(" ・ ")}));maints().forEach(r=>a.push({...r,_kind:"maintenance",_title:r.type||"整備・修理",_detail:[r.store,r.memo].filter(Boolean).join(" ・ ")}));expenses().forEach(r=>a.push({...r,_kind:"expense",_title:r.category||"その他支出",_detail:[r.store,r.memo].filter(Boolean).join(" ・ ")}));return a.sort((a,b)=>stamp(b).localeCompare(stamp(a)))}
-function historyHtml(r){return`<div class="recent-row"><div><b>${esc(r._title)}</b><small>${esc(r.date||"")} ${esc(r.time||"")} ${r._detail?"・ "+esc(r._detail):""}</small></div><b>${nf(r.amount)} 円</b></div>`}
-function storeNamesList(){return [...new Set([...fuelRecords,...maintenanceRecords,...expenseRecords].map(r=>(r.store||"").trim()).filter(Boolean))].sort((a,b)=>a.localeCompare(b,"ja"))}
-function refreshStoreNames(){["fuel","maint","expense"].forEach(p=>populateStoreSelect(p))}
-function populateStoreSelect(p,current=""){let el=document.getElementById(p+"StoreSelect");if(!el)return;let names=storeNamesList();el.innerHTML='<option value="">店名を選択</option>'+names.map(n=>`<option value="${esc(n)}">${esc(n)}</option>`).join("")+'<option value="__new__">新しい店名を入力</option>';let inp=document.getElementById(p+"Store");if(current&&names.includes(current)){el.value=current;inp.value=current}else if(current){el.value="__new__";inp.value=current}else{el.value="";inp.value=""}}
-function chooseStore(p){let s=document.getElementById(p+"StoreSelect"),i=document.getElementById(p+"Store");if(s.value==="__new__"){i.value="";i.focus()}else i.value=s.value}
-
-function openFuel(id=null){edit.fuel=id;let r=id?fuelRecords.find(x=>x.id===id):null;fuelTitle.textContent=r?"給油記録を編集":"給油を記録";fuelSave.textContent=r?"変更を保存":"登録";fuelDelete.classList.toggle("hidden",!r);fuelDate.value=r?.date||today();fuelKm.value=r?.odometer??currentKm();fuelLiters.value=r?.liters??"";populateStoreSelect("fuel",r?.store||"");fuelAmount.value=r?.amount??"";fuelFull.checked=r?.fullTank??true;show("fuel");showSameDay("fuel")}
-function saveFuel(){let r={date:fuelDate.value,odometer:+fuelKm.value,liters:+fuelLiters.value,store:fuelStore.value.trim(),amount:+fuelAmount.value,fullTank:fuelFull.checked};if(!r.date||r.odometer<0||r.liters<=0||r.amount<=0)return alert("入力内容を確認してください。");if(edit.fuel){let i=fuelRecords.findIndex(x=>x.id===edit.fuel);fuelRecords[i]={...fuelRecords[i],...r}}else fuelRecords.push({id:uid("fuel"),vehicleId:activeId,...r,createdAt:new Date().toISOString()});persistRecords();recomputeFuel();refreshStoreNames();goHome()}
-function openMaintenance(id=null){edit.maintenance=id;let r=id?maintenanceRecords.find(x=>x.id===id):null;maintTitle.textContent=r?"整備・修理を編集":"整備・修理を記録";maintSave.textContent=r?"変更を保存":"登録";maintDelete.classList.toggle("hidden",!r);maintDate.value=r?.date||today();maintType.value=r?.type||"オイル交換";maintKm.value=r?.odometer??"";maintAmount.value=r?.amount??"";populateStoreSelect("maint",r?.store||"");maintMemo.value=r?.memo||"";show("maintenance");showSameDay("maintenance")}
-function saveMaintenance(){let km=maintKm.value===""?null:+maintKm.value;let r={date:maintDate.value,type:maintType.value,odometer:km,amount:+maintAmount.value||0,store:maintStore.value.trim(),memo:maintMemo.value.trim()};if(!r.date||(km!==null&&km<0)||r.amount<0)return alert("入力内容を確認してください。");if(edit.maintenance){let i=maintenanceRecords.findIndex(x=>x.id===edit.maintenance);maintenanceRecords[i]={...maintenanceRecords[i],...r}}else maintenanceRecords.push({id:uid("maintenance"),vehicleId:activeId,...r,createdAt:new Date().toISOString()});persistRecords();refreshStoreNames();goHome()}
-function openExpense(id=null){edit.expense=id;let r=id?expenseRecords.find(x=>x.id===id):null;expenseTitle.textContent=r?"その他支出を編集":"その他支出を記録";expenseSave.textContent=r?"変更を保存":"登録";expenseDelete.classList.toggle("hidden",!r);expenseDate.value=r?.date||today();expenseCategory.value=r?.category||"自動車税";expenseAmount.value=r?.amount??"";populateStoreSelect("expense",r?.store||"");expenseMemo.value=r?.memo||"";show("expense");showSameDay("expense")}
-function saveExpense(){let r={date:expenseDate.value,category:expenseCategory.value,amount:+expenseAmount.value,store:expenseStore.value.trim(),memo:expenseMemo.value.trim()};if(!r.date||r.amount<=0)return alert("日付と金額を入力してください。");if(edit.expense){let i=expenseRecords.findIndex(x=>x.id===edit.expense);expenseRecords[i]={...expenseRecords[i],...r}}else expenseRecords.push({id:uid("expense"),vehicleId:activeId,...r,createdAt:new Date().toISOString()});persistRecords();refreshStoreNames();goHome()}
-function deleteCurrent(kind){let id=edit[kind];if(!id||!confirm("この記録を削除しますか？"))return;if(kind==="fuel")fuelRecords=fuelRecords.filter(x=>x.id!==id);if(kind==="maintenance")maintenanceRecords=maintenanceRecords.filter(x=>x.id!==id);if(kind==="expense")expenseRecords=expenseRecords.filter(x=>x.id!==id);persistRecords();if(kind==="fuel")recomputeFuel();refreshStoreNames();goHome()}
-function showSameDay(kind){let date=kind==="fuel"?fuelDate.value:kind==="maintenance"?maintDate.value:expenseDate.value,box=kind==="fuel"?fuelSameDay:kind==="maintenance"?maintSameDay:expenseSameDay,arr=kind==="fuel"?fuels():kind==="maintenance"?maints():expenses(),rs=arr.filter(r=>r.date===date).sort((a,b)=>stamp(a).localeCompare(stamp(b)));if(!rs.length){box.innerHTML="";return}box.innerHTML=`<div class="samebox"><small>この日の登録済み記録 ${rs.length}件</small>${rs.map(r=>`<div class="same-item"><div><b>${kind==="fuel"?esc((r.liters||0)+" L / "+nf(r.amount)+"円"):kind==="maintenance"?esc(r.type+" / "+nf(r.amount)+"円"):esc(r.category+" / "+nf(r.amount)+"円")}</b></div><button type="button" onclick="${kind==="fuel"?"openFuel":kind==="maintenance"?"openMaintenance":"openExpense"}('${r.id}')">編集</button></div>`).join("")}</div>`}
-
-function openHistory(){show("history");renderHistory("all")}function renderHistory(filter){let rs=allRecords().filter(r=>filter==="all"||r._kind===filter);historyList.innerHTML=rs.length?rs.map(r=>`<button class="card history-entry" onclick="${r._kind==="fuel"?"openFuel":r._kind==="maintenance"?"openMaintenance":"openExpense"}('${r.id}')"><div class="history-main"><b class="history-title">${esc(r._title)}</b><div class="history-detail"><span>${esc(r.date)}</span><span>${nf(r.amount)}円</span>${r.store?`<span>${esc(r.store)}</span>`:""}${r._detail?`<span>${esc(r._detail)}</span>`:""}</div></div><span class="history-edit">編集 ›</span></button>`).join(""):'<div class="card">記録はありません。</div>'}
-
-function openCosts(mode){if(mode)costChartMode=mode;show("costs");renderCosts()}function changeYear(n){costYear+=n;renderCosts()}function setCostChart(m){costChartMode=m;renderCostChart()}
-function renderCosts(){costYearEl=document.getElementById("costYear");costYearEl.textContent=costYear+"年";let c=costs(costYear),months=costYear===new Date().getFullYear()?new Date().getMonth()+1:12;costTotal.textContent=nf(c.total)+" 円";costFuel.textContent=nf(c.fuel)+" 円";costMaint.textContent=nf(c.maint)+" 円";costOther.textContent=nf(c.other)+" 円";costAvg.textContent=nf(Math.round(c.total/months))+" 円";renderCostChart()}
-function renderCostChart(){let labels={total:"年間合計",fuel:"ガソリン",maint:"整備・維持",other:"その他",avg:"月平均"};["total","fuel","maint","other","avg"].forEach(k=>document.getElementById("costCard"+({total:"Total",fuel:"Fuel",maint:"Maint",other:"Other",avg:"Avg"}[k])).classList.toggle("active",costChartMode===k));monthChartTitle.textContent=costChartMode==="avg"?"月ごとの累計平均":"月別 "+labels[costChartMode];let vals;if(costChartMode==="avg"){let now=new Date(),currentYear=now.getFullYear(),lastMonth=costYear<currentYear?12:costYear===currentYear?now.getMonth()+1:0,run=0;vals=Array.from({length:12},(_,i)=>{let month=i+1;if(month>lastMonth)return null;run+=costs(costYear,month).total;return run/month})}else vals=Array.from({length:12},(_,i)=>costs(costYear,i+1)[costChartMode]);renderBars(monthBars,vals,"円")}
-
-function monthDrive(y,m){let key=`${y}-${String(m).padStart(2,"0")}`,rs=fuels().filter(r=>r.date?.startsWith(key)).sort((a,b)=>stamp(a).localeCompare(stamp(b))),liters=rs.reduce((s,r)=>s+(+r.liters||0),0),amount=rs.reduce((s,r)=>s+(+r.amount||0),0),distance=rs.reduce((s,r)=>s+(+r.distance>0?+r.distance:0),0),ecos=rs.filter(r=>+r.fuelEconomy>0).map(r=>+r.fuelEconomy);return{distance,liters,count:rs.length,economy:ecos.length?ecos.reduce((a,b)=>a+b,0)/ecos.length:0,price:liters?amount/liters:0,fuelkm:distance?amount/distance:0}}
-function openDriving(mode){if(mode)driveMode=mode;show("driving");renderDriving()}function setDriveChart(m){driveMode=m;renderDriving()}
-function renderDriving(){let y=new Date().getFullYear(),vals=Array.from({length:12},(_,i)=>monthDrive(y,i+1)),sum=k=>vals.reduce((s,x)=>s+x[k],0),lit=sum("liters"),dist=sum("distance"),amount=costs(y).fuel,eco=vals.filter(x=>x.economy).map(x=>x.economy);driveDistance.textContent=nf(Math.round(dist))+" km";driveLiters.textContent=lit.toFixed(1)+" L";driveCount.textContent=nf(sum("count"))+" 回";driveEconomy.textContent=eco.length?(eco.reduce((a,b)=>a+b,0)/eco.length).toFixed(1)+" km/L":"---";drivePrice.textContent=lit?(amount/lit).toFixed(1)+" 円/L":"---";driveFuelKm.textContent=dist?(amount/dist).toFixed(1)+" 円/km":"---";let map={distance:["Distance","走行距離","km"],liters:["Liters","給油量","L"],count:["Count","給油回数","回"],economy:["Economy","平均燃費","km/L"],price:["Price","平均単価","円/L"],fuelkm:["FuelKm","1km燃料代","円/km"]};Object.keys(map).forEach(k=>document.getElementById("driveCard"+map[k][0]).classList.toggle("active",driveMode===k));driveChartTitle.textContent="月別 "+map[driveMode][1];renderBars(driveBars,vals.map(x=>x[driveMode]),map[driveMode][2])}
-function renderBars(el,vals,unit){let numeric=vals.filter(v=>v!==null&&Number.isFinite(+v)),max=Math.max(1,...numeric);el.innerHTML=vals.map((v,i)=>v===null?`<div class="barcol future"><div class="bar-empty"></div><small></small>${i+1}</div>`:`<div class="barcol"><div class="bar" style="height:${Math.max(2,(+v)/max*145)}px" title="${(+v).toFixed((+v)%1?1:0)} ${unit}"></div><small>${v?(+v).toFixed((+v)>=100?0:1):""}</small>${i+1}</div>`).join("")}
-
-function openVehicleManager(){show("vehicles");renderVehicles()}function renderVehicles(){vehicleList.innerHTML=vehicles.map(v=>`<div class="card vehicle-row"><button class="vehicle-select" onclick="selectVehicle('${v.id}')"><div><b>${esc(v.name)} ${v.id===activeId?"✓":""}</b><small>${esc([v.maker,v.model,v.color].filter(Boolean).join(" / "))} ・ ${nf(v.odometer)} km</small></div><span>切替</span></button><button class="vehicle-edit-btn" onclick="openVehicleEdit('${v.id}')">編集</button></div>`).join("")}function selectVehicle(id){activeId=id;localStorage.setItem(KEY.active,id);goHome()}
-async function openVehicleEdit(id=null){edit.vehicle=id;let v=id?vehicles.find(x=>x.id===id):null;vehicleEditTitle.textContent=v?"車両を編集":"車両を追加";vehicleDelete.classList.toggle("hidden",!v);editCarName.value=v?.name||"";editCarMaker.value=v?.maker||"";editCarModel.value=v?.model||"";editCarYear.value=v?.year||"";let vc=v?.color||"";if(vc&&!COLOR_LABELS[vc]){let x=vc.toLowerCase();vc=x.includes("白")||x.includes("white")?"white":x.includes("黒")||x.includes("black")?"black":x.includes("銀")||x.includes("silver")?"silver":x.includes("灰")||x.includes("gray")?"gray":x.includes("赤")||x.includes("red")?"red":x.includes("青")||x.includes("blue")?"blue":x.includes("緑")||x.includes("green")?"green":x.includes("黄")||x.includes("yellow")?"yellow":"other"}editCarColor.value=vc;editCarBodyType.value=v?.bodyType||"compact-minivan";renderBodyTypeChoices();editCarPurchase.value=v?.purchaseDate||"";editCarPlate.value=v?.plate||"";editCarKm.value=v?.odometer??"";editCarInspection.value=v?.inspectionDate||"";editCarOil.value=v?.oilInterval||5000;pendingVehiclePhoto=v?.photoId||null;memoDraft=JSON.parse(JSON.stringify(v?.memos||[]));show("vehicleEdit");await renderVehiclePhoto();renderMemoEditor()}
-async function saveVehicleEdit(){syncMemoText();let n=editCarName.value.trim(),km=+editCarKm.value;if(!n||km<0)return alert("車両名と走行距離を入力してください。");let data={name:n,maker:editCarMaker.value.trim(),model:editCarModel.value.trim(),year:editCarYear.value.trim(),color:editCarColor.value.trim(),bodyType:editCarBodyType.value||"compact-minivan",purchaseDate:editCarPurchase.value,plate:editCarPlate.value.trim(),odometer:km,inspectionDate:editCarInspection.value,oilInterval:+editCarOil.value||5000,photoId:pendingVehiclePhoto,memos:memoDraft};if(edit.vehicle){let i=vehicles.findIndex(x=>x.id===edit.vehicle);vehicles[i]={...vehicles[i],...data}}else{let v={id:uid("vehicle"),...data,createdAt:new Date().toISOString()};vehicles.push(v);activeId=v.id;localStorage.setItem(KEY.active,activeId)}save(KEY.vehicles,vehicles);goHome()}
-async function deleteVehicle(){let id=edit.vehicle;if(!id||!confirm("この車両と関連するすべての記録・写真を削除しますか？"))return;let v=vehicles.find(x=>x.id===id);if(v){let ids=[v.photoId,...(v.memos||[]).flatMap(m=>m.photos||[])].filter(Boolean);for(let x of ids)await imageDelete(x)}vehicles=vehicles.filter(v=>v.id!==id);fuelRecords=fuelRecords.filter(r=>r.vehicleId!==id);maintenanceRecords=maintenanceRecords.filter(r=>r.vehicleId!==id);expenseRecords=expenseRecords.filter(r=>r.vehicleId!==id);activeId=vehicles[0]?.id||"";save(KEY.vehicles,vehicles);localStorage.setItem(KEY.active,activeId);persistRecords();activeId?goHome():show("setup")}
-
-function addMemo(){syncMemoText();memoDraft.push({id:uid("memo"),title:"",content:"",photos:[]});renderMemoEditor()}
-function syncMemoText(){document.querySelectorAll("[data-memo]").forEach(el=>{let m=memoDraft.find(x=>x.id===el.dataset.memo);if(m)m[el.dataset.field]=el.value})}
-function renderMemoEditor(){memoEditor.innerHTML=memoDraft.length?memoDraft.map((m,i)=>`<div class="memo-edit"><div class="memo-number">メモ ${i+1}</div><label>題名<textarea rows="3" data-memo="${m.id}" data-field="title"></textarea></label><label>内容<textarea rows="7" data-memo="${m.id}" data-field="content"></textarea></label><div id="photos_${m.id}" class="photo-grid"></div><div class="photo-actions"><select id="quality_${m.id}"><option value="standard">標準</option><option value="high">高画質</option><option value="original">原画</option></select><label class="file-btn">写真から選択<input type="file" accept="image/*" multiple onchange="addMemoPhotos('${m.id}',event)"></label><label class="file-btn">撮影する<input type="file" accept="image/*" capture="environment" onchange="addMemoPhotos('${m.id}',event)"></label><button type="button" class="danger-mini" onclick="removeMemo('${m.id}')">メモを削除</button></div></div>`).join(""):'<div class="empty-memo">「＋ メモを追加」で新しいメモを作成します。</div>';memoDraft.forEach(m=>{document.querySelector(`[data-memo="${m.id}"][data-field="title"]`).value=m.title||"";document.querySelector(`[data-memo="${m.id}"][data-field="content"]`).value=m.content||"";renderMemoPhotos(m)})}
-function removeMemo(id){if(!confirm("このメモと添付写真を削除しますか？"))return;let m=memoDraft.find(x=>x.id===id);Promise.all((m?.photos||[]).map(imageDelete)).then(()=>{memoDraft=memoDraft.filter(x=>x.id!==id);renderMemoEditor()})}
-async function addMemoPhotos(id,e){syncMemoText();let m=memoDraft.find(x=>x.id===id),q=document.getElementById("quality_"+id).value;for(let f of [...e.target.files]){let blob=await processImage(f,q),pid=uid("img");await imagePut(pid,blob,{quality:q,name:f.name});m.photos.push(pid)}e.target.value="";renderMemoEditor();updateStorage()}
-async function renderMemoPhotos(m){let el=document.getElementById("photos_"+m.id);if(!el)return;el.innerHTML="";for(let pid of m.photos||[]){let rec=await imageGet(pid);if(!rec)continue;let u=URL.createObjectURL(rec.blob),d=document.createElement("div");d.className="photo-tile";d.innerHTML=`<img src="${u}"><button type="button" onclick="removeMemoPhoto('${m.id}','${pid}')">×</button>`;d.querySelector("img").onclick=()=>openImage(u);el.appendChild(d)}}
-async function removeMemoPhoto(mid,pid){if(!confirm("この写真をCarLogから削除しますか？"))return;await imageDelete(pid);let m=memoDraft.find(x=>x.id===mid);m.photos=(m.photos||[]).filter(x=>x!==pid);renderMemoPhotos(m);updateStorage()}
-async function selectVehiclePhoto(e){let f=e.target.files?.[0];if(!f)return;if(pendingVehiclePhoto)await imageDelete(pendingVehiclePhoto);let blob=await processImage(f,"high"),id=uid("img");await imagePut(id,blob,{quality:"high",name:f.name});pendingVehiclePhoto=id;e.target.value="";renderVehiclePhoto();updateStorage()}
-async function removeVehiclePhoto(){if(!pendingVehiclePhoto)return;if(!confirm("車両写真をCarLogから削除しますか？"))return;await imageDelete(pendingVehiclePhoto);pendingVehiclePhoto=null;renderVehiclePhoto();updateStorage()}
-function renderVehicleColorPreview(){renderBodyTypeChoices()}
-async function renderVehiclePhoto(){
- let empty=`<div class="vehicle-photo-empty"><span>＋</span><strong>画像を追加</strong></div>`;
- vehiclePhotoPreview.innerHTML=empty;
- if(pendingVehiclePhoto){
-  let r=await imageGet(pendingVehiclePhoto);
-  if(r){let u=URL.createObjectURL(r.blob);vehiclePhotoPreview.innerHTML=`<img src="${u}" onclick="openImage('${u}')">`}
- }
-}
-function openImage(url){let w=window.open();if(w)w.document.write(`<meta name="viewport" content="width=device-width"><body style="margin:0;background:#111;display:grid;place-items:center;min-height:100vh"><img src="${url}" style="max-width:100%;max-height:100vh"></body>`)}
-
-function renderHomeMemos(c){let ms=(c.memos||[]).slice(0,3);homeMemos.innerHTML=ms.length?ms.map(m=>`<button class="memo-home-row" onclick="openVehicleNotes()"><b>${esc(m.title||"無題")}</b><span>${esc((m.content||"").slice(0,70))}</span></button>`).join(""):'<p class="help">車両メモはまだありません。</p>'}
-async function openVehicleNotes(){show("vehicleNotes");let c=car(),ms=c?.memos||[];vehicleNotesList.innerHTML=ms.length?ms.map(m=>`<div class="card note-view"><h3>${esc(m.title||"無題")}</h3><div class="note-content">${esc(m.content||"").replace(/\n/g,"<br>")}</div><div id="viewphotos_${m.id}" class="photo-grid"></div></div>`).join(""):'<div class="card">車両メモはありません。</div>';for(let m of ms){let el=document.getElementById("viewphotos_"+m.id);for(let pid of m.photos||[]){let rec=await imageGet(pid);if(!rec)continue;let u=URL.createObjectURL(rec.blob),img=document.createElement("img");img.src=u;img.className="note-photo";img.onclick=()=>openImage(u);el.appendChild(img)}}}
-function openSettings(){show("settings")}function openHelp(){show("help")}
-function openQuick(){quickBackdrop.classList.remove("hidden")}function closeQuick(e){if(e&&e.target!==quickBackdrop)return;quickBackdrop.classList.add("hidden")}
-
-function idb(){return new Promise((res,rej)=>{let q=indexedDB.open("CarLogDB",1);q.onupgradeneeded=()=>{if(!q.result.objectStoreNames.contains("images"))q.result.createObjectStore("images",{keyPath:"id"})};q.onsuccess=()=>res(q.result);q.onerror=()=>rej(q.error)})}
-async function imagePut(id,blob,meta={}){let db=await idb();return new Promise((res,rej)=>{let tx=db.transaction("images","readwrite");tx.objectStore("images").put({id,blob,...meta,createdAt:new Date().toISOString()});tx.oncomplete=()=>res();tx.onerror=()=>rej(tx.error)})}
-async function imageGet(id){if(!id)return null;let db=await idb();return new Promise((res,rej)=>{let q=db.transaction("images").objectStore("images").get(id);q.onsuccess=()=>res(q.result||null);q.onerror=()=>rej(q.error)})}
-async function imageDelete(id){if(!id)return;let db=await idb();return new Promise((res,rej)=>{let tx=db.transaction("images","readwrite");tx.objectStore("images").delete(id);tx.oncomplete=()=>res();tx.onerror=()=>rej(tx.error)})}
-async function allImages(){let db=await idb();return new Promise((res,rej)=>{let q=db.transaction("images").objectStore("images").getAll();q.onsuccess=()=>res(q.result||[]);q.onerror=()=>rej(q.error)})}
-async function processImage(file,q){if(q==="original")return file;let max=q==="high"?2400:1600,quality=q==="high"?.92:.82,bmp=await createImageBitmap(file),scale=Math.min(1,max/Math.max(bmp.width,bmp.height)),c=document.createElement("canvas");c.width=Math.round(bmp.width*scale);c.height=Math.round(bmp.height*scale);c.getContext("2d").drawImage(bmp,0,0,c.width,c.height);return new Promise(r=>c.toBlob(r,"image/jpeg",quality))}
-function bytes(n){if(n<1024)return n+" B";if(n<1048576)return(n/1024).toFixed(1)+" KB";if(n<1073741824)return(n/1048576).toFixed(1)+" MB";return(n/1073741824).toFixed(2)+" GB"}
-async function updateStorage(){return}
-
-function blobToDataURL(b){return new Promise(r=>{let fr=new FileReader();fr.onload=()=>r(fr.result);fr.readAsDataURL(b)})}async function dataURLBlob(s){return(await fetch(s)).blob()}
-async function exportBackup(withPhotos=false){let data={version:"0.33",exportedAt:new Date().toISOString(),vehicles,activeId,fuelRecords,maintenanceRecords,expenseRecords};if(withPhotos){let imgs=await allImages();data.images=[];for(let x of imgs)data.images.push({id:x.id,quality:x.quality,name:x.name,createdAt:x.createdAt,data:await blobToDataURL(x.blob)})}download(JSON.stringify(data),"CarLog_"+(withPhotos?"Full":"Data")+"_Backup_"+today()+".json","application/json")}
-function importBackup(e){let f=e.target.files?.[0];if(!f)return;let rd=new FileReader();rd.onload=async()=>{try{let d=JSON.parse(rd.result);if(!confirm("現在のCarLogデータをバックアップ内容に置き換えますか？"))return;vehicles=d.vehicles||(d.vehicle?[d.vehicle]:[]);activeId=d.activeId||vehicles[0]?.id||"";fuelRecords=d.fuelRecords||[];maintenanceRecords=d.maintenanceRecords||[];expenseRecords=d.expenseRecords||[];save(KEY.vehicles,vehicles);localStorage.setItem(KEY.active,activeId);persistRecords();if(d.images){for(let x of d.images)await imagePut(x.id,await dataURLBlob(x.data),x)}refreshStoreNames();goHome()}catch(err){console.error(err);alert("バックアップファイルを読み込めませんでした。")}};rd.readAsText(f);e.target.value=""}
-function csv(v){return'"'+String(v??"").replaceAll('"','""')+'"'}function exportCSV(){let rows=[["車両","種別","日付","走行距離","内容","店名","金額","燃費","メモ"]];vehicles.forEach(v=>{fuelRecords.filter(r=>r.vehicleId===v.id).forEach(r=>rows.push([v.name,"給油",r.date,r.odometer,r.liters+" L",r.store||"",r.amount,r.fuelEconomy||"",r.fullTank?"満タン":""]));maintenanceRecords.filter(r=>r.vehicleId===v.id).forEach(r=>rows.push([v.name,"整備・修理",r.date,r.odometer??"",r.type,r.store||"",r.amount,"",r.memo||""]));expenseRecords.filter(r=>r.vehicleId===v.id).forEach(r=>rows.push([v.name,"その他支出",r.date,"",r.category,r.store||"",r.amount,"",r.memo||""]))});download("\uFEFF"+rows.map(r=>r.map(csv).join(",")).join("\r\n"),"CarLog_"+today()+".csv","text/csv;charset=utf-8")}
-function download(data,name,type){let a=document.createElement("a"),u=URL.createObjectURL(new Blob([data],{type}));a.href=u;a.download=name;document.body.appendChild(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(u),1000)}
-
-
-function renderReferenceDashboard(){
- try{
-  const c=car(), km=currentKm();
-  const totalKm=document.getElementById("refTotalKm"); if(totalKm) totalKm.textContent=nf(km)+" km";
-  const d=new Date(), y=d.getFullYear(), m=d.getMonth()+1, mc=costs(y,m);
-  const set=(id,val)=>{const el=document.getElementById(id);if(el)el.textContent=val};
-  set("refDonutTotal",nf(mc.total)+"円"); set("refFuelCost",nf(mc.fuel)+"円"); set("refMaintCost",nf(mc.maint)+"円"); set("refOtherCost",nf(mc.other)+"円");
-  const total=Math.max(1,mc.total), pf=mc.fuel/total*100, pm=mc.maint/total*100;
-  const donut=document.getElementById("refDonut"); if(donut) donut.style.background=`conic-gradient(#ff5962 0 ${pf}%,#20b58b ${pf}% ${pf+pm}%,#8061dc ${pf+pm}% 100%)`;
-  const fs=fuels().filter(r=>+r.fuelEconomy>0).sort((a,b)=>stamp(a).localeCompare(stamp(b))).slice(-7);
-  const chart=document.getElementById("refEcoChart");
-  if(chart){
-   if(!fs.length) chart.innerHTML='<p class="help">燃費記録がありません</p>';
-   else{
-    const vals=fs.map(x=>+x.fuelEconomy), min=Math.min(...vals)-1,max=Math.max(...vals)+1, span=Math.max(1,max-min);
-    const pts=vals.map((v,i)=>`${i*(100/(Math.max(1,vals.length-1)))},${82-(v-min)/span*58}`).join(" ");
-    chart.innerHTML=`<svg viewBox="0 0 100 90" preserveAspectRatio="none"><defs><linearGradient id="ecoFill" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#1683f3" stop-opacity=".25"/><stop offset="1" stop-color="#1683f3" stop-opacity="0"/></linearGradient></defs><polyline points="0,84 ${pts} 100,84" fill="url(#ecoFill)" stroke="none"/><polyline points="${pts}" fill="none" stroke="#1683f3" stroke-width="2"/><g>${vals.map((v,i)=>`<circle cx="${i*(100/(Math.max(1,vals.length-1)))}" cy="${82-(v-min)/span*58}" r="2.2" fill="#fff" stroke="#1683f3" stroke-width="1.4"/>`).join("")}</g></svg><div class="chart-months">${fs.map(x=>`<span>${+x.date.slice(5,7)}月</span>`).join("")}</div>`;
-   }
-  }
-  const bars=document.getElementById("refYearBars");
-  if(bars){
-   let monthly=Array.from({length:12},(_,i)=>costs(y,i+1));
-   let maxv=Math.max(1,...monthly.map(x=>x.total));
-   bars.innerHTML=monthly.map((x,i)=>{let f=x.fuel/maxv*100,ma=x.maint/maxv*100,o=x.other/maxv*100;return `<div class="yb"><div class="yb-stack"><i class="o" style="height:${o}%"></i><i class="m" style="height:${ma}%"></i><i class="f" style="height:${f}%"></i></div><small>${i+1}月</small></div>`}).join("");
-  }
- }catch(e){console.warn("reference dashboard",e)}
-}
-
-
-
-const BODY_TYPES=[
- ["kei","軽自動車"],["kei-tall","軽ハイト"],["compact","コンパクト"],["sedan","セダン"],["wagon","ワゴン"],
- ["compact-minivan","コンパクトミニバン"],["minivan","ミニバン"],["suv","SUV"],["coupe","スポーツ"],["van","商用バン"]
-];
-function renderBodyTypeChoices(){
- const el=document.getElementById("bodyTypeChoices"); if(!el)return;
- const cur=document.getElementById("editCarBodyType")?.value||"compact-minivan";
- el.innerHTML=BODY_TYPES.map(([v,n])=>`<button type="button" class="body-choice ${cur===v?"selected":""}" onclick="selectBodyType('${v}')"><span>${vehicleImageMarkup(v,editCarColor?.value||"white","selector-car")}</span><b>${n}</b></button>`).join("");
-}
-function selectBodyType(v){editCarBodyType.value=v;renderBodyTypeChoices();renderVehicleColorPreview()}
-
-
-function decorateRecentRecords(){
- const root=document.getElementById("recent"); if(!root)return;
- const rows=[...root.children];
- rows.forEach(row=>{
-  if(row.classList.contains("recent-fixed"))return;
-  const raw=(row.textContent||"").trim();
-  let kind="other",ico="¥";
-  if(raw.includes("給油")){kind="fuel";ico="⛽"}
-  else if(raw.includes("オイル")||raw.includes("整備")){kind="maint";ico="🔧"}
-  else if(raw.includes("洗車")){kind="wash";ico="🚙"}
-  else if(raw.includes("タイヤ")){kind="tire";ico="◉"}
-  row.classList.add("recent-fixed");
-  const icon=document.createElement("span");icon.className=`record-icon ${kind}`;icon.textContent=ico;
-  row.prepend(icon);
-  if(!row.querySelector(".record-chevron")){const ch=document.createElement("span");ch.className="record-chevron";ch.textContent="›";row.append(ch)}
- });
-}
-
-
-function renderRecentStable(){
- const root=document.getElementById("recent"); if(!root)return;
- const vid=car()?.id;
- const all=[];
- fuels().filter(x=>!vid||x.vehicleId===vid).forEach(x=>all.push({...x,_kind:"fuel",_title:"給油",_amount:Number(x.amount||0),_place:x.store||"",_detail:(x.liters?`${x.liters} L`:"")}));
- maints().filter(x=>!vid||x.vehicleId===vid).forEach(x=>all.push({...x,_kind:"maint",_title:x.type||"整備",_amount:Number(x.amount||0),_place:x.store||"",_detail:x.memo||""}));
- expenses().filter(x=>!vid||x.vehicleId===vid).forEach(x=>all.push({...x,_kind:"other",_title:x.category||"その他",_amount:Number(x.amount||0),_place:x.store||"",_detail:x.memo||""}));
- all.sort((a,b)=>(b.date||"").localeCompare(a.date||"")||Number(b.count||0)-Number(a.count||0)||Number(b.createdAt||0)-Number(a.createdAt||0));
- root.innerHTML=all.slice(0,5).map(r=>{
-   let kind=r._kind,ico=kind==="fuel"?"⛽":"¥";
-   const txt=(r._title+" "+r._detail).toLowerCase();
-   if(kind==="maint"){ico="🔧"; if(txt.includes("洗車")){kind="wash";ico="🚙"} else if(txt.includes("タイヤ")){kind="tire";ico="◉"}}
-   else if(txt.includes("洗車")){kind="wash";ico="🚙"}
-   else if(txt.includes("タイヤ")){kind="tire";ico="◉"}
-   const nth="";
-   const line2=[r._place,r._detail].filter(Boolean).join("　");
-   return `<button class="recent-item" type="button">
-    <span class="record-icon ${kind}">${ico}</span>
-    <span class="recent-copy"><b>${escapeHtml(r._title)}<small>${escapeHtml(r.date||"")}${nth}</small></b><span>${escapeHtml(line2)}</span></span>
-    <strong class="recent-price">${nf(r._amount)} 円</strong><span class="record-chevron">›</span>
-   </button>`;
- }).join("")||'<div class="empty">まだ記録がありません</div>';
-}
-
-function escapeHtml(s){return String(s??"").replace(/[&<>"\']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;","\'":"&#39;"}[c]))}
-
-
-const PHOTO_VEHICLE_ASSETS={
- "kei|white":"assets/vehicles/kei_white.webp",
- "kei|black":"assets/vehicles/kei_black.webp",
- "kei|silver":"assets/vehicles/kei_silver.webp",
- "kei|gray":"assets/vehicles/kei_gray.webp",
- "kei|red":"assets/vehicles/kei_red.webp",
- "kei|blue":"assets/vehicles/kei_blue.webp",
- "kei|brown":"assets/vehicles/kei_brown.webp",
- "kei|beige":"assets/vehicles/kei_beige.webp",
- "kei-tall|white":"assets/vehicles/kei-tall_white.webp",
- "kei-tall|black":"assets/vehicles/kei-tall_black.webp",
- "kei-tall|silver":"assets/vehicles/kei-tall_silver.webp",
- "kei-tall|gray":"assets/vehicles/kei-tall_gray.webp",
- "kei-tall|red":"assets/vehicles/kei-tall_red.webp",
- "kei-tall|blue":"assets/vehicles/kei-tall_blue.webp",
- "kei-tall|brown":"assets/vehicles/kei-tall_brown.webp",
- "kei-tall|beige":"assets/vehicles/kei-tall_beige.webp",
- "compact|white":"assets/vehicles/compact_white.webp",
- "compact|black":"assets/vehicles/compact_black.webp",
- "compact|silver":"assets/vehicles/compact_silver.webp",
- "compact|gray":"assets/vehicles/compact_gray.webp",
- "compact|red":"assets/vehicles/compact_red.webp",
- "compact|blue":"assets/vehicles/compact_blue.webp",
- "compact|brown":"assets/vehicles/compact_brown.webp",
- "compact|beige":"assets/vehicles/compact_beige.webp",
- "sedan|white":"assets/vehicles/sedan_white.webp",
- "sedan|black":"assets/vehicles/sedan_black.webp",
- "sedan|silver":"assets/vehicles/sedan_silver.webp",
- "sedan|gray":"assets/vehicles/sedan_gray.webp",
- "sedan|red":"assets/vehicles/sedan_red.webp",
- "sedan|blue":"assets/vehicles/sedan_blue.webp",
- "sedan|brown":"assets/vehicles/sedan_brown.webp",
- "sedan|beige":"assets/vehicles/sedan_beige.webp",
- "wagon|white":"assets/vehicles/wagon_white.webp",
- "wagon|black":"assets/vehicles/wagon_black.webp",
- "wagon|silver":"assets/vehicles/wagon_silver.webp",
- "wagon|gray":"assets/vehicles/wagon_gray.webp",
- "wagon|red":"assets/vehicles/wagon_red.webp",
- "wagon|blue":"assets/vehicles/wagon_blue.webp",
- "wagon|brown":"assets/vehicles/wagon_brown.webp",
- "wagon|beige":"assets/vehicles/wagon_beige.webp",
- "compact-minivan|white":"assets/heroes/compact-minivan_white.webp",
- "compact-minivan|black":"assets/vehicles/compact-minivan_black.webp",
- "compact-minivan|silver":"assets/vehicles/compact-minivan_silver.webp",
- "compact-minivan|gray":"assets/vehicles/compact-minivan_gray.webp",
- "compact-minivan|red":"assets/vehicles/compact-minivan_red.webp",
- "compact-minivan|blue":"assets/vehicles/compact-minivan_blue.webp",
- "compact-minivan|brown":"assets/vehicles/compact-minivan_brown.webp",
- "compact-minivan|beige":"assets/vehicles/compact-minivan_beige.webp",
- "minivan|white":"assets/vehicles/minivan_white.webp",
- "minivan|black":"assets/vehicles/minivan_black.webp",
- "minivan|silver":"assets/vehicles/minivan_silver.webp",
- "minivan|gray":"assets/vehicles/minivan_gray.webp",
- "minivan|red":"assets/vehicles/minivan_red.webp",
- "minivan|blue":"assets/vehicles/minivan_blue.webp",
- "minivan|brown":"assets/vehicles/minivan_brown.webp",
- "minivan|beige":"assets/vehicles/minivan_beige.webp",
- "suv|white":"assets/vehicles/suv_white.webp",
- "suv|black":"assets/vehicles/suv_black.webp",
- "suv|silver":"assets/vehicles/suv_silver.webp",
- "suv|gray":"assets/vehicles/suv_gray.webp",
- "suv|red":"assets/vehicles/suv_red.webp",
- "suv|blue":"assets/vehicles/suv_blue.webp",
- "suv|brown":"assets/vehicles/suv_brown.webp",
- "suv|beige":"assets/vehicles/suv_beige.webp",
- "coupe|white":"assets/vehicles/coupe_white.webp",
- "coupe|black":"assets/vehicles/coupe_black.webp",
- "coupe|silver":"assets/vehicles/coupe_silver.webp",
- "coupe|gray":"assets/vehicles/coupe_gray.webp",
- "coupe|red":"assets/vehicles/coupe_red.webp",
- "coupe|blue":"assets/vehicles/coupe_blue.webp",
- "coupe|brown":"assets/vehicles/coupe_brown.webp",
- "coupe|beige":"assets/vehicles/coupe_beige.webp",
- "van|white":"assets/vehicles/van_white.webp",
- "van|black":"assets/vehicles/van_black.webp",
- "van|silver":"assets/vehicles/van_silver.webp",
- "van|gray":"assets/vehicles/van_gray.webp",
- "van|red":"assets/vehicles/van_red.webp",
- "van|blue":"assets/vehicles/van_blue.webp",
- "van|brown":"assets/vehicles/van_brown.webp",
- "van|beige":"assets/vehicles/van_beige.webp"
-};
-function vehicleAssetPath(bodyType,color){
- return PHOTO_VEHICLE_ASSETS[`${bodyType||"compact-minivan"}|${color||"white"}`]||"";
-}
-function vehicleImageMarkup(bodyType,color,cls=""){
- const p=vehicleAssetPath(bodyType,color);
- return p?`<img class="photo-car ${cls}" src="${p}" alt="">`:carSvg(color,bodyType);
-}
-
-
-function syncHeroMileage(){
- const el=document.getElementById("heroMileageInline");
- if(el) el.textContent=nf(currentKm())+" km";
-}
-
-function syncApprovedHero(){
- const km=nf(currentKm())+" km";
- const a=document.getElementById("homeKm"); if(a)a.textContent=km;
- const b=document.getElementById("refTotalKm"); if(b)b.textContent=km;
-}
-
-function monthCostFor(y,m){return costs(y,m)}
-function diffText(cur,prev){
- const d=cur-prev;if(!prev&&!cur)return "";
- const sign=d>0?"+":"";return `前月比 ${sign}${nf(d)} 円`;
-}
-function renderCorrectDashboard(c){
- const d=new Date(),y=d.getFullYear(),m=d.getMonth()+1;
- const cur=monthCostFor(y,m);
- const pd=new Date(y,m-2,1),prev=monthCostFor(pd.getFullYear(),pd.getMonth()+1);
- const set=(id,v)=>{const e=document.getElementById(id);if(e)e.textContent=v};
- set("dashFuel",nf(cur.fuel)+" 円"); set("dashMaint",nf(cur.maint)+" 円"); set("dashOther",nf(cur.other)+" 円"); set("dashTotal",nf(cur.total)+" 円");
- [["dashFuelDiff",cur.fuel,prev.fuel],["dashMaintDiff",cur.maint,prev.maint],["dashOtherDiff",cur.other,prev.other],["dashTotalDiff",cur.total,prev.total]].forEach(([id,a,b])=>{
-   const e=document.getElementById(id);if(e){e.textContent=diffText(a,b);e.className=a>b?"up":a<b?"down":""}
- });
- set("dashDonutTotal",nf(cur.total)+" 円");set("dashFuelLegend",nf(cur.fuel)+" 円");set("dashMaintLegend",nf(cur.maint)+" 円");set("dashOtherLegend",nf(cur.other)+" 円");
- const total=Math.max(1,cur.total),pf=cur.fuel/total*100,pm=cur.maint/total*100;
- const donut=document.getElementById("dashDonut");if(donut)donut.style.background=`conic-gradient(#57a9ee 0 ${pf}%,#ff9a2f ${pf}% ${pf+pm}%,#68b95b ${pf+pm}% 100%)`;
- const months=Array.from({length:12},(_,i)=>monthCostFor(y,i+1)),max=Math.max(1,...months.map(x=>x.total));
- const bars=document.getElementById("dashMonthBars");
- if(bars)bars.innerHTML=months.map((x,i)=>{
-   const fh=x.fuel/max*100,mh=x.maint/max*100,oh=x.other/max*100;
-   return `<div class="dm"><div class="dm-stack"><i class="o" style="height:${oh}%"></i><i class="m" style="height:${mh}%"></i><i class="f" style="height:${fh}%"></i></div><small>${i+1}</small></div>`
- }).join("");
- set("dashMaker",c.maker||"---");set("dashCarName",c.name||"---");set("dashModel",c.model||"---");set("dashColor",COLOR_LABELS[c.color]||c.color||"---");
- }
-
-
-const HERO_SCENE_ASSETS={
- "compact-minivan|white":"assets/heroes/compact-minivan_white.webp"
-};
-function heroScenePath(c){
- if(!c) return "";
- return HERO_SCENE_ASSETS[`${c.bodyType||"compact-minivan"}|${c.color||"white"}`]||"";
-}
-function applyHomeHeroScene(c){
- const hero=document.querySelector(".correct-hero");
- const thumb=document.getElementById("homeCarThumb");
- if(!hero||!thumb)return;
- const scene=heroScenePath(c);
- // A user-supplied photo remains the highest priority.
- if(scene && !c.photoId){
-   hero.classList.add("full-scene-vehicle");
-   hero.style.setProperty("--vehicle-hero",`url("${scene}")`);
-   thumb.innerHTML="";
-   thumb.setAttribute("aria-hidden","true");
- }else{
-   hero.classList.remove("full-scene-vehicle");
-   hero.style.removeProperty("--vehicle-hero");
-   thumb.removeAttribute("aria-hidden");
- }
-}
