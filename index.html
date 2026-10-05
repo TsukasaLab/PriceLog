@@ -1,9 +1,9 @@
 <!doctype html><html lang="ja"><head>
 <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <meta name="theme-color" content="#202631"><title>CarLog</title>
-<link rel="manifest" href="manifest.webmanifest?v=0.65"><link rel="stylesheet" href="style.css?v=0.65">
+<link rel="manifest" href="manifest.webmanifest?v=0.66"><link rel="stylesheet" href="style.css?v=0.66">
 </head><body>
-<div class="version">Ver.0.65 β</div>
+<div class="version">Ver.0.66 β</div>
 <aside class="pc-sidebar" aria-label="PCメニュー">
   <div class="pc-brand"><span class="brand-mark">🚙</span><div><strong>CarLog</strong><small>Car Maintenance Log</small></div></div>
   <button class="active" onclick="goHome()"><span class="navico">⌂</span><span>ホーム</span></button>
@@ -95,17 +95,17 @@
 </section>
 
 <section id="fuel" class="screen app-page hidden"><div class="screen-head page-head"><div><span class="page-eyebrow">RECORD</span><h2 id="fuelTitle">給油記録</h2><p>給油量・走行距離・支払額を記録</p></div></div>
- <div class="card form"><label>給油日<input id="fuelDate" type="date" onchange="showSameDay('fuel')"></label><label>同日記録の回数<input id="fuelCount" type="number" min="1" inputmode="numeric"></label><div id="fuelSameDay"></div><label>走行距離（km）<input id="fuelKm" type="number"></label><label>給油量（L）<input id="fuelLiters" type="number" step="0.01"></label><label>店名<select id="fuelStoreSelect" onchange="chooseStore('fuel')"><option value="">店名を選択</option><option value="__new__">新しい店名を入力</option></select><input id="fuelStore" class="store-input" placeholder="店名を入力"></label><label>支払金額（円）<input id="fuelAmount" type="number"></label><label class="check"><input id="fuelFull" type="checkbox" checked>満タン給油</label></div>
+ <div class="card form"><label>給油日<input id="fuelDate" type="date" onchange="showSameDay('fuel')"></label><div id="fuelSameDay"></div><label>走行距離（km）<input id="fuelKm" type="number"></label><label>給油量（L）<input id="fuelLiters" type="number" step="0.01"></label><label>店名<select id="fuelStoreSelect" onchange="chooseStore('fuel')"><option value="">店名を選択</option><option value="__new__">新しい店名を入力</option></select><input id="fuelStore" class="store-input" placeholder="店名を入力"></label><label>支払金額（円）<input id="fuelAmount" type="number"></label><label class="check"><input id="fuelFull" type="checkbox" checked>満タン給油</label></div>
  <button class="primary" id="fuelSave" onclick="saveFuel()">登録</button><button id="fuelDelete" class="danger hidden" onclick="deleteCurrent('fuel')">この記録を削除</button><button onclick="goHome()">キャンセル</button>
 </section>
 
 <section id="maintenance" class="screen app-page hidden"><div class="screen-head page-head"><div><span class="page-eyebrow">MAINTENANCE</span><h2 id="maintTitle">整備・修理</h2><p>メンテナンス履歴をわかりやすく管理</p></div></div>
- <div class="card form"><label>日付<input id="maintDate" type="date" onchange="showSameDay('maintenance')"></label><label>同日記録の回数<input id="maintCount" type="number" min="1" inputmode="numeric"></label><div id="maintSameDay"></div><label>種類<select id="maintType"><option>オイル交換</option><option>オイル＋フィルター交換</option><option>タイヤ交換</option><option>バッテリー交換</option><option>車検</option><option>点検</option><option>修理</option><option>その他</option></select></label><label>走行距離（km・任意）<input id="maintKm" type="number"></label><label>費用（円）<input id="maintAmount" type="number"></label><label>店名<select id="maintStoreSelect" onchange="chooseStore('maint')"><option value="">店名を選択</option><option value="__new__">新しい店名を入力</option></select><input id="maintStore" class="store-input" placeholder="店名を入力"></label><label>メモ<textarea id="maintMemo" rows="3"></textarea></label></div>
+ <div class="card form"><label>日付<input id="maintDate" type="date" onchange="showSameDay('maintenance')"></label><div id="maintSameDay"></div><label>種類<select id="maintType"><option>オイル交換</option><option>オイル＋フィルター交換</option><option>タイヤ交換</option><option>バッテリー交換</option><option>車検</option><option>点検</option><option>修理</option><option>その他</option></select></label><label>走行距離（km・任意）<input id="maintKm" type="number"></label><label>費用（円）<input id="maintAmount" type="number"></label><label>店名<select id="maintStoreSelect" onchange="chooseStore('maint')"><option value="">店名を選択</option><option value="__new__">新しい店名を入力</option></select><input id="maintStore" class="store-input" placeholder="店名を入力"></label><label>メモ<textarea id="maintMemo" rows="3"></textarea></label></div>
  <button class="primary" id="maintSave" onclick="saveMaintenance()">登録</button><button id="maintDelete" class="danger hidden" onclick="deleteCurrent('maintenance')">この記録を削除</button><button onclick="goHome()">キャンセル</button>
 </section>
 
 <section id="expense" class="screen app-page hidden"><div class="screen-head page-head"><div><span class="page-eyebrow">EXPENSE</span><h2 id="expenseTitle">その他支出</h2><p>税金・保険・用品などの費用を記録</p></div></div>
- <div class="card form"><label>日付<input id="expenseDate" type="date" onchange="showSameDay('expense')"></label><label>同日記録の回数<input id="expenseCount" type="number" min="1" inputmode="numeric"></label><div id="expenseSameDay"></div><label>分類<select id="expenseCategory"><option>自動車税</option><option>任意保険</option><option>駐車場</option><option>高速・有料道路</option><option>洗車</option><option>用品</option><option>その他</option></select></label><label>金額（円）<input id="expenseAmount" type="number"></label><label>店名<select id="expenseStoreSelect" onchange="chooseStore('expense')"><option value="">店名を選択</option><option value="__new__">新しい店名を入力</option></select><input id="expenseStore" class="store-input" placeholder="店名を入力"></label><label>メモ<textarea id="expenseMemo" rows="3"></textarea></label></div>
+ <div class="card form"><label>日付<input id="expenseDate" type="date" onchange="showSameDay('expense')"></label><div id="expenseSameDay"></div><label>分類<select id="expenseCategory"><option>自動車税</option><option>任意保険</option><option>駐車場</option><option>高速・有料道路</option><option>洗車</option><option>用品</option><option>その他</option></select></label><label>金額（円）<input id="expenseAmount" type="number"></label><label>店名<select id="expenseStoreSelect" onchange="chooseStore('expense')"><option value="">店名を選択</option><option value="__new__">新しい店名を入力</option></select><input id="expenseStore" class="store-input" placeholder="店名を入力"></label><label>メモ<textarea id="expenseMemo" rows="3"></textarea></label></div>
  <button class="primary" id="expenseSave" onclick="saveExpense()">登録</button><button id="expenseDelete" class="danger hidden" onclick="deleteCurrent('expense')">この記録を削除</button><button onclick="goHome()">キャンセル</button>
 </section>
 
@@ -182,7 +182,7 @@
     <article><b>4. バックアップ</b><p>設定ページからデータや写真を含むバックアップを保存できます。</p></article>
   </div>
 </div>
-<div class="about"><b>CarLog Ver.0.65 β</b><span>ローカル保存・公開β</span></div>
+<div class="about"><b>CarLog Ver.0.66 β</b><span>ローカル保存・公開β</span></div>
 </section>
 <section id="vehicleNotes" class="screen hidden"><div class="screen-head"><button onclick="goHome()">‹</button><h2>車両メモ</h2><button onclick="openVehicleEdit(activeId)">編集</button></div><div id="vehicleNotesList"></div></section>
 <section id="help" class="screen app-page hidden">
@@ -221,6 +221,6 @@
 <button onclick="openCosts()">⌁<span>分析</span></button>
 </nav>
 <div id="quickBackdrop" class="backdrop hidden" onclick="closeQuick(event)"><div class="sheet"><h2>記録を追加</h2><p>何を記録しますか？</p><div class="quick"><button onclick="closeQuick();openFuel()">⛽<span>給油</span></button><button onclick="closeQuick();openMaintenance()">🔧<span>整備・修理</span></button><button onclick="closeQuick();openExpense()">¥<span>その他支出</span></button></div><button onclick="closeQuick()">キャンセル</button></div></div>
-<script src="app.js?v=0.65"></script><script>
-if("serviceWorker"in navigator&&location.protocol!=="file:")window.addEventListener("load",()=>navigator.serviceWorker.register("./sw.js?v=0.65",{updateViaCache:"none"}).then(r=>r.update()).catch(console.error));
+<script src="app.js?v=0.66"></script><script>
+if("serviceWorker"in navigator&&location.protocol!=="file:")window.addEventListener("load",()=>navigator.serviceWorker.register("./sw.js?v=0.66",{updateViaCache:"none"}).then(r=>r.update()).catch(console.error));
 </script></body></html>
