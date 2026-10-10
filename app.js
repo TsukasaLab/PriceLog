@@ -8,7 +8,7 @@ const TEMPLATE_KEY = 'pricelog_custom_template_v1';
 const YAHOO_PRODUCT_CACHE_KEY = 'pricelog_yahoo_product_cache_v1';
 const SHOPPING_MEMO_KEY = 'pricelog_shopping_memo_v1';
 const V051_SETTINGS_MIGRATION_KEY = 'pricelog_v051_settings_migrated';
-const APP_VERSION = '0.61';
+const APP_VERSION = '0.62';
 const DATA_SCHEMA_VERSION = 3;
 
 const YAHOO_WORKER_URL = 'https://pricelog-yahoo.pricelog-api.workers.dev';
@@ -18,6 +18,7 @@ const defaultSettings = {
   reducedTax: 8,
   defaultPriceType: 'ex',
   yahooClientId: '',
+  registrationNameDefault: 'product',
   barcodeNameDefault: 'product'
 };
 
@@ -35,7 +36,9 @@ function normalizeSettingsData(raw = {}) {
       : defaultSettings.reducedTax,
     defaultPriceType: value.defaultPriceType === 'inc' ? 'inc' : 'ex',
     yahooClientId: String(value.yahooClientId || ''),
-    barcodeNameDefault: value.barcodeNameDefault === 'type' ? 'type' : 'product'
+    registrationNameDefault: (value.registrationNameDefault ?? value.barcodeNameDefault) === 'type' ? 'type' : 'product',
+    // 旧版とのバックアップ互換用。新規処理では registrationNameDefault を使用する。
+    barcodeNameDefault: (value.registrationNameDefault ?? value.barcodeNameDefault) === 'type' ? 'type' : 'product'
   };
 }
 
@@ -63,6 +66,8 @@ let shoppingMemoEditDraft = null;
 let customTemplate = normalizeTemplateData(loadJson(TEMPLATE_KEY, {version:1, products:[], stores:[]}));
 let templateDraft = null;
 let readingWasManuallyEdited = false;
+let productDialogReadings = { product: '', type: '' };
+let productDialogReadingManual = { product: false, type: false };
 let productNameIsComposing = false;
 let compositionReadingCandidate = '';
 let barcodeStream = null;
@@ -194,7 +199,8 @@ $('settingsForm').addEventListener('submit', (e) => {
     reducedTax: rt,
     defaultPriceType: $('defaultPriceType').value === 'ex' ? 'ex' : 'inc',
     yahooClientId: $('yahooClientId').value.trim(),
-    barcodeNameDefault: $('barcodeNameDefault').value === 'type' ? 'type' : 'product'
+    registrationNameDefault: $('registrationNameDefault').value === 'type' ? 'type' : 'product',
+    barcodeNameDefault: $('registrationNameDefault').value === 'type' ? 'type' : 'product'
   });
 
   localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings));
@@ -363,6 +369,11 @@ bindProductNameReadingEvents($('productTypeName'));
 
 $('productReading').addEventListener('input', () => {
   readingWasManuallyEdited = true;
+  const kind = $('productKind').value;
+  if (kind === 'product' || kind === 'type') {
+    productDialogReadings[kind] = $('productReading').value;
+    productDialogReadingManual[kind] = true;
+  }
 });
 
 document.addEventListener('focusin', (e) => {
@@ -392,7 +403,7 @@ window.addEventListener('beforeunload', (e) => {
 });
 
 if ('serviceWorker' in navigator) {
-  window.addEventListener('load', () => navigator.serviceWorker.register('./sw.js?v=0.61').catch(() => {}));
+  window.addEventListener('load', () => navigator.serviceWorker.register('./sw.js?v=0.62').catch(() => {}));
 }
 
 function loadJson(key, fallback) {
@@ -790,8 +801,8 @@ function renderStoreRow(product, row, bestFlags = {before:false, after:false}) {
     couponValue.placeholder = couponType.value === 'percent' ? '%' : couponType.value === 'yen' ? '円' : '-';
     const calc = calcRow(product, row);
     if (calc) {
-      priceResultOut.textContent = `${fmtPrice(calc.grossBefore)}[${fmtPrice(calc.afterTotal)}](${fmtPriceDelta(calc.afterTotal - calc.grossBefore)})`;
-      unitOut.textContent = `${fmtUnit(calc.beforeUnit)}[${fmtUnit(calc.afterUnit)}](${fmtUnitDelta(calc.afterUnit - calc.beforeUnit)})`;
+      priceResultOut.textContent = `${fmtCalc(calc.grossBefore)}[${fmtCalc(calc.afterTotal)}](${fmtCalcDelta(calc.afterTotal - calc.grossBefore)})`;
+      unitOut.textContent = `${fmtCalc(calc.beforeUnit)}[${fmtCalc(calc.afterUnit)}](${fmtCalcDelta(calc.afterUnit - calc.beforeUnit)})`;
     } else {
       priceResultOut.textContent = '-';
       unitOut.textContent = '-';
@@ -878,12 +889,12 @@ function refreshBestOnly(productId) {
 
     if (priceResultOut) {
       priceResultOut.textContent = calc
-        ? `${fmtPrice(calc.grossBefore)}[${fmtPrice(calc.afterTotal)}](${fmtPriceDelta(calc.afterTotal - calc.grossBefore)})`
+        ? `${fmtCalc(calc.grossBefore)}[${fmtCalc(calc.afterTotal)}](${fmtCalcDelta(calc.afterTotal - calc.grossBefore)})`
         : '-';
     }
     if (unitOut) {
       unitOut.textContent = calc
-        ? `${fmtUnit(calc.beforeUnit)}[${fmtUnit(calc.afterUnit)}](${fmtUnitDelta(calc.afterUnit - calc.beforeUnit)})`
+        ? `${fmtCalc(calc.beforeUnit)}[${fmtCalc(calc.afterUnit)}](${fmtCalcDelta(calc.afterUnit - calc.beforeUnit)})`
         : '-';
     }
     applyBestFlags(rowEl, mark, {
@@ -2351,8 +2362,8 @@ function openBarcodeDialog() {
   $('barcodeAmount').value = '';
   $('barcodeUnit').value = '';
 
-  $('barcodeChoiceProduct').checked = settings.barcodeNameDefault !== 'type';
-  $('barcodeChoiceType').checked = settings.barcodeNameDefault === 'type';
+  $('barcodeChoiceProduct').checked = settings.registrationNameDefault !== 'type';
+  $('barcodeChoiceType').checked = settings.registrationNameDefault === 'type';
 
   $('barcodeCameraSection').classList.remove('hidden');
   $('barcodeManualSection').classList.remove('hidden');
@@ -3489,7 +3500,7 @@ function applyBarcodeRegisterDefaults() {
 
   const hasProduct = !!$('barcodeProductNameEdit').value.trim();
   const hasType = !!$('barcodeTypeNameEdit').value.trim();
-  const preferType = settings.barcodeNameDefault === 'type';
+  const preferType = settings.registrationNameDefault === 'type';
 
   if (preferType && hasType) {
     $('barcodeChoiceType').checked = true;
@@ -3725,6 +3736,11 @@ function registerBarcodeProduct() {
   // 商品はここではまだ保存しない。商品追加画面へ戻し、店舗・価格も続けて入力できるようにする。
   $('productName').value = exactName;
   $('productTypeName').value = typeName;
+  productDialogReadings.product = exactName ? barcodeReadingForName(exactName) : '';
+  productDialogReadings.type = typeName ? barcodeReadingForName(typeName) : '';
+  productDialogReadings[choice] = reading;
+  productDialogReadingManual.product = false;
+  productDialogReadingManual.type = false;
   $('productReading').value = reading;
   $('productAmount').value = choice === 'product' ? String(amount > 0 ? amount : 1) : String(amount || '');
   setSelectValueWithOption($('productUnit'), unit || '');
@@ -3895,6 +3911,12 @@ function getActiveProductNameValue() {
 }
 
 function setProductKindChoice(kind, { updateReading = true } = {}) {
+  const previous = $('productKind').value;
+  if (updateReading && (previous === 'product' || previous === 'type')) {
+    productDialogReadings[previous] = $('productReading').value;
+    productDialogReadingManual[previous] = readingWasManuallyEdited;
+  }
+
   const normalized = kind === 'type' ? 'type' : kind === 'product' ? 'product' : '';
   $('productKind').value = normalized;
   $('productKindProduct').checked = normalized === 'product';
@@ -3908,9 +3930,18 @@ function setProductKindChoice(kind, { updateReading = true } = {}) {
   $('productTypeNameField').classList.toggle('is-disabled', !typeEnabled);
   $('productAmountGroup').classList.toggle('hidden', normalized === 'type' || !normalized);
 
-  if (updateReading && normalized && !readingWasManuallyEdited) {
-    const candidate = makeReadingCandidate(getActiveProductNameValue());
-    $('productReading').value = candidate || '';
+  if (updateReading && normalized) {
+    const saved = productDialogReadings[normalized] || '';
+    if (saved) {
+      $('productReading').value = saved;
+      readingWasManuallyEdited = !!productDialogReadingManual[normalized];
+    } else {
+      const candidate = makeReadingCandidate(getActiveProductNameValue());
+      $('productReading').value = candidate || '';
+      productDialogReadings[normalized] = candidate || '';
+      productDialogReadingManual[normalized] = false;
+      readingWasManuallyEdited = false;
+    }
   }
   renderProductDialogStores();
 }
@@ -4001,7 +4032,7 @@ function renderProductDialogStores() {
       const tempProduct = { kind: kind || 'product', amount: productAmount, unit: productUnit };
       const calc = calcRow(tempProduct, row);
       result.textContent = calc
-        ? `${fmtPrice(calc.grossBefore)}円 / ${fmtUnit(calc.beforeUnit)}`
+        ? `${fmtCalc(calc.grossBefore)}円 / ${fmtCalc(calc.beforeUnit)}`
         : '-';
     };
 
@@ -4037,6 +4068,8 @@ function openProductDialog(id = null) {
   const p = id && productEditDraft?.id === id ? productEditDraft : persisted;
 
   readingWasManuallyEdited = false;
+  productDialogReadings = { product: '', type: '' };
+  productDialogReadingManual = { product: false, type: false };
   productNameIsComposing = false;
   compositionReadingCandidate = '';
   productDialogBarcodeDraft = null;
@@ -4046,6 +4079,10 @@ function openProductDialog(id = null) {
   $('productName').value = p ? candidates.product : '';
   $('productTypeName').value = p ? candidates.type : '';
   $('productReading').value = p?.reading ?? '';
+  if (p) {
+    const savedKind = p.kind === 'type' ? 'type' : 'product';
+    productDialogReadings[savedKind] = p.reading ?? '';
+  }
   $('productAmount').value = p?.amount ?? 100;
   setSelectValueWithOption($('productUnit'), p?.unit ?? 'g');
 
@@ -4056,7 +4093,10 @@ function openProductDialog(id = null) {
 
   productDialogStores = p ? [] : [makeBlankDialogStore()];
   $('productStoreSection').classList.toggle('hidden', !!p);
-  setProductKindChoice(p ? (p.kind === 'type' ? 'type' : 'product') : '', { updateReading: false });
+  setProductKindChoice(
+    p ? (p.kind === 'type' ? 'type' : 'product') : settings.registrationNameDefault,
+    { updateReading: false }
+  );
 
   const dialog = $('productDialog');
   dialog.showModal();
@@ -4064,9 +4104,8 @@ function openProductDialog(id = null) {
   requestAnimationFrame(() => {
     dialog.scrollTop = 0;
     $('productForm').scrollTop = 0;
-    const focusTarget = p
-      ? (p.kind === 'type' ? $('productTypeName') : $('productName'))
-      : $('productKindProduct');
+    const initialKind = p ? (p.kind === 'type' ? 'type' : 'product') : settings.registrationNameDefault;
+    const focusTarget = initialKind === 'type' ? $('productTypeName') : $('productName');
     try { focusTarget.focus({ preventScroll: true }); }
     catch { focusTarget.focus(); }
     requestAnimationFrame(() => {
@@ -4258,8 +4297,8 @@ function openSettings() {
   $('standardTax').value = settings.standardTax;
   $('reducedTax').value = settings.reducedTax;
   $('defaultPriceType').value = settings.defaultPriceType;
-  $('barcodeNameDefault').value =
-    settings.barcodeNameDefault === 'type' ? 'type' : 'product';
+  $('registrationNameDefault').value =
+    settings.registrationNameDefault === 'type' ? 'type' : 'product';
   $('yahooClientId').value = settings.yahooClientId || '';
   $('yahooClientId').type = 'password';
   $('btnToggleYahooClientId').textContent = '表示';
@@ -4410,7 +4449,7 @@ function importBackup(e) {
     try {
       const data = migrateBackupPayload(JSON.parse(String(reader.result)));
       if (data.mode === 'share') {
-        alert('これは家族共有用のファイルだよ。「共有データを追加する」から読み込んでね。');
+        alert('これは別の端末とのデータ共有用ファイルだよ。「共有データを追加する」から読み込んでね。');
         return;
       }
       settings = normalizeSettingsData(data.settings || {});
@@ -4792,6 +4831,18 @@ function clampNumber(v, min, max, fallback) {
 
 function fmt(v) {
   return Number(v).toLocaleString('ja-JP', {maximumFractionDigits:2});
+}
+
+function fmtCalc(v) {
+  return Number(v).toLocaleString('ja-JP', {minimumFractionDigits:2, maximumFractionDigits:2});
+}
+
+function fmtCalcDelta(v) {
+  const n = Math.abs(Number(v)) < 0.005 ? 0 : Number(v);
+  const text = Math.abs(n).toLocaleString('ja-JP', {minimumFractionDigits:2, maximumFractionDigits:2});
+  if (n > 0) return `+${text}`;
+  if (n < 0) return `-${text}`;
+  return '0.00';
 }
 
 function fmtUnit(v) {

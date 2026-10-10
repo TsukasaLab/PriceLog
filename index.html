@@ -7,14 +7,14 @@
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="default">
   <title>PriceLog</title>
-  <link rel="manifest" href="./manifest.webmanifest?v=0.61">
+  <link rel="manifest" href="./manifest.webmanifest?v=0.62">
   <link rel="apple-touch-icon" href="./icon-192-v058.png">
-  <link rel="stylesheet" href="./style.css?v=0.61">
+  <link rel="stylesheet" href="./style.css?v=0.62">
 </head>
 <body>
   <header class="topbar">
     <div>
-      <strong>PriceLog</strong> <small class="app-version">Ver.0.61</small>
+      <strong>PriceLog</strong> <small class="app-version">Ver.0.62</small>
     </div>
     <div class="top-actions">
       <button id="btnSettings" class="icon-btn" type="button" aria-label="設定">⚙</button>
@@ -195,15 +195,15 @@
       </div>
 
       <div class="settings-block">
-        <div class="settings-title">バーコード登録の初期値</div>
+        <div class="settings-title">商品登録の初期値</div>
         <label>登録する名前
-          <select id="barcodeNameDefault">
+          <select id="registrationNameDefault">
             <option value="product">商品名</option>
-            <option value="type">種類</option>
+            <option value="type">種類比較</option>
           </select>
         </label>
         <div class="template-note">
-          種類を選んだ場合、そのJANコードは商品に紐づけない。
+          手入力・バーコード入力のどちらでも、この選択を初期値として使用する。<br>種類比較を選んだ場合、JANコードは商品に紐づけない。
         </div>
       </div>
 
@@ -242,7 +242,7 @@
           <button id="btnExport" class="ghost backup-btn" type="button">バックアップを書き出す</button>
           <button id="btnImport" class="ghost backup-btn" type="button">バックアップを読み込む</button>
           <input id="importFile" class="hidden-file-input" type="file" accept="application/json,.json">
-          <div class="data-share-divider"><span>家族との共有</span></div>
+          <div class="data-share-divider"><span>別の端末とのデータ共有</span></div>
           <button id="btnShareData" class="ghost backup-btn" type="button">共有する商品を選ぶ</button>
           <button id="btnMergeSharedData" class="ghost backup-btn" type="button">共有データを追加する</button>
           <input id="sharedImportFile" class="hidden-file-input" type="file" accept="application/json,.json">
@@ -448,7 +448,7 @@
   <dialog id="shareDialog" class="dialog share-dialog">
     <form id="shareForm" method="dialog">
       <div class="dialog-head settings-dialog-head">
-        <div><strong>家族に共有</strong><div class="barcode-sub">共有する商品をチェックしてファイルを渡す。</div></div>
+        <div><strong>別の端末に共有</strong><div class="barcode-sub">共有する商品をチェックしてファイルを渡す。</div></div>
         <button id="btnCloseShare" class="icon-btn" type="button" aria-label="閉じる">×</button>
       </div>
       <div class="share-tools">
@@ -582,7 +582,7 @@
 
   <div id="saveToast" class="save-toast hidden" role="status" aria-live="polite">保存しました</div>
 
-  <script src="./app.js?v=0.61"></script>
-  <script src="./ads.js?v=0.61"></script>
+  <script src="./app.js?v=0.62"></script>
+  <script src="./ads.js?v=0.62"></script>
 </body>
 </html>
