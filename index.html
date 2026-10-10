@@ -7,14 +7,14 @@
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="default">
   <title>PriceLog</title>
-  <link rel="manifest" href="./manifest.webmanifest?v=0.58">
+  <link rel="manifest" href="./manifest.webmanifest?v=0.59">
   <link rel="apple-touch-icon" href="./icon-192-v058.png">
-  <link rel="stylesheet" href="./style.css?v=0.58">
+  <link rel="stylesheet" href="./style.css?v=0.59">
 </head>
 <body>
   <header class="topbar">
     <div>
-      <strong>PriceLog</strong> <small class="app-version">Ver.0.58</small>
+      <strong>PriceLog</strong> <small class="app-version">Ver.0.59</small>
     </div>
     <div class="top-actions">
       <button id="btnSettings" class="icon-btn" type="button" aria-label="設定">⚙</button>
@@ -86,21 +86,32 @@
         📷 バーコードから追加
       </button>
 
-      <label>商品名
-        <input id="productName" required maxlength="60">
-      </label>
+      <fieldset class="product-kind-choice">
+        <legend>どちらで登録する？</legend>
+        <input id="productKind" type="hidden" value="">
+        <label class="kind-choice-card">
+          <input id="productKindProduct" type="radio" name="productKindChoice" value="product">
+          <span><strong>商品名</strong><small>同じ商品を店舗ごとに比較</small></span>
+        </label>
+        <label class="kind-choice-card">
+          <input id="productKindType" type="radio" name="productKindChoice" value="type">
+          <span><strong>種類比較</strong><small>容量が違う商品を単価で比較</small></span>
+        </label>
+      </fieldset>
 
-      <label>登録タイプ
-        <select id="productKind">
-          <option value="product">商品名</option>
-          <option value="type">種類比較</option>
-        </select>
-        <span class="field-hint">種類比較では、内容量・単位を店舗ごとに設定する。</span>
-      </label>
+      <div class="product-name-choice-grid">
+        <label id="productNameField" class="choice-input-field is-disabled">商品名
+          <input id="productName" maxlength="80" disabled placeholder="先に「商品名」を選択">
+        </label>
+        <label id="productTypeNameField" class="choice-input-field is-disabled">種類
+          <input id="productTypeName" maxlength="60" disabled placeholder="先に「種類比較」を選択">
+        </label>
+      </div>
+      <span class="field-hint">選ばれていない方の入力内容も保持する。バーコード読取時は両方を自動入力する。</span>
 
       <label class="reading-field">よみがな
-        <input id="productReading" maxlength="80" placeholder="商品名から自動入力">
-        <span class="field-hint">商品名から候補を自動入力。必要ならそのまま修正できる。</span>
+        <input id="productReading" maxlength="80" placeholder="選択した名前から自動入力">
+        <span class="field-hint">選択中の名前から候補を自動入力。必要なら修正できる。</span>
       </label>
 
       <div id="productAmountGroup" class="grid3">
@@ -125,6 +136,17 @@
           <select id="productTax"></select>
         </label>
       </div>
+
+      <section id="productStoreSection" class="product-add-store-section">
+        <div class="product-add-store-head">
+          <div>
+            <strong>店舗・価格</strong>
+            <small>任意。買い物中なら商品と一緒に登録できる。</small>
+          </div>
+          <button id="btnAddProductStore" class="ghost mini" type="button">＋店舗</button>
+        </div>
+        <div id="productStoreList" class="product-add-store-list"></div>
+      </section>
 
       <div class="dialog-actions">
         <button class="primary" value="default" type="submit">保存</button>
@@ -220,6 +242,11 @@
           <button id="btnExport" class="ghost backup-btn" type="button">バックアップを書き出す</button>
           <button id="btnImport" class="ghost backup-btn" type="button">バックアップを読み込む</button>
           <input id="importFile" class="hidden-file-input" type="file" accept="application/json,.json">
+          <div class="data-share-divider"><span>家族との共有</span></div>
+          <button id="btnShareData" class="ghost backup-btn" type="button">共有する商品を選ぶ</button>
+          <button id="btnMergeSharedData" class="ghost backup-btn" type="button">共有データを追加する</button>
+          <input id="sharedImportFile" class="hidden-file-input" type="file" accept="application/json,.json">
+          <div class="template-note">共有データは現在のデータを消さずに差分追加する。競合した項目だけ、どちらを残すか選べる。</div>
         </div>
       </div>
 
@@ -316,7 +343,7 @@
 
         <div class="barcode-result-actions">
           <button id="btnBarcodeRescan" class="ghost" type="button">別のバーコードを読み取る</button>
-          <button id="btnRegisterBarcodeProduct" class="primary" type="button">この内容で商品登録</button>
+          <button id="btnRegisterBarcodeProduct" class="primary" type="button">この内容を商品追加へ</button>
         </div>
       </section>
     </div>
@@ -418,6 +445,46 @@
     </div>
   </dialog>
 
+  <dialog id="shareDialog" class="dialog share-dialog">
+    <form id="shareForm" method="dialog">
+      <div class="dialog-head settings-dialog-head">
+        <div><strong>家族に共有</strong><div class="barcode-sub">共有する商品をチェックしてファイルを渡す。</div></div>
+        <button id="btnCloseShare" class="icon-btn" type="button" aria-label="閉じる">×</button>
+      </div>
+      <div class="share-tools">
+        <input id="shareSearch" type="search" placeholder="商品を検索" autocomplete="off">
+        <div class="share-tool-buttons">
+          <button id="btnShareAll" class="ghost mini" type="button">すべて選択</button>
+          <button id="btnShareNone" class="ghost mini" type="button">すべて解除</button>
+        </div>
+      </div>
+      <div id="shareSelectionSummary" class="template-summary"></div>
+      <div id="shareProductList" class="share-product-list"></div>
+      <div class="dialog-actions sticky-dialog-actions">
+        <button id="btnCreateShareFile" class="primary" type="button">選択した商品を共有</button>
+      </div>
+    </form>
+  </dialog>
+
+  <dialog id="mergeDialog" class="dialog merge-dialog">
+    <form id="mergeForm" method="dialog">
+      <div class="dialog-head settings-dialog-head">
+        <div><strong>共有データを追加</strong><div class="barcode-sub">差分を確認してから取り込む。</div></div>
+        <button id="btnCloseMerge" class="icon-btn" type="button" aria-label="閉じる">×</button>
+      </div>
+      <div id="mergeSummary" class="merge-summary"></div>
+      <div id="mergeConflictTools" class="merge-conflict-tools hidden">
+        <span>競合だけ選択</span>
+        <button id="btnConflictsKeepCurrent" class="ghost mini" type="button">すべて現在を残す</button>
+        <button id="btnConflictsUseShared" class="ghost mini" type="button">すべて共有を使う</button>
+      </div>
+      <div id="mergeConflictList" class="merge-conflict-list"></div>
+      <div class="dialog-actions sticky-dialog-actions">
+        <button id="btnApplyMerge" class="primary" type="button">差分を追加</button>
+      </div>
+    </form>
+  </dialog>
+
   <template id="productTemplate">
     <article class="product-card">
       <div class="product-summary-row">
@@ -488,15 +555,17 @@
         <option value="yen">円引</option>
       </select>
       <input class="st-coupon-value" type="text" inputmode="decimal" placeholder="-">
-      <output class="st-price-result">-</output>
-      <output class="st-unit">-</output>
+      <div class="st-result-cell">
+        <output class="st-price-result">-</output>
+        <output class="st-unit">-</output>
+      </div>
       <button class="st-delete" type="button" aria-label="店舗行を削除">×</button>
     </div>
   </template>
 
   <div id="saveToast" class="save-toast hidden" role="status" aria-live="polite">保存しました</div>
 
-  <script src="./app.js?v=0.58"></script>
-  <script src="./ads.js?v=0.58"></script>
+  <script src="./app.js?v=0.59"></script>
+  <script src="./ads.js?v=0.59"></script>
 </body>
 </html>

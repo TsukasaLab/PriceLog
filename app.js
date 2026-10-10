@@ -8,6 +8,8 @@ const TEMPLATE_KEY = 'pricelog_custom_template_v1';
 const YAHOO_PRODUCT_CACHE_KEY = 'pricelog_yahoo_product_cache_v1';
 const SHOPPING_MEMO_KEY = 'pricelog_shopping_memo_v1';
 const V051_SETTINGS_MIGRATION_KEY = 'pricelog_v051_settings_migrated';
+const APP_VERSION = '0.59';
+const DATA_SCHEMA_VERSION = 3;
 
 const YAHOO_WORKER_URL = 'https://pricelog-yahoo.pricelog-api.workers.dev';
 
@@ -68,6 +70,11 @@ let barcodeDetector = null;
 let barcodeScanTimer = null;
 let barcodeScanning = false;
 let barcodeLookupData = null;
+let barcodeReturnToProductDialog = false;
+let productDialogBarcodeDraft = null;
+let productDialogStores = [];
+let shareSelectedProducts = new Set();
+let pendingMergePlan = null;
 let barcodeReadingManuallyEdited = false;
 let yahooRequestChain = Promise.resolve();
 let yahooLastRequestAt = 0;
@@ -198,6 +205,18 @@ $('settingsForm').addEventListener('submit', (e) => {
 $('btnExport').addEventListener('click', exportBackup);
 $('btnImport').addEventListener('click', () => $('importFile').click());
 $('importFile').addEventListener('change', importBackup);
+$('btnShareData').addEventListener('click', openShareDialog);
+$('btnMergeSharedData').addEventListener('click', () => $('sharedImportFile').click());
+$('sharedImportFile').addEventListener('change', importSharedData);
+$('btnCloseShare').addEventListener('click', closeShareDialog);
+$('shareSearch').addEventListener('input', renderShareProductList);
+$('btnShareAll').addEventListener('click', () => setVisibleShareSelection(true));
+$('btnShareNone').addEventListener('click', () => setVisibleShareSelection(false));
+$('btnCreateShareFile').addEventListener('click', shareSelectedData);
+$('btnCloseMerge').addEventListener('click', closeMergeDialog);
+$('btnConflictsKeepCurrent').addEventListener('click', () => setAllConflictChoices('current'));
+$('btnConflictsUseShared').addEventListener('click', () => setAllConflictChoices('shared'));
+$('btnApplyMerge').addEventListener('click', applyPendingMerge);
 $('btnCloseHistory').addEventListener('click', () => $('historyDialog').close());
 
 $('btnCloseProductDialog').addEventListener('click', (e) => {
@@ -248,12 +267,14 @@ $('barcodeTypeNameEdit').addEventListener('input', () => {
 $('barcodeChoiceProduct').addEventListener('change', () => {
   if (!$('barcodeChoiceProduct').checked) return;
   barcodeReadingManuallyEdited = false;
+  syncBarcodeChoiceLabels();
   syncBarcodeQuantityForChoice();
   updateBarcodeReadingFromChoice();
 });
 $('barcodeChoiceType').addEventListener('change', () => {
   if (!$('barcodeChoiceType').checked) return;
   barcodeReadingManuallyEdited = false;
+  syncBarcodeChoiceLabels();
   syncBarcodeQuantityForChoice();
   updateBarcodeReadingFromChoice();
 });
@@ -288,54 +309,57 @@ $('barcodeReading').addEventListener('input', () => {
 });
 $('btnRegisterBarcodeProduct').addEventListener('click', registerBarcodeProduct);
 $('barcodeDialog').addEventListener('close', stopBarcodeCamera);
+$('barcodeDialog').addEventListener('cancel', (e) => { e.preventDefault(); closeBarcodeDialog(); });
 
-$('productKind').addEventListener('change', syncProductKindFields);
+$('productKindProduct').addEventListener('change', () => setProductKindChoice('product'));
+$('productKindType').addEventListener('change', () => setProductKindChoice('type'));
+$('btnAddProductStore').addEventListener('click', () => { productDialogStores.push(makeBlankDialogStore()); renderProductDialogStores(); });
+$('productAmount').addEventListener('change', renderProductDialogStores);
+$('productUnit').addEventListener('change', renderProductDialogStores);
 
-$('productName').addEventListener('compositionstart', () => {
-  productNameIsComposing = true;
-  readingWasManuallyEdited = false;
-  compositionReadingCandidate = '';
-});
+function bindProductNameReadingEvents(input) {
+  input.addEventListener('compositionstart', () => {
+    if (input.disabled) return;
+    productNameIsComposing = true;
+    readingWasManuallyEdited = false;
+    compositionReadingCandidate = '';
+  });
 
-$('productName').addEventListener('input', (e) => {
-  readingWasManuallyEdited = false;
-
-  const candidate = makeReadingCandidate($('productName').value);
-
-  if (productNameIsComposing || e.isComposing) {
-    // 変換前のかなを記憶しておく。
-    // 変換途中で漢字になっても、よみがな欄は消さない。
-    if (candidate) {
-      compositionReadingCandidate = candidate;
-      $('productReading').value = candidate;
+  input.addEventListener('input', (e) => {
+    if (input.disabled) return;
+    readingWasManuallyEdited = false;
+    const candidate = makeReadingCandidate(input.value);
+    if (productNameIsComposing || e.isComposing) {
+      if (candidate) {
+        compositionReadingCandidate = candidate;
+        $('productReading').value = candidate;
+      }
+      return;
     }
-    return;
-  }
+    autoFillProductReading();
+  });
 
-  autoFillProductReading();
-});
+  input.addEventListener('compositionend', () => {
+    if (input.disabled) return;
+    productNameIsComposing = false;
+    readingWasManuallyEdited = false;
+    const finalCandidate = makeReadingCandidate(input.value);
+    if (finalCandidate) $('productReading').value = finalCandidate;
+    else if (compositionReadingCandidate) $('productReading').value = compositionReadingCandidate;
+    compositionReadingCandidate = '';
+  });
 
-$('productName').addEventListener('compositionend', () => {
-  productNameIsComposing = false;
-  readingWasManuallyEdited = false;
+  input.addEventListener('blur', () => {
+    if (input.disabled) return;
+    if (!readingWasManuallyEdited && !productNameIsComposing) {
+      const candidate = makeReadingCandidate(input.value);
+      if (candidate) $('productReading').value = candidate;
+    }
+  });
+}
 
-  const finalCandidate = makeReadingCandidate($('productName').value);
-
-  if (finalCandidate) {
-    $('productReading').value = finalCandidate;
-  } else if (compositionReadingCandidate) {
-    $('productReading').value = compositionReadingCandidate;
-  }
-
-  compositionReadingCandidate = '';
-});
-
-$('productName').addEventListener('blur', () => {
-  if (!readingWasManuallyEdited && !productNameIsComposing) {
-    const candidate = makeReadingCandidate($('productName').value);
-    if (candidate) $('productReading').value = candidate;
-  }
-});
+bindProductNameReadingEvents($('productName'));
+bindProductNameReadingEvents($('productTypeName'));
 
 $('productReading').addEventListener('input', () => {
   readingWasManuallyEdited = true;
@@ -368,7 +392,7 @@ window.addEventListener('beforeunload', (e) => {
 });
 
 if ('serviceWorker' in navigator) {
-  window.addEventListener('load', () => navigator.serviceWorker.register('./sw.js?v=0.58').catch(() => {}));
+  window.addEventListener('load', () => navigator.serviceWorker.register('./sw.js?v=0.59').catch(() => {}));
 }
 
 function loadJson(key, fallback) {
@@ -395,6 +419,22 @@ function initializeWithoutSamples() {
   }
 }
 
+function normalizeIsoDate(value) {
+  const raw = String(value || '').trim();
+  if (!raw) return '';
+  const time = Date.parse(raw);
+  return Number.isFinite(time) ? new Date(time).toISOString() : '';
+}
+
+function normalizeNameCandidates(raw, kind, fallbackName = '') {
+  const value = raw && typeof raw === 'object' ? raw : {};
+  const selected = String(fallbackName || '').trim();
+  return {
+    product: String(value.product || (kind === 'product' ? selected : '')).trim(),
+    type: String(value.type || (kind === 'type' ? selected : '')).trim()
+  };
+}
+
 function normalizeProductsData(list) {
   if (!Array.isArray(list)) return [];
 
@@ -412,10 +452,12 @@ function normalizeProductsData(list) {
       id: String(product.id || makeId('p')),
       kind,
       name: String(product.name || '').trim(),
+      nameCandidates: normalizeNameCandidates(product.nameCandidates, kind, product.name),
       reading: normalizeReadingInput(product.reading || ''),
       amount,
       unit,
       defaultTax: Number.isFinite(Number(product.defaultTax)) ? Number(product.defaultTax) : settings.reducedTax,
+      updatedAt: normalizeIsoDate(product.updatedAt),
       history: Array.isArray(product.history) ? product.history.slice(0, 20) : [],
       stores: stores.map(rawRow => {
         const row = rawRow && typeof rawRow === 'object' ? rawRow : {};
@@ -431,7 +473,8 @@ function normalizeProductsData(list) {
           amount: kind === 'type' && row.amount === ''
             ? ''
             : (Number(row.amount) > 0 ? Number(row.amount) : amount),
-          unit: String(row.unit || unit).trim() || (kind === 'type' ? '個' : unit)
+          unit: String(row.unit || unit).trim() || (kind === 'type' ? '個' : unit),
+          updatedAt: normalizeIsoDate(row.updatedAt)
         };
       })
     };
@@ -506,23 +549,29 @@ function saveProductEdit(productId) {
   const history = Array.isArray(original.history) ? structuredCloneSafe(original.history) : [];
   const originalRows = new Map((original.stores || []).map(row => [row.id, row]));
 
+  const savedAt = new Date().toISOString();
   for (const row of draft.stores || []) {
     const beforeRow = originalRows.get(row.id);
-    if (!beforeRow) continue;
+    if (!beforeRow) {
+      row.updatedAt = savedAt;
+      continue;
+    }
     const before = historyPriceValue(beforeRow.price);
     const after = historyPriceValue(row.price);
     if (before !== null && after !== null && !sameHistoryPrice(before, after)) {
       history.unshift({
         id: makeId('h'),
-        updatedAt: new Date().toISOString(),
+        updatedAt: savedAt,
         store: (row.store || beforeRow.store || '店舗未入力').trim() || '店舗未入力',
         beforePrice: Number(before),
         afterPrice: Number(after)
       });
     }
+    if (!sameStoreData(beforeRow, row)) row.updatedAt = savedAt;
   }
 
   draft.history = history.slice(0, 20);
+  if (!sameProductMeta(original, draft) || productEditDirty) draft.updatedAt = savedAt;
   products[index] = draft;
   persistNow();
   openProductId = null;
@@ -664,7 +713,8 @@ function render() {
           amount: draft.kind === 'type'
             ? (Number(draft.amount) > 0 ? Number(draft.amount) : '')
             : (Number(draft.amount) > 0 ? Number(draft.amount) : 1),
-          unit: draft.unit || '個'
+          unit: draft.unit || '個',
+          updatedAt: ''
         });
         markProductEditDirty();
         render();
@@ -1169,6 +1219,7 @@ function cancelShoppingMemoEdit() {
 function saveShoppingMemoEdit() {
   if (!shoppingMemoEditStore || !Array.isArray(shoppingMemoEditDraft)) return;
 
+  const savedAt = new Date().toISOString();
   shoppingMemoEditDraft.forEach(edit => {
     const product = products.find(item => item.id === edit.productId);
     const row = product?.stores?.find(item => item.id === edit.rowId);
@@ -1209,6 +1260,8 @@ function saveShoppingMemoEdit() {
       });
       if (history.length > 20) history.length = 20;
     }
+    row.updatedAt = savedAt;
+    product.updatedAt = savedAt;
   });
 
   persistNow();
@@ -1632,8 +1685,10 @@ function bulkAddStore() {
       couponType: 'none',
       couponValue: '',
       amount: product.kind === 'type' ? '' : (Number(product.amount) > 0 ? Number(product.amount) : 1),
-      unit: product.unit || '個'
+      unit: product.unit || '個',
+      updatedAt: new Date().toISOString()
     });
+    product.updatedAt = new Date().toISOString();
 
     added += 1;
   });
@@ -2281,6 +2336,7 @@ function openBarcodeDialog() {
   stopBarcodeCamera();
   barcodeLookupData = null;
   barcodeReadingManuallyEdited = false;
+  barcodeReturnToProductDialog = $('productDialog').open;
 
   $('barcodeResult').classList.add('hidden');
   $('barcodeManualCode').value = '';
@@ -2317,9 +2373,14 @@ function resetBarcodeLookupView() {
   setBarcodeUnit('');
 }
 
-function closeBarcodeDialog() {
+function closeBarcodeDialog({ returnToProduct = true } = {}) {
   stopBarcodeCamera();
   if ($('barcodeDialog').open) $('barcodeDialog').close();
+  if (returnToProduct && barcodeReturnToProductDialog && !$('productDialog').open) {
+    $('productDialog').showModal();
+    requestAnimationFrame(() => $('productDialog').scrollTop = 0);
+  }
+  if (!returnToProduct) barcodeReturnToProductDialog = false;
 }
 
 async function createBarcodeDetector() {
@@ -3463,6 +3524,12 @@ function syncBarcodeChoiceLabels() {
   if (!type && typeChoice.checked) {
     $('barcodeChoiceProduct').checked = true;
   }
+
+  const productSelected = $('barcodeChoiceProduct').checked;
+  $('barcodeProductNameEdit').disabled = !productSelected;
+  $('barcodeTypeNameEdit').disabled = productSelected || !type;
+  $('barcodeProductNameEdit').closest('label')?.classList.toggle('is-disabled', !productSelected);
+  $('barcodeTypeNameEdit').closest('label')?.classList.toggle('is-disabled', productSelected || !type);
 }
 
 function barcodeReadingForName(name) {
@@ -3619,15 +3686,11 @@ function registerBarcodeProduct() {
     document.querySelector('input[name="barcodeNameChoice"]:checked')?.value ||
     'product';
 
-  // 正式商品名で登録する場合だけJANを商品へ紐づける。
-  // 種類で登録する場合は、汎用カテゴリに特定商品のJANを持たせない。
   const barcodeForProduct = choice === 'product' ? code : '';
-
   if (barcodeForProduct) {
     const existing = findProductByBarcode(barcodeForProduct);
     if (existing) {
-      $('barcodeLookupStatus').textContent =
-        `「${existing.name}」として登録済みだよ。`;
+      $('barcodeLookupStatus').textContent = `「${existing.name}」として登録済みだよ。`;
       return;
     }
   }
@@ -3635,56 +3698,48 @@ function registerBarcodeProduct() {
   const exactName = $('barcodeProductNameEdit').value.trim();
   const typeName = $('barcodeTypeNameEdit').value.trim();
   const name = choice === 'type' ? typeName : exactName;
-
-  // 商品名で登録する場合も内容量は編集可能。
-  // 初期値は1、単位は自動判定せず空欄からユーザーが必要に応じて選ぶ。
-  // 種類で登録する場合は従来どおり取得した内容量・単位を初期値にする。
   const amount = Number($('barcodeAmount').value);
   const unit = $('barcodeUnit').value;
 
   if (!name) {
-    $('barcodeLookupStatus').textContent = '登録する商品名を入力してね。';
+    $('barcodeLookupStatus').textContent = '登録する名前を確認してね。';
     return;
   }
-
   if (!(amount > 0) || (choice === 'type' && !unit)) {
     $('barcodeLookupStatus').textContent = '内容量と単位を確認してね。';
     return;
   }
 
   let reading = normalizeReadingInput($('barcodeReading').value);
-  if (!reading) {
-    reading = barcodeReadingForName(name);
-  }
+  if (!reading) reading = barcodeReadingForName(name);
 
   const productType = barcodeLookupData?.product?.product_type || 'food';
   const defaultTax = productType === 'food'
     ? Number(settings.reducedTax)
     : Number(settings.standardTax);
 
-  const product = {
-    id: makeId('p'),
-    barcode: barcodeForProduct,
-    name,
-    reading,
-    kind: choice === 'type' ? 'type' : 'product',
-    amount,
-    unit,
-    defaultTax,
-    history: [],
-    stores: []
-  };
+  // 商品はここではまだ保存しない。商品追加画面へ戻し、店舗・価格も続けて入力できるようにする。
+  $('productName').value = exactName;
+  $('productTypeName').value = typeName;
+  $('productReading').value = reading;
+  $('productAmount').value = choice === 'product' ? String(amount > 0 ? amount : 1) : String(amount || '');
+  setSelectValueWithOption($('productUnit'), unit || '');
+  $('productTax').innerHTML = taxOptions(defaultTax);
+  $('productTax').value = String(defaultTax);
+  readingWasManuallyEdited = false;
+  productDialogBarcodeDraft = { barcode: code, defaultTax };
+  if (productDialogStores.length) {
+    productDialogStores.forEach(row => { if (!row.store && row.price === '') row.tax = defaultTax; });
+    if (choice === 'type') {
+      productDialogStores[0].amount = amount > 0 ? amount : '';
+      productDialogStores[0].unit = unit || '個';
+    }
+  }
+  setProductKindChoice(choice, { updateReading: false });
+  renderProductDialogStores();
 
-  products.push(product);
-  persistNow();
-  openProductId = product.id;
-  closeBarcodeDialog();
-  render();
-
-  requestAnimationFrame(() => {
-    const card = listEl.querySelector(`[data-id="${cssEscape(product.id)}"]`);
-    if (card) card.scrollIntoView({behavior:'smooth', block:'center'});
-  });
+  closeBarcodeDialog({ returnToProduct: true });
+  showSaveToast('商品情報を入力しました。店舗・価格も続けて登録できます');
 }
 
 function normalizeProductNameKey(value) {
@@ -3741,7 +3796,7 @@ function makeReadingCandidate(name) {
 }
 
 function autoFillProductReading() {
-  const candidate = makeReadingCandidate($('productName').value);
+  const candidate = makeReadingCandidate(getActiveProductNameValue());
 
   // 読みを作れる時だけ更新。
   // IMEで漢字へ変換した場合は compositionend で
@@ -3828,9 +3883,142 @@ function compareProducts(a, b) {
   });
 }
 
+function getActiveProductNameValue() {
+  const kind = $('productKind').value;
+  if (kind === 'type') return $('productTypeName').value.trim();
+  if (kind === 'product') return $('productName').value.trim();
+  return '';
+}
+
+function setProductKindChoice(kind, { updateReading = true } = {}) {
+  const normalized = kind === 'type' ? 'type' : kind === 'product' ? 'product' : '';
+  $('productKind').value = normalized;
+  $('productKindProduct').checked = normalized === 'product';
+  $('productKindType').checked = normalized === 'type';
+
+  const productEnabled = normalized === 'product';
+  const typeEnabled = normalized === 'type';
+  $('productName').disabled = !productEnabled;
+  $('productTypeName').disabled = !typeEnabled;
+  $('productNameField').classList.toggle('is-disabled', !productEnabled);
+  $('productTypeNameField').classList.toggle('is-disabled', !typeEnabled);
+  $('productAmountGroup').classList.toggle('hidden', normalized === 'type' || !normalized);
+
+  if (updateReading && normalized && !readingWasManuallyEdited) {
+    const candidate = makeReadingCandidate(getActiveProductNameValue());
+    $('productReading').value = candidate || '';
+  }
+  renderProductDialogStores();
+}
+
 function syncProductKindFields() {
-  const isType = $('productKind').value === 'type';
-  $('productAmountGroup').classList.toggle('hidden', isType);
+  setProductKindChoice($('productKind').value, { updateReading: false });
+}
+
+function makeBlankDialogStore() {
+  return {
+    id: makeId('qs'),
+    store: '',
+    price: '',
+    priceType: settings.defaultPriceType,
+    tax: Number($('productTax')?.value || settings.reducedTax),
+    couponType: 'none',
+    couponValue: '',
+    amount: '',
+    unit: '個',
+    updatedAt: ''
+  };
+}
+
+function hasMeaningfulDialogStore(row) {
+  return !!String(row.store || '').trim() || row.price !== '' || row.couponValue !== '' || Number(row.amount) > 0;
+}
+
+function renderProductDialogStores() {
+  const list = $('productStoreList');
+  if (!list) return;
+  list.innerHTML = '';
+  if (editProductId) return;
+
+  const kind = $('productKind').value;
+  const productAmount = Number($('productAmount').value) || 1;
+  const productUnit = $('productUnit').value || '個';
+
+  productDialogStores.forEach((row, index) => {
+    const card = document.createElement('div');
+    card.className = 'product-add-store-card';
+    card.innerHTML = `
+      <div class="quick-store-main">
+        <label>店舗<input class="qs-store" type="text" maxlength="40" placeholder="店舗名"></label>
+        <label>価格<input class="qs-price" type="text" inputmode="decimal" placeholder="価格"></label>
+        <button class="qs-delete" type="button" aria-label="この店舗を削除">×</button>
+      </div>
+      <div class="quick-store-options">
+        <label>税込/税抜<select class="qs-price-type"><option value="inc">税込</option><option value="ex">税抜</option></select></label>
+        <label>税率<select class="qs-tax">${taxOptions(row.tax)}</select></label>
+        <label>クーポン<select class="qs-coupon-type"><option value="none">なし</option><option value="percent">%OFF</option><option value="yen">円引</option></select></label>
+        <label>値<input class="qs-coupon-value" type="text" inputmode="decimal" placeholder="-"></label>
+      </div>
+      <div class="quick-store-quantity ${kind === 'type' ? '' : 'hidden'}">
+        <label>内容量<input class="qs-amount" type="text" inputmode="decimal" placeholder="内容量"></label>
+        <label>単位<select class="qs-unit"><option value="g">g</option><option value="ml">ml</option><option value="m">m</option><option value="個">個</option><option value="枚">枚</option><option value="粒">粒</option><option value="本">本</option><option value="袋">袋</option><option value="箱">箱</option><option value="パック">パック</option><option value="缶">缶</option><option value="瓶">瓶</option></select></label>
+      </div>
+      <div class="quick-store-result">税込価格・単価：<strong class="qs-result">-</strong></div>`;
+
+    const store = card.querySelector('.qs-store');
+    const price = card.querySelector('.qs-price');
+    const priceType = card.querySelector('.qs-price-type');
+    const tax = card.querySelector('.qs-tax');
+    const couponType = card.querySelector('.qs-coupon-type');
+    const couponValue = card.querySelector('.qs-coupon-value');
+    const amount = card.querySelector('.qs-amount');
+    const unit = card.querySelector('.qs-unit');
+    const result = card.querySelector('.qs-result');
+
+    store.value = row.store || '';
+    price.value = row.price ?? '';
+    priceType.value = row.priceType === 'inc' ? 'inc' : 'ex';
+    tax.value = String(row.tax ?? settings.reducedTax);
+    couponType.value = ['percent','yen'].includes(row.couponType) ? row.couponType : 'none';
+    couponValue.value = row.couponValue ?? '';
+    amount.value = Number(row.amount) > 0 ? row.amount : '';
+    setSelectValueWithOption(unit, row.unit || '個');
+
+    const update = () => {
+      row.store = store.value.trim();
+      row.price = numberOrBlank(price.value);
+      row.priceType = priceType.value;
+      row.tax = Number(tax.value);
+      row.couponType = couponType.value;
+      row.couponValue = numberOrBlank(couponValue.value);
+      row.amount = numberOrBlank(amount.value);
+      row.unit = unit.value || '個';
+      couponValue.disabled = row.couponType === 'none';
+      const tempProduct = { kind: kind || 'product', amount: productAmount, unit: productUnit };
+      const calc = calcRow(tempProduct, row);
+      result.textContent = calc
+        ? `${fmtPrice(calc.grossBefore)}円 / ${fmtUnit(calc.beforeUnit)}`
+        : '-';
+    };
+
+    [store, price, priceType, tax, couponType, couponValue, amount, unit].forEach(control => {
+      control.addEventListener('input', update);
+      control.addEventListener('change', update);
+    });
+    card.querySelector('.qs-delete').addEventListener('click', () => {
+      productDialogStores.splice(index, 1);
+      renderProductDialogStores();
+    });
+    update();
+    list.appendChild(card);
+  });
+
+  if (!productDialogStores.length) {
+    const empty = document.createElement('div');
+    empty.className = 'product-add-store-empty';
+    empty.textContent = '店舗情報なしでも商品だけ保存できる。';
+    list.appendChild(empty);
+  }
 }
 
 function openProductDialog(id = null) {
@@ -3847,19 +4035,24 @@ function openProductDialog(id = null) {
   readingWasManuallyEdited = false;
   productNameIsComposing = false;
   compositionReadingCandidate = '';
+  productDialogBarcodeDraft = null;
 
   $('productDialogTitle').textContent = p ? '商品設定' : '商品追加';
-  $('productName').value = p?.name ?? '';
+  const candidates = normalizeNameCandidates(p?.nameCandidates, p?.kind === 'type' ? 'type' : 'product', p?.name || '');
+  $('productName').value = p ? candidates.product : '';
+  $('productTypeName').value = p ? candidates.type : '';
   $('productReading').value = p?.reading ?? '';
-  $('productKind').value = p?.kind === 'type' ? 'type' : 'product';
   $('productAmount').value = p?.amount ?? 100;
   setSelectValueWithOption($('productUnit'), p?.unit ?? 'g');
-  syncProductKindFields();
 
   const taxSelect = $('productTax');
   const selectedTax = p?.defaultTax ?? settings.reducedTax;
   taxSelect.innerHTML = taxOptions(selectedTax);
   taxSelect.value = String(selectedTax);
+
+  productDialogStores = p ? [] : [makeBlankDialogStore()];
+  $('productStoreSection').classList.toggle('hidden', !!p);
+  setProductKindChoice(p ? (p.kind === 'type' ? 'type' : 'product') : '', { updateReading: false });
 
   const dialog = $('productDialog');
   dialog.showModal();
@@ -3867,9 +4060,11 @@ function openProductDialog(id = null) {
   requestAnimationFrame(() => {
     dialog.scrollTop = 0;
     $('productForm').scrollTop = 0;
-    const nameInput = $('productName');
-    try { nameInput.focus({ preventScroll: true }); }
-    catch { nameInput.focus(); }
+    const focusTarget = p
+      ? (p.kind === 'type' ? $('productTypeName') : $('productName'))
+      : $('productKindProduct');
+    try { focusTarget.focus({ preventScroll: true }); }
+    catch { focusTarget.focus(); }
     requestAnimationFrame(() => {
       dialog.scrollTop = 0;
       $('productForm').scrollTop = 0;
@@ -3878,8 +4073,19 @@ function openProductDialog(id = null) {
 }
 
 function saveProductFromDialog() {
-  const name = $('productName').value.trim();
-  const kind = $('productKind').value === 'type' ? 'type' : 'product';
+  const kind = $('productKind').value;
+  if (!['product','type'].includes(kind)) {
+    alert('「商品名」か「種類比較」を先に選んでね。');
+    return;
+  }
+
+  const productNameCandidate = $('productName').value.trim();
+  const typeNameCandidate = $('productTypeName').value.trim();
+  const name = kind === 'type' ? typeNameCandidate : productNameCandidate;
+  if (!name) {
+    alert(kind === 'type' ? '種類名を入力してね。' : '商品名を入力してね。');
+    return;
+  }
 
   if (!$('productReading').value.trim()) {
     const candidate = makeReadingCandidate(name);
@@ -3892,11 +4098,18 @@ function saveProductFromDialog() {
     const current = editProductId
       ? (productEditDraft?.id === editProductId ? productEditDraft : products.find(x => x.id === editProductId))
       : null;
-    amount = current?.kind === 'type' ? (current.amount ?? '') : (Number(current?.amount) > 0 ? Number(current.amount) : '');
-    unit = current?.kind === 'type' ? (current.unit || '') : (current?.unit || '');
+    amount = current?.kind === 'type' ? (current.amount ?? '') : '';
+    unit = current?.kind === 'type' ? (current.unit || '') : '';
   }
 
-  if (!name || (kind === 'product' && !(amount > 0))) return;
+  if (kind === 'product' && !(amount > 0)) {
+    alert('内容量を入力してね。');
+    return;
+  }
+
+  const defaultTax = Number($('productTax').value);
+  const savedAt = new Date().toISOString();
+  const nameCandidates = { product: productNameCandidate, type: typeNameCandidate };
 
   if (editProductId) {
     const persisted = products.find(x => x.id === editProductId);
@@ -3904,16 +4117,19 @@ function saveProductFromDialog() {
     if (target) {
       const previousKind = target.kind === 'type' ? 'type' : 'product';
       target.name = name;
+      target.nameCandidates = nameCandidates;
       target.reading = normalizeReadingInput($('productReading').value);
       target.kind = kind;
       target.amount = amount;
       target.unit = unit;
-      target.defaultTax = Number($('productTax').value);
+      target.defaultTax = defaultTax;
+      target.updatedAt = savedAt;
 
       if (previousKind !== kind && kind === 'type') {
         target.stores.forEach(row => {
           if (!(Number(row.amount) > 0)) row.amount = Number(target.amount) > 0 ? Number(target.amount) : '';
           if (!row.unit) row.unit = target.unit || '個';
+          row.updatedAt = savedAt;
         });
       }
 
@@ -3927,34 +4143,60 @@ function saveProductFromDialog() {
       }
     }
   } else {
-    const defaultTax = Number($('productTax').value);
+    const meaningfulRows = productDialogStores.filter(hasMeaningfulDialogStore);
+    const invalidStore = meaningfulRows.find(row => !String(row.store || '').trim());
+    if (invalidStore) {
+      alert('店舗・価格を登録する場合は店舗名を入力してね。');
+      return;
+    }
+
+    const barcode = kind === 'product'
+      ? normalizeBarcodeCode(productDialogBarcodeDraft?.barcode || '')
+      : '';
+    if (barcode) {
+      const existing = findProductByBarcode(barcode);
+      if (existing) {
+        alert(`このバーコードは「${existing.name}」で登録済みだよ。`);
+        return;
+      }
+    }
+
+    const stores = meaningfulRows.map(row => ({
+      id: makeId('s'),
+      store: String(row.store || '').trim(),
+      price: row.price ?? '',
+      priceType: row.priceType === 'inc' ? 'inc' : 'ex',
+      tax: Number.isFinite(Number(row.tax)) ? Number(row.tax) : defaultTax,
+      couponType: ['percent','yen'].includes(row.couponType) ? row.couponType : 'none',
+      couponValue: row.couponValue ?? '',
+      amount: kind === 'type' ? (Number(row.amount) > 0 ? Number(row.amount) : '') : amount,
+      unit: kind === 'type' ? String(row.unit || '個') : unit,
+      updatedAt: savedAt
+    }));
+
     const p = {
       id: makeId('p'),
+      barcode,
       name,
+      nameCandidates,
       reading: normalizeReadingInput($('productReading').value),
       kind,
       amount,
       unit,
       defaultTax,
+      updatedAt: savedAt,
       history: [],
-      stores: [{
-        id: makeId('s'),
-        store: '',
-        price: '',
-        priceType: settings.defaultPriceType,
-        tax: defaultTax,
-        couponType: 'none',
-        couponValue: '',
-        amount: kind === 'type' ? '' : amount,
-        unit: kind === 'type' ? '個' : unit
-      }]
+      stores
     };
     products.unshift(p);
     persistNow();
-    openProductId = p.id;
-    beginProductEdit(p.id);
+    openProductId = null;
+    productEditDraft = null;
+    productEditDirty = false;
+    showSaveToast(stores.length ? '商品と店舗情報を保存しました' : '商品を保存しました');
   }
 
+  productDialogBarcodeDraft = null;
   $('productDialog').close();
   render();
 }
@@ -4023,25 +4265,137 @@ function openSettings() {
   $('settingsDialog').showModal();
 }
 
-function exportBackup() {
-  const payload = {
-    app: 'PriceLog',
-    version: 2,
-    exportedAt: new Date().toISOString(),
-    settings,
-    products,
-    customTemplate,
-    shoppingMemoChecked: Array.from(shoppingMemoChecked)
+function storeDataSnapshot(row) {
+  return {
+    store: normalizeMergeText(row?.store),
+    price: numberOrBlank(row?.price ?? ''),
+    priceType: row?.priceType === 'inc' ? 'inc' : 'ex',
+    tax: Number.isFinite(Number(row?.tax)) ? Number(row.tax) : '',
+    couponType: ['percent','yen'].includes(row?.couponType) ? row.couponType : 'none',
+    couponValue: numberOrBlank(row?.couponValue ?? ''),
+    amount: numberOrBlank(row?.amount ?? ''),
+    unit: String(row?.unit || '').normalize('NFKC').trim()
   };
+}
+
+function sameStoreData(a, b) {
+  return JSON.stringify(storeDataSnapshot(a)) === JSON.stringify(storeDataSnapshot(b));
+}
+
+function productMetaSnapshot(product) {
+  return {
+    name: normalizeMergeText(product?.name),
+    reading: normalizeReadingInput(product?.reading || ''),
+    kind: product?.kind === 'type' ? 'type' : 'product',
+    barcode: normalizeBarcodeCode(product?.barcode || ''),
+    amount: numberOrBlank(product?.amount ?? ''),
+    unit: String(product?.unit || '').normalize('NFKC').trim(),
+    defaultTax: Number.isFinite(Number(product?.defaultTax)) ? Number(product.defaultTax) : ''
+  };
+}
+
+function sameProductMeta(a, b) {
+  return JSON.stringify(productMetaSnapshot(a)) === JSON.stringify(productMetaSnapshot(b));
+}
+
+function normalizeMergeText(value) {
+  return String(value || '').normalize('NFKC').trim().replace(/\s+/g, ' ').toLowerCase();
+}
+
+function productMergeKey(product) {
+  const kind = product?.kind === 'type' ? 'type' : 'product';
+  const barcode = kind === 'product' ? normalizeBarcodeCode(product?.barcode || '') : '';
+  if (barcode) return `jan:${barcode}`;
+  return `${kind}:${normalizeMergeText(product?.name)}`;
+}
+
+function findMatchingProduct(incoming) {
+  const incomingKind = incoming?.kind === 'type' ? 'type' : 'product';
+  const incomingBarcode = incomingKind === 'product' ? normalizeBarcodeCode(incoming?.barcode || '') : '';
+  if (incomingBarcode) {
+    const byBarcode = products.find(product =>
+      product.kind !== 'type' && normalizeBarcodeCode(product.barcode || '') === incomingBarcode
+    );
+    if (byBarcode) return byBarcode;
+  }
+  const key = productMergeKey(incoming);
+  return products.find(product => productMergeKey(product) === key) || null;
+}
+
+function formatUpdatedAt(value) {
+  const raw = normalizeIsoDate(value);
+  if (!raw) return '更新日時不明';
+  try {
+    return new Intl.DateTimeFormat('ja-JP', {
+      year:'numeric', month:'2-digit', day:'2-digit', hour:'2-digit', minute:'2-digit'
+    }).format(new Date(raw));
+  } catch {
+    return '更新日時不明';
+  }
+}
+
+function buildBackupPayload({ selectedProducts = null, mode = 'backup' } = {}) {
+  const targetProducts = selectedProducts
+    ? products.filter(product => selectedProducts.has(product.id))
+    : products;
+  const data = { products: structuredCloneSafe(targetProducts) };
+  if (mode === 'backup') {
+    data.settings = settings;
+    data.customTemplate = customTemplate;
+    data.shoppingMemoChecked = Array.from(shoppingMemoChecked);
+  }
+  return {
+    app: 'PriceLog',
+    appVersion: APP_VERSION,
+    schemaVersion: DATA_SCHEMA_VERSION,
+    mode,
+    exportedAt: new Date().toISOString(),
+    data
+  };
+}
+
+function downloadJsonPayload(payload, filename) {
   const blob = new Blob([JSON.stringify(payload, null, 2)], {type:'application/json'});
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
   a.href = url;
-  a.download = `PriceLog-backup-${new Date().toISOString().slice(0,10)}.json`;
+  a.download = filename;
   document.body.appendChild(a);
   a.click();
   a.remove();
-  URL.revokeObjectURL(url);
+  setTimeout(() => URL.revokeObjectURL(url), 0);
+}
+
+function exportBackup() {
+  const payload = buildBackupPayload();
+  downloadJsonPayload(payload, `PriceLog-backup-${new Date().toISOString().slice(0,10)}.json`);
+}
+
+function migrateBackupPayload(data) {
+  if (!data || typeof data !== 'object') throw new Error('invalid');
+  if (data.app && data.app !== 'PriceLog') throw new Error('invalid-app');
+
+  const schema = Number(data.schemaVersion ?? data.version ?? 2);
+  if (Number.isFinite(schema) && schema > DATA_SCHEMA_VERSION) {
+    const error = new Error('future-schema');
+    error.code = 'future-schema';
+    throw error;
+  }
+
+  // schema 3以降はdata配下。旧バックアップはルート直下をそのまま受ける。
+  const source = data.data && typeof data.data === 'object' ? data.data : data;
+  if (!Array.isArray(source.products)) throw new Error('invalid');
+
+  return {
+    ...source,
+    app: data.app || 'PriceLog',
+    appVersion: data.appVersion || '',
+    mode: data.mode || source.mode || 'backup',
+    exportedAt: data.exportedAt || source.exportedAt || '',
+    schemaVersion: Number.isFinite(schema) ? schema : 2,
+    products: normalizeProductsData(source.products),
+    settings: normalizeSettingsData(source.settings || settings)
+  };
 }
 
 function importBackup(e) {
@@ -4050,8 +4404,11 @@ function importBackup(e) {
   const reader = new FileReader();
   reader.onload = () => {
     try {
-      const data = JSON.parse(String(reader.result));
-      if (!Array.isArray(data.products)) throw new Error('invalid');
+      const data = migrateBackupPayload(JSON.parse(String(reader.result)));
+      if (data.mode === 'share') {
+        alert('これは家族共有用のファイルだよ。「共有データを追加する」から読み込んでね。');
+        return;
+      }
       settings = normalizeSettingsData(data.settings || {});
       products = normalizeProductsData(data.products);
       shoppingMemoChecked = new Set(Array.isArray(data.shoppingMemoChecked) ? data.shoppingMemoChecked.map(String) : []);
@@ -4068,13 +4425,353 @@ function importBackup(e) {
       updateTemplateSummary();
       $('settingsDialog').close();
       render();
-    } catch {
-      alert('バックアップファイルを読み込めなかったよ。');
+      showSaveToast('バックアップを復元しました');
+    } catch (err) {
+      if (err?.code === 'future-schema') {
+        alert('このバックアップは新しいPriceLogで作成されています。PriceLogを更新してから読み込んでね。');
+      } else {
+        alert('バックアップファイルを読み込めなかったよ。');
+      }
     } finally {
       e.target.value = '';
     }
   };
   reader.readAsText(file);
+}
+
+function openShareDialog() {
+  shareSelectedProducts = new Set();
+  $('shareSearch').value = '';
+  renderShareProductList();
+  $('shareDialog').showModal();
+}
+
+function closeShareDialog() {
+  if ($('shareDialog').open) $('shareDialog').close();
+}
+
+function visibleShareProducts() {
+  const q = normalizeMergeText($('shareSearch').value);
+  return products
+    .filter(product => !q || normalizeMergeText(product.name).includes(q) || normalizeMergeText(product.reading).includes(q))
+    .slice()
+    .sort(compareProducts);
+}
+
+function renderShareProductList() {
+  const list = $('shareProductList');
+  if (!list) return;
+  list.innerHTML = '';
+  const visible = visibleShareProducts();
+
+  visible.forEach(product => {
+    const label = document.createElement('label');
+    label.className = 'share-product-row';
+    const checkbox = document.createElement('input');
+    checkbox.type = 'checkbox';
+    checkbox.checked = shareSelectedProducts.has(product.id);
+    checkbox.addEventListener('change', () => {
+      if (checkbox.checked) shareSelectedProducts.add(product.id);
+      else shareSelectedProducts.delete(product.id);
+      updateShareSelectionSummary();
+    });
+    const body = document.createElement('span');
+    body.className = 'share-product-body';
+    const name = document.createElement('strong');
+    name.textContent = product.name;
+    const meta = document.createElement('small');
+    meta.textContent = `${product.kind === 'type' ? '種類比較' : '商品名'} ・ 店舗${(product.stores || []).filter(row => String(row.store || '').trim()).length}件 ・ ${formatUpdatedAt(product.updatedAt)}`;
+    body.append(name, meta);
+    label.append(checkbox, body);
+    list.appendChild(label);
+  });
+
+  if (!visible.length) {
+    const empty = document.createElement('div');
+    empty.className = 'empty';
+    empty.textContent = '該当する商品がないよ。';
+    list.appendChild(empty);
+  }
+  updateShareSelectionSummary();
+}
+
+function updateShareSelectionSummary() {
+  $('shareSelectionSummary').textContent = `選択中：${shareSelectedProducts.size}商品`;
+  $('btnCreateShareFile').disabled = shareSelectedProducts.size === 0;
+}
+
+function setVisibleShareSelection(selected) {
+  visibleShareProducts().forEach(product => {
+    if (selected) shareSelectedProducts.add(product.id);
+    else shareSelectedProducts.delete(product.id);
+  });
+  renderShareProductList();
+}
+
+async function shareSelectedData() {
+  if (!shareSelectedProducts.size) return;
+  const payload = buildBackupPayload({ selectedProducts: shareSelectedProducts, mode: 'share' });
+  const date = new Date().toISOString().slice(0,10);
+  const filename = `PriceLog-share-${date}.json`;
+  const json = JSON.stringify(payload, null, 2);
+  const blob = new Blob([json], {type:'application/json'});
+
+  try {
+    const file = new File([blob], filename, {type:'application/json'});
+    if (navigator.share && (!navigator.canShare || navigator.canShare({files:[file]}))) {
+      await navigator.share({
+        title: 'PriceLog共有データ',
+        text: `PriceLogの商品データ ${shareSelectedProducts.size}件`,
+        files: [file]
+      });
+      closeShareDialog();
+      showSaveToast('共有画面を開きました');
+      return;
+    }
+  } catch (err) {
+    if (err?.name === 'AbortError') return;
+  }
+
+  downloadJsonPayload(payload, filename);
+  closeShareDialog();
+  showSaveToast('共有ファイルを書き出しました');
+}
+
+function meaningfulShareRows(product) {
+  return (product?.stores || []).filter(row => String(row.store || '').trim() || row.price !== '');
+}
+
+function buildMergePlan(incomingProducts) {
+  const plan = {
+    incomingCount: incomingProducts.length,
+    newProducts: [],
+    newRows: [],
+    duplicates: 0,
+    conflicts: []
+  };
+
+  incomingProducts.forEach(incoming => {
+    const current = findMatchingProduct(incoming);
+    if (!current) {
+      plan.newProducts.push(incoming);
+      return;
+    }
+
+    if (!sameProductMeta(current, incoming)) {
+      plan.conflicts.push({
+        id: makeId('c'),
+        type: 'product',
+        productId: current.id,
+        incoming,
+        choice: 'current'
+      });
+    }
+
+    meaningfulShareRows(incoming).forEach(incomingRow => {
+      const storeKey = normalizeMergeText(incomingRow.store);
+      const currentRow = (current.stores || []).find(row => normalizeMergeText(row.store) === storeKey);
+      if (!currentRow) {
+        plan.newRows.push({ productId: current.id, incomingRow });
+        return;
+      }
+      if (sameStoreData(currentRow, incomingRow)) {
+        plan.duplicates += 1;
+        return;
+      }
+      plan.conflicts.push({
+        id: makeId('c'),
+        type: 'row',
+        productId: current.id,
+        rowId: currentRow.id,
+        incomingRow,
+        choice: 'current'
+      });
+    });
+  });
+
+  return plan;
+}
+
+function productMetaSummary(product) {
+  const kind = product?.kind === 'type' ? '種類比較' : '商品名';
+  const amount = Number(product?.amount) > 0 ? `${fmt(product.amount)}${product.unit || ''}` : '容量未設定';
+  return `${kind} / ${amount} / 税率${Number(product?.defaultTax) || 0}%`;
+}
+
+function storeDataSummary(row) {
+  const price = row?.price === '' ? '価格未設定' : `${fmt(Number(row.price) || 0)}円${row?.priceType === 'inc' ? '(税込)' : '(税抜)'}`;
+  const coupon = row?.couponType === 'percent'
+    ? ` / ${fmt(Number(row.couponValue) || 0)}%OFF`
+    : row?.couponType === 'yen'
+      ? ` / ${fmt(Number(row.couponValue) || 0)}円引`
+      : '';
+  const quantity = Number(row?.amount) > 0 ? ` / ${fmt(row.amount)}${row.unit || ''}` : '';
+  return `${price} / 税率${Number(row?.tax) || 0}%${coupon}${quantity}`;
+}
+
+function importSharedData(e) {
+  const file = e.target.files?.[0];
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = () => {
+    try {
+      const data = migrateBackupPayload(JSON.parse(String(reader.result)));
+      pendingMergePlan = buildMergePlan(data.products);
+      renderMergeDialog();
+      if ($('settingsDialog').open) $('settingsDialog').close();
+      $('mergeDialog').showModal();
+    } catch (err) {
+      if (err?.code === 'future-schema') {
+        alert('この共有データは新しいPriceLogで作成されています。PriceLogを更新してから読み込んでね。');
+      } else {
+        alert('共有データを読み込めなかったよ。');
+      }
+    } finally {
+      e.target.value = '';
+    }
+  };
+  reader.readAsText(file);
+}
+
+function renderMergeDialog() {
+  const plan = pendingMergePlan;
+  if (!plan) return;
+  $('mergeSummary').innerHTML = `
+    <strong>${plan.incomingCount}商品を確認</strong>
+    <div class="merge-count-grid">
+      <span>新規商品 <b>${plan.newProducts.length}</b></span>
+      <span>新規店舗情報 <b>${plan.newRows.length}</b></span>
+      <span>同一データ <b>${plan.duplicates}</b></span>
+      <span>競合 <b>${plan.conflicts.length}</b></span>
+    </div>`;
+
+  $('mergeConflictTools').classList.toggle('hidden', plan.conflicts.length === 0);
+  const list = $('mergeConflictList');
+  list.innerHTML = '';
+
+  plan.conflicts.forEach(conflict => {
+    const currentProduct = products.find(product => product.id === conflict.productId);
+    if (!currentProduct) return;
+    const currentRow = conflict.type === 'row'
+      ? currentProduct.stores.find(row => row.id === conflict.rowId)
+      : null;
+    const incoming = conflict.type === 'row' ? conflict.incomingRow : conflict.incoming;
+    const current = conflict.type === 'row' ? currentRow : currentProduct;
+
+    const card = document.createElement('div');
+    card.className = 'merge-conflict-card';
+    const title = document.createElement('strong');
+    title.textContent = conflict.type === 'row'
+      ? `${currentProduct.name} / ${currentRow?.store || incoming?.store || '店舗'}`
+      : `${currentProduct.name} / 商品情報`;
+    card.appendChild(title);
+
+    const choices = document.createElement('div');
+    choices.className = 'merge-choice-grid';
+    [['current','現在のデータ',current],['shared','共有されたデータ',incoming]].forEach(([value,labelText,data]) => {
+      const label = document.createElement('label');
+      label.className = 'merge-choice';
+      const radio = document.createElement('input');
+      radio.type = 'radio';
+      radio.name = `merge_${conflict.id}`;
+      radio.value = value;
+      radio.checked = conflict.choice === value;
+      radio.addEventListener('change', () => { if (radio.checked) conflict.choice = value; });
+      const body = document.createElement('span');
+      const head = document.createElement('b');
+      head.textContent = labelText;
+      const desc = document.createElement('span');
+      desc.textContent = conflict.type === 'row' ? storeDataSummary(data) : productMetaSummary(data);
+      const date = document.createElement('small');
+      date.textContent = formatUpdatedAt(data?.updatedAt);
+      body.append(head, desc, date);
+      label.append(radio, body);
+      choices.appendChild(label);
+    });
+    card.appendChild(choices);
+    list.appendChild(card);
+  });
+
+  if (!plan.conflicts.length) {
+    const message = document.createElement('div');
+    message.className = 'merge-no-conflict';
+    message.textContent = '競合はないよ。差分だけそのまま追加できる。';
+    list.appendChild(message);
+  }
+}
+
+function setAllConflictChoices(choice) {
+  if (!pendingMergePlan) return;
+  pendingMergePlan.conflicts.forEach(conflict => conflict.choice = choice);
+  renderMergeDialog();
+}
+
+function closeMergeDialog() {
+  pendingMergePlan = null;
+  if ($('mergeDialog').open) $('mergeDialog').close();
+}
+
+function cloneIncomingProductForLocal(incoming) {
+  const copy = structuredCloneSafe(incoming);
+  copy.id = makeId('p');
+  copy.stores = meaningfulShareRows(copy).map(row => ({...row, id: makeId('s')}));
+  copy.history = Array.isArray(copy.history) ? copy.history.map(item => ({...item, id: makeId('h')})).slice(0,20) : [];
+  return copy;
+}
+
+function applyIncomingProductMeta(target, incoming) {
+  target.name = incoming.name;
+  target.nameCandidates = normalizeNameCandidates(incoming.nameCandidates, incoming.kind, incoming.name);
+  target.reading = incoming.reading;
+  target.kind = incoming.kind === 'type' ? 'type' : 'product';
+  target.barcode = target.kind === 'product' ? normalizeBarcodeCode(incoming.barcode || '') : '';
+  target.amount = incoming.amount;
+  target.unit = incoming.unit;
+  target.defaultTax = incoming.defaultTax;
+  target.updatedAt = incoming.updatedAt || new Date().toISOString();
+}
+
+function applyPendingMerge() {
+  const plan = pendingMergePlan;
+  if (!plan) return;
+  const appliedAt = new Date().toISOString();
+
+  plan.newProducts.forEach(incoming => products.push(cloneIncomingProductForLocal(incoming)));
+
+  plan.newRows.forEach(item => {
+    const product = products.find(p => p.id === item.productId);
+    if (!product) return;
+    const row = structuredCloneSafe(item.incomingRow);
+    row.id = makeId('s');
+    row.updatedAt = row.updatedAt || appliedAt;
+    product.stores.push(row);
+    product.updatedAt = appliedAt;
+  });
+
+  plan.conflicts.forEach(conflict => {
+    if (conflict.choice !== 'shared') return;
+    const product = products.find(p => p.id === conflict.productId);
+    if (!product) return;
+    if (conflict.type === 'product') {
+      applyIncomingProductMeta(product, conflict.incoming);
+      return;
+    }
+    const row = product.stores.find(r => r.id === conflict.rowId);
+    if (!row) return;
+    const incoming = conflict.incomingRow;
+    const keepId = row.id;
+    Object.assign(row, structuredCloneSafe(incoming), { id: keepId });
+    row.updatedAt = incoming.updatedAt || appliedAt;
+    product.updatedAt = appliedAt;
+  });
+
+  products = normalizeProductsData(products);
+  persistNow();
+  render();
+  const addedCount = plan.newProducts.length + plan.newRows.length;
+  const sharedConflictCount = plan.conflicts.filter(conflict => conflict.choice === 'shared').length;
+  closeMergeDialog();
+  showSaveToast(`差分${addedCount}件・競合反映${sharedConflictCount}件を追加しました`);
 }
 
 function numberOrBlank(v) {
