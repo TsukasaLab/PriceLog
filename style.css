@@ -1306,7 +1306,7 @@ main{padding:10px 8px 14px}
   .store-illustration svg{width:31px;height:31px}
 }
 
-/* Ver.0.59: 商品追加・共有・スマホ2行店舗レイアウト */
+/* Ver.0.60: 商品追加・共有・スマホ3行店舗レイアウト */
 .st-result-cell{display:contents}
 .product-kind-choice{border:0;padding:0;margin:0 0 10px;display:grid;grid-template-columns:1fr 1fr;gap:7px}
 .product-kind-choice legend{grid-column:1/-1;font-size:12px;font-weight:700;color:var(--text);margin-bottom:2px}
@@ -1350,24 +1350,36 @@ main{padding:10px 8px 14px}
   .quick-store-options{grid-template-columns:1fr .72fr 1fr .72fr}
   .merge-choice-grid{grid-template-columns:1fr}
 
-  /* 横スクロールを廃止。1店舗を上下2段で完結させる。 */
+  /* 横スクロールを廃止。1店舗を3行で完結させる。
+     1行目: 最安アイコン / 店舗名 / 量 / 単位
+     2行目: 値段 / 税込・税抜 / 税率 / クーポン有無 / クーポン内容
+     3行目: 演算結果（右詰め） */
   .store-scroll{overflow:visible!important;padding-bottom:0!important}
   .store-table{min-width:0!important;width:100%!important}
   .store-head{display:none!important}
   .store-row{
     min-width:0!important;
     display:grid!important;
-    grid-template-columns:42px 46px 60px 46px minmax(68px,1fr) 28px!important;
+    grid-template-columns:42px 64px 48px 54px 72px minmax(54px,1fr) 28px!important;
     grid-template-areas:
-      "mark store store store price delete"
-      "ptype tax coupon cvalue result result";
-    gap:5px 4px!important;
+      "mark store store store store store delete"
+      "price price ptype tax coupon cvalue cvalue"
+      "result result result result result result result";
+    row-gap:5px!important;
+    column-gap:4px!important;
     align-items:center;
     padding:7px 2px!important;
   }
   .store-row .best-mark{grid-area:mark;min-width:0!important;justify-content:flex-start}
-  .store-row .st-store-cell{grid-area:store;min-width:0;display:flex;flex-direction:row;gap:4px;align-items:center}
-  .store-row .st-store-cell>.st-store{min-width:0;flex:1}
+  .store-row .st-store-cell{
+    grid-area:store;
+    min-width:0;
+    display:grid;
+    grid-template-columns:minmax(0,1fr) auto;
+    gap:4px;
+    align-items:center;
+  }
+  .store-row .st-store-cell>.st-store{min-width:0;width:100%}
   .store-row .st-quantity-fields{display:grid;grid-template-columns:52px 48px;gap:3px;flex:none}
   .store-row .st-quantity-fields.hidden{display:none!important}
   .store-row .st-price{grid-area:price}
@@ -1375,8 +1387,26 @@ main{padding:10px 8px 14px}
   .store-row .st-tax{grid-area:tax}
   .store-row .st-coupon-type{grid-area:coupon}
   .store-row .st-coupon-value{grid-area:cvalue}
-  .store-row .st-result-cell{grid-area:result;display:flex;min-width:0;flex-direction:column;align-items:flex-end;justify-content:center;line-height:1.15}
-  .store-row .st-price-result,.store-row .st-unit{max-width:100%;font-size:9px!important;white-space:nowrap;overflow:hidden!important;text-overflow:ellipsis!important;text-align:right}
+  .store-row .st-result-cell{
+    grid-area:result;
+    display:flex;
+    min-width:0;
+    flex-direction:row;
+    align-items:center;
+    justify-content:flex-end;
+    gap:8px;
+    line-height:1.15;
+    padding-right:2px;
+    text-align:right;
+  }
+  .store-row .st-price-result,.store-row .st-unit{
+    max-width:100%;
+    font-size:10px!important;
+    white-space:nowrap;
+    overflow:visible!important;
+    text-overflow:clip!important;
+    text-align:right;
+  }
   .store-row .st-delete{grid-area:delete;width:28px!important;height:32px!important}
   .store-row input,.store-row select{height:32px!important;font-size:11px!important}
   .store-row .st-quantity-fields input,.store-row .st-quantity-fields select{height:32px!important;font-size:10px!important}
@@ -1384,6 +1414,124 @@ main{padding:10px 8px 14px}
 @media(max-width:380px){
   .kind-choice-card{padding:7px 6px}.kind-choice-card small{font-size:9px}
   .quick-store-options{grid-template-columns:1fr 1fr}.quick-store-options label:nth-child(3),.quick-store-options label:nth-child(4){margin-top:2px}
-  .store-row{grid-template-columns:38px 42px 54px 42px minmax(62px,1fr) 26px!important;column-gap:3px!important}
-  .store-row .st-quantity-fields{grid-template-columns:47px 44px}
+  .store-row{grid-template-columns:38px 54px 42px 48px 66px minmax(48px,1fr) 26px!important;column-gap:3px!important}
+  .store-row .st-quantity-fields{grid-template-columns:42px 36px}
+  .store-row .st-result-cell{gap:5px}
+  .store-row .st-price-result,.store-row .st-unit{font-size:9px!important}
+}
+
+
+/* Ver.0.61: スマホ店舗詳細を「左アイコン + 3行カード」に整理 */
+.store-mobile-head{display:none}
+@media(max-width:650px){
+  .store-list{display:flex;flex-direction:column;gap:7px}
+  .store-mobile-head{
+    display:grid;
+    grid-template-columns:42px minmax(0,1.15fr) minmax(0,.9fr) minmax(0,.85fr) minmax(0,1.1fr) minmax(0,.95fr) 24px;
+    grid-template-areas:
+      "blank hstore hstore hstore hstore hstore hdelete"
+      "blank hprice hptype htax hcoupon hcvalue hcvalue"
+      "blank hresult hresult hresult hresult hresult hresult";
+    row-gap:4px;
+    column-gap:4px;
+    align-items:center;
+    margin:0 2px 5px;
+    padding:0;
+  }
+  .store-mobile-head .mobile-mark-head{grid-area:blank}
+  .store-mobile-head .mobile-head-store-cell{
+    grid-area:hstore;
+    display:grid;
+    grid-template-columns:minmax(0,1fr) auto;
+    gap:4px;
+    align-items:center;
+    min-width:0;
+  }
+  .store-mobile-head .mobile-head-quantity{display:none;grid-template-columns:46px 40px;gap:3px}
+  .store-table.is-type .store-mobile-head .mobile-head-quantity{display:grid}
+  .store-mobile-head .mh-delete{grid-area:hdelete}
+  .store-mobile-head .mh-price{grid-area:hprice}
+  .store-mobile-head .mh-ptype{grid-area:hptype}
+  .store-mobile-head .mh-tax{grid-area:htax}
+  .store-mobile-head .mh-coupon{grid-area:hcoupon}
+  .store-mobile-head .mh-cvalue{grid-area:hcvalue}
+  .store-mobile-head .mh-result{grid-area:hresult;text-align:right;padding-right:3px}
+  .mobile-head-label{
+    display:flex;
+    align-items:center;
+    justify-content:center;
+    min-width:0;
+    height:22px;
+    padding:0 3px;
+    border:1px solid #dfcfb7;
+    border-radius:7px;
+    background:#f3eadc;
+    color:#776657;
+    font-size:9px;
+    font-weight:700;
+    line-height:1;
+    white-space:nowrap;
+  }
+  .mobile-head-store-cell>.mh-store{justify-content:flex-start;padding-left:7px}
+
+  .store-row{
+    position:relative;
+    grid-template-columns:42px minmax(0,1.15fr) minmax(0,.9fr) minmax(0,.85fr) minmax(0,1.1fr) minmax(0,.95fr) 24px!important;
+    grid-template-areas:
+      "mark store store store store store delete"
+      "mark price ptype tax coupon cvalue cvalue"
+      "mark result result result result result result"!important;
+    row-gap:5px!important;
+    column-gap:4px!important;
+    padding:7px 2px!important;
+    border-top:0!important;
+    isolation:isolate;
+  }
+  .store-row::before{
+    content:"";
+    position:absolute;
+    z-index:-1;
+    top:2px;
+    right:0;
+    bottom:2px;
+    left:44px;
+    border:1px solid #e2d2bb;
+    border-radius:16px;
+    background:rgba(255,253,247,.96);
+    box-shadow:0 2px 7px rgba(99,76,48,.055);
+  }
+  .store-row .best-mark{
+    grid-area:mark;
+    align-self:stretch;
+    min-width:0!important;
+    display:flex;
+    align-items:center;
+    justify-content:center!important;
+    padding:0 3px;
+  }
+  .store-row .best-mark .price-badge{max-width:40px}
+  .store-row .st-store-cell,
+  .store-row .st-price,
+  .store-row .st-price-type,
+  .store-row .st-tax,
+  .store-row .st-coupon-type,
+  .store-row .st-coupon-value,
+  .store-row .st-result-cell,
+  .store-row .st-delete{position:relative;z-index:1}
+  .store-row .st-store-cell{padding-left:4px}
+  .store-row .st-quantity-fields{grid-template-columns:46px 40px}
+  .store-row .st-delete{margin-right:3px}
+  .store-row .st-result-cell{padding:0 7px 0 4px}
+}
+@media(max-width:380px){
+  .store-mobile-head,
+  .store-row{
+    grid-template-columns:38px minmax(0,1.12fr) minmax(0,.88fr) minmax(0,.82fr) minmax(0,1.08fr) minmax(0,.9fr) 22px!important;
+    column-gap:3px!important;
+  }
+  .store-mobile-head .mobile-head-quantity,
+  .store-table.is-type .store-mobile-head .mobile-head-quantity{grid-template-columns:42px 36px}
+  .store-row .st-quantity-fields{grid-template-columns:42px 36px}
+  .store-row::before{left:40px}
+  .mobile-head-label{font-size:8px;padding:0 2px}
 }

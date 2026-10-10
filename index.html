@@ -7,14 +7,14 @@
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="default">
   <title>PriceLog</title>
-  <link rel="manifest" href="./manifest.webmanifest?v=0.59">
+  <link rel="manifest" href="./manifest.webmanifest?v=0.61">
   <link rel="apple-touch-icon" href="./icon-192-v058.png">
-  <link rel="stylesheet" href="./style.css?v=0.59">
+  <link rel="stylesheet" href="./style.css?v=0.61">
 </head>
 <body>
   <header class="topbar">
     <div>
-      <strong>PriceLog</strong> <small class="app-version">Ver.0.59</small>
+      <strong>PriceLog</strong> <small class="app-version">Ver.0.61</small>
     </div>
     <div class="top-actions">
       <button id="btnSettings" class="icon-btn" type="button" aria-label="設定">⚙</button>
@@ -516,6 +516,23 @@
             <div class="store-head">
               <span class="mark-head"></span><span>店舗</span><span>入力価格</span><span>税込</span><span>税率</span><span>クーポン</span><span>値</span><span>価格(クーポン適用)</span><span>単価(クーポン適用)</span><span></span>
             </div>
+            <div class="store-mobile-head" aria-hidden="true">
+              <span class="mobile-mark-head"></span>
+              <div class="mobile-head-store-cell">
+                <span class="mobile-head-label mh-store">店舗</span>
+                <div class="mobile-head-quantity">
+                  <span class="mobile-head-label">量</span>
+                  <span class="mobile-head-label">単位</span>
+                </div>
+              </div>
+              <span class="mh-delete"></span>
+              <span class="mobile-head-label mh-price">値段</span>
+              <span class="mobile-head-label mh-ptype">税込/抜</span>
+              <span class="mobile-head-label mh-tax">税率</span>
+              <span class="mobile-head-label mh-coupon">クーポン</span>
+              <span class="mobile-head-label mh-cvalue">内容</span>
+              <span class="mobile-head-label mh-result">演算結果</span>
+            </div>
             <div class="store-list"></div>
           </div>
         </div>
@@ -565,7 +582,7 @@
 
   <div id="saveToast" class="save-toast hidden" role="status" aria-live="polite">保存しました</div>
 
-  <script src="./app.js?v=0.59"></script>
-  <script src="./ads.js?v=0.59"></script>
+  <script src="./app.js?v=0.61"></script>
+  <script src="./ads.js?v=0.61"></script>
 </body>
 </html>

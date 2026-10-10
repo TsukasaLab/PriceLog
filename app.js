@@ -8,7 +8,7 @@ const TEMPLATE_KEY = 'pricelog_custom_template_v1';
 const YAHOO_PRODUCT_CACHE_KEY = 'pricelog_yahoo_product_cache_v1';
 const SHOPPING_MEMO_KEY = 'pricelog_shopping_memo_v1';
 const V051_SETTINGS_MIGRATION_KEY = 'pricelog_v051_settings_migrated';
-const APP_VERSION = '0.59';
+const APP_VERSION = '0.61';
 const DATA_SCHEMA_VERSION = 3;
 
 const YAHOO_WORKER_URL = 'https://pricelog-yahoo.pricelog-api.workers.dev';
@@ -392,7 +392,7 @@ window.addEventListener('beforeunload', (e) => {
 });
 
 if ('serviceWorker' in navigator) {
-  window.addEventListener('load', () => navigator.serviceWorker.register('./sw.js?v=0.59').catch(() => {}));
+  window.addEventListener('load', () => navigator.serviceWorker.register('./sw.js?v=0.61').catch(() => {}));
 }
 
 function loadJson(key, fallback) {
@@ -724,6 +724,10 @@ function render() {
           rows?.[rows.length - 1]?.querySelector('.st-store')?.focus();
         });
       });
+
+      const storeTable = node.querySelector('.store-table');
+      storeTable?.classList.toggle('is-type', draft.kind === 'type');
+      node.querySelector('.store-mobile-head')?.classList.toggle('hidden', !draft.stores.length);
 
       const storeList = node.querySelector('.store-list');
       draft.stores.forEach(row => {
