@@ -8,7 +8,7 @@ const TEMPLATE_KEY = 'pricelog_custom_template_v1';
 const YAHOO_PRODUCT_CACHE_KEY = 'pricelog_yahoo_product_cache_v1';
 const SHOPPING_MEMO_KEY = 'pricelog_shopping_memo_v1';
 const V051_SETTINGS_MIGRATION_KEY = 'pricelog_v051_settings_migrated';
-const APP_VERSION = '0.79';
+const APP_VERSION = '0.80';
 const DATA_SCHEMA_VERSION = 3;
 
 const YAHOO_WORKER_URL = 'https://pricelog-yahoo.pricelog-api.workers.dev';
@@ -1380,7 +1380,7 @@ function updateShelfCompareSuggestions() {
     }
     names.sort((a, b) => a.localeCompare(b, 'ja'));
     typeSelect.innerHTML = '<option value="">選択</option>' + names
-      .map(name => `<option value="${escapeAttr(name)}">${escapeHtml(name)}</option>`)
+      .map(name => `<option value="${escapeAttr(name)}">${escapeAttr(name)}</option>`)
       .join('');
     typeSelect.value = names.includes(current) ? current : '';
   }
@@ -1401,7 +1401,7 @@ function updateShelfCompareSuggestions() {
     }
     stores.sort((a, b) => a.localeCompare(b, 'ja'));
     storeSelect.innerHTML = '<option value="">選択</option>' + stores
-      .map(name => `<option value="${escapeAttr(name)}">${escapeHtml(name)}</option>`)
+      .map(name => `<option value="${escapeAttr(name)}">${escapeAttr(name)}</option>`)
       .join('');
     storeSelect.value = stores.includes(current) ? current : '';
   }
