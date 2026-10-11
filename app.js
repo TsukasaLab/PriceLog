@@ -7,7 +7,6 @@ const INITIALIZED_KEY = 'pricelog_initialized_v1';
 const TEMPLATE_KEY = 'pricelog_custom_template_v1';
 const YAHOO_PRODUCT_CACHE_KEY = 'pricelog_yahoo_product_cache_v1';
 const SHOPPING_MEMO_KEY = 'pricelog_shopping_memo_v1';
-const SHELF_COMPARE_LAST_STORE_KEY = 'pricelog_shelf_compare_last_store_v1';
 const V051_SETTINGS_MIGRATION_KEY = 'pricelog_v051_settings_migrated';
 const APP_VERSION = '0.69';
 const DATA_SCHEMA_VERSION = 3;
@@ -60,7 +59,7 @@ let bulkMode = false;
 let bulkSelected = new Set();
 let storePurchaseMode = false;
 let shelfCompareMode = false;
-let shelfCompareCandidates = [makeShelfCompareCandidate()];
+let shelfCompareRows = [];
 let openStoreName = null;
 let shoppingMemoFilters = new Map();
 let shoppingMemoChecked = new Set((loadJson(SHOPPING_MEMO_KEY, []) || []).map(String));
@@ -182,18 +181,11 @@ $('btnSaveTemplate').addEventListener('click', saveTemplateDraft);
 $('btnExportTemplateFile').addEventListener('click', exportTemplateFile);
 $('btnStorePurchase').addEventListener('click', () => setStorePurchaseMode(!storePurchaseMode));
 $('btnShelfCompare').addEventListener('click', () => setShelfCompareMode(!shelfCompareMode));
+$('btnAddShelfCompare').addEventListener('click', addShelfCompareRow);
+$('btnClearShelfCompare').addEventListener('click', clearShelfCompare);
+$('shelfCompareType').addEventListener('input', renderShelfCompare);
+$('shelfCompareStore').addEventListener('input', renderShelfCompare);
 $('storePurchaseSearch').addEventListener('input', renderStorePurchaseView);
-$('shelfCompareTypeName').addEventListener('input', updateShelfCompareRegistrationStatus);
-$('shelfCompareStoreName').addEventListener('input', () => {
-  const value = $('shelfCompareStoreName').value.trim();
-  if (value) localStorage.setItem(SHELF_COMPARE_LAST_STORE_KEY, value);
-  updateShelfCompareRegistrationStatus();
-});
-$('btnAddShelfCandidate').addEventListener('click', () => {
-  shelfCompareCandidates.push(makeShelfCompareCandidate());
-  renderShelfCompareCandidates();
-});
-$('btnSaveShelfCompare').addEventListener('click', saveShelfCompareSelection);
 $('btnDeleteAllProducts').addEventListener('click', deleteAllProducts);
 $('btnSettings').addEventListener('click', openSettings);
 $('btnToggleYahooClientId').addEventListener('click', toggleYahooClientIdVisibility);
@@ -491,7 +483,7 @@ function normalizeProductsData(list) {
           ...row,
           id: String(row.id || makeId('s')),
           store: String(row.store || ''),
-          itemInfo: String(row.itemInfo || ''),
+          productInfo: String(row.productInfo || ''),
           price: row.price ?? '',
           priceType: row.priceType === 'inc' ? 'inc' : 'ex',
           tax: Number.isFinite(Number(row.tax)) ? Number(row.tax) : Number(product.defaultTax ?? settings.reducedTax),
@@ -625,28 +617,20 @@ function deleteProductFromDetail(productId) {
 function render() {
   const q = $('searchInput').value.trim().toLowerCase();
 
-  const alternateView = storePurchaseMode || shelfCompareMode;
-  document.body.classList.toggle('focus-mode', !!openProductId && !alternateView);
+  document.body.classList.toggle('focus-mode', !!openProductId && !storePurchaseMode && !shelfCompareMode);
 
   $('storePurchaseView').classList.toggle('hidden', !storePurchaseMode);
   $('shelfCompareView').classList.toggle('hidden', !shelfCompareMode);
-  $('productList').classList.toggle('hidden', alternateView);
-  $('searchInput').closest('.searchbar').classList.toggle('hidden', alternateView);
-  $('btnBulkStore').classList.toggle('hidden', alternateView);
+  $('productList').classList.toggle('hidden', storePurchaseMode || shelfCompareMode);
+  $('searchInput').closest('.searchbar').classList.toggle('hidden', storePurchaseMode || shelfCompareMode);
+  $('btnBulkStore').classList.toggle('hidden', storePurchaseMode || shelfCompareMode);
   const productListHead = $('productListHead');
-  if (productListHead) productListHead.classList.toggle('hidden', alternateView);
+  if (productListHead) productListHead.classList.toggle('hidden', storePurchaseMode || shelfCompareMode);
 
   if (storePurchaseMode) {
     $('emptyState').classList.add('hidden');
     $('bulkStoreBar').classList.add('hidden');
     renderStorePurchaseView();
-    return;
-  }
-
-  if (shelfCompareMode) {
-    $('emptyState').classList.add('hidden');
-    $('bulkStoreBar').classList.add('hidden');
-    renderShelfCompareView();
     return;
   }
 
@@ -749,7 +733,6 @@ function render() {
         draft.stores.push({
           id: makeId('s'),
           store: '',
-          itemInfo: '',
           price: '',
           priceType: settings.defaultPriceType,
           tax: draft.defaultTax,
@@ -846,7 +829,7 @@ function renderStoreRow(product, row, bestFlags = {before:false, after:false}) {
   applyBestFlags(el, bestMark, bestFlags);
 
   const store = el.querySelector('.st-store');
-  const itemInfo = el.querySelector('.st-item-info');
+  const productInfo = el.querySelector('.st-product-info');
   const price = el.querySelector('.st-price');
   const priceType = el.querySelector('.st-price-type');
   const tax = el.querySelector('.st-tax');
@@ -859,7 +842,7 @@ function renderStoreRow(product, row, bestFlags = {before:false, after:false}) {
   const unitOut = el.querySelector('.st-unit');
 
   store.value = row.store ?? '';
-  itemInfo.value = row.itemInfo ?? '';
+  productInfo.value = row.productInfo ?? '';
   price.value = row.price ?? '';
   priceType.value = row.priceType === 'inc' ? 'inc' : 'ex';
   tax.innerHTML = taxOptions(row.tax ?? product.defaultTax);
@@ -872,7 +855,7 @@ function renderStoreRow(product, row, bestFlags = {before:false, after:false}) {
 
   const isType = product.kind === 'type';
   quantityFields.classList.toggle('hidden', !isType);
-  itemInfo.classList.toggle('hidden', !isType);
+  productInfo.classList.toggle('hidden', !isType);
   if (isType) {
     amount.value = Number(row.amount) > 0 ? row.amount : (product.amount || 1);
     setSelectValueWithOption(unitSelect, row.unit || product.unit || '個');
@@ -895,7 +878,7 @@ function renderStoreRow(product, row, bestFlags = {before:false, after:false}) {
 
   function sync() {
     row.store = store.value.trim();
-    row.itemInfo = isType ? itemInfo.value.trim() : '';
+    row.productInfo = isType ? productInfo.value.trim() : '';
     row.price = numberOrBlank(price.value);
     row.priceType = priceType.value;
     row.tax = Number(tax.value);
@@ -910,7 +893,7 @@ function renderStoreRow(product, row, bestFlags = {before:false, after:false}) {
     refreshBestOnly(product.id);
   }
 
-  [store, itemInfo, price, priceType, tax, couponType, couponValue, amount, unitSelect].forEach(ctrl => {
+  [store, productInfo, price, priceType, tax, couponType, couponValue, amount, unitSelect].forEach(ctrl => {
     if (!ctrl) return;
     ctrl.addEventListener('input', sync);
     ctrl.addEventListener('change', sync);
@@ -1182,6 +1165,89 @@ function formatHistoryDate(iso) {
   return `${y}/${m}/${day} ${h}:${min}`;
 }
 
+function setShelfCompareMode(enabled) {
+  shelfCompareMode = !!enabled;
+  if (shelfCompareMode) {
+    storePurchaseMode = false;
+    openProductId = null;
+    setBulkMode(false);
+    if (!shelfCompareRows.length) addShelfCompareRow(false);
+  }
+  render();
+  renderShelfCompare();
+}
+
+function makeShelfCompareRow() {
+  return { id: makeId('sc'), productInfo: '', price: '', amount: '', unit: 'g', priceType: settings.defaultPriceType, tax: settings.reducedTax };
+}
+
+function addShelfCompareRow(shouldRender = true) {
+  shelfCompareRows.push(makeShelfCompareRow());
+  if (shouldRender) renderShelfCompare();
+}
+
+function clearShelfCompare() {
+  if (shelfCompareRows.some(r => r.productInfo || r.price !== '' || r.amount !== '') && !window.confirm('売り場比較の入力内容をクリアしますか？')) return;
+  shelfCompareRows = [makeShelfCompareRow()];
+  $('shelfCompareType').value = '';
+  $('shelfCompareStore').value = '';
+  renderShelfCompare();
+}
+
+function shelfCompareCalc(row) {
+  const price = Number(row.price), amount = Number(row.amount), tax = Number(row.tax);
+  if (!(price >= 0) || !(amount > 0)) return null;
+  const gross = row.priceType === 'inc' ? price : price * (1 + (Number.isFinite(tax) ? tax : 0) / 100);
+  return { gross, unitPrice: gross / amount };
+}
+
+function registerShelfCompareRow(row) {
+  const typeName = $('shelfCompareType').value.trim();
+  const storeName = $('shelfCompareStore').value.trim();
+  if (!typeName) return alert('比較する種類を入力してね。');
+  if (!storeName) return alert('店舗を入力してね。');
+  if (!shelfCompareCalc(row)) return alert('価格と内容量を入力してね。');
+  let product = products.find(p => p.kind === 'type' && normalizeMergeText(p.name) === normalizeMergeText(typeName));
+  const now = new Date().toISOString();
+  if (!product) {
+    product = { id: makeId('p'), kind:'type', name:typeName, nameCandidates:{product:'',type:typeName}, reading:makeReadingCandidate(typeName)||'', amount:'', unit:'', defaultTax:Number(row.tax), updatedAt:now, history:[], stores:[] };
+    products.push(product);
+  }
+  product.stores.push({ id:makeId('s'), store:storeName, productInfo:String(row.productInfo||'').trim(), price:Number(row.price), priceType:row.priceType, tax:Number(row.tax), couponType:'none', couponValue:'', amount:Number(row.amount), unit:row.unit||'個', updatedAt:now });
+  product.updatedAt = now;
+  products = normalizeProductsData(products);
+  persistNow();
+  showToast('PriceLogに登録しました');
+}
+
+function renderShelfCompare() {
+  const container = $('shelfCompareList');
+  if (!container) return;
+  container.innerHTML = '';
+  if (!shelfCompareRows.length) shelfCompareRows = [makeShelfCompareRow()];
+  const valid = shelfCompareRows.map(r => ({r, calc:shelfCompareCalc(r)})).filter(x => x.calc);
+  const best = valid.length ? Math.min(...valid.map(x => x.calc.unitPrice)) : null;
+  shelfCompareRows.forEach((row, index) => {
+    const calc = shelfCompareCalc(row);
+    const card = document.createElement('div');
+    card.className = 'shelf-compare-card' + (calc && best !== null && Math.abs(calc.unitPrice-best) < 1e-9 ? ' is-best' : '');
+    card.innerHTML = `<div class="shelf-compare-card-head"><span class="shelf-best">${calc && best !== null && Math.abs(calc.unitPrice-best)<1e-9 ? '最安' : ''}</span><strong>比較商品 ${index+1}</strong><button class="shelf-remove" type="button" aria-label="削除">×</button></div>
+      <label>商品情報<input class="sc-info" type="text" maxlength="80" placeholder="メーカー・ブランド・商品名など"></label>
+      <div class="shelf-compare-inputs"><label>価格<span class="unit-input"><input class="sc-price" type="text" inputmode="decimal" placeholder="価格"><span class="input-unit-suffix">円</span></span></label><label>内容量<input class="sc-amount" type="text" inputmode="decimal" placeholder="内容量"></label><label>単位<select class="sc-unit"><option>g</option><option>ml</option><option>m</option><option>個</option><option>枚</option><option>粒</option><option>本</option><option>袋</option><option>箱</option><option>パック</option><option>缶</option><option>瓶</option></select></label></div>
+      <div class="shelf-compare-options"><label><select class="sc-ptype"><option value="inc">税込</option><option value="ex">税抜</option></select></label><label>税率<select class="sc-tax">${taxOptions(row.tax)}</select></label></div>
+      <div class="shelf-compare-result">${calc ? `${fmtCalc(calc.gross)}円 / <strong>${fmtCalc(calc.unitPrice)}円/${escapeHtml(row.unit||'個')}</strong>` : '価格と内容量を入力すると単価を表示'}</div>
+      <button class="ghost mini sc-register" type="button">PriceLogに登録</button>`;
+    const info=card.querySelector('.sc-info'), price=card.querySelector('.sc-price'), amount=card.querySelector('.sc-amount'), unit=card.querySelector('.sc-unit'), ptype=card.querySelector('.sc-ptype'), tax=card.querySelector('.sc-tax');
+    info.value=row.productInfo||''; price.value=row.price??''; amount.value=row.amount??''; setSelectValueWithOption(unit,row.unit||'g'); ptype.value=row.priceType==='inc'?'inc':'ex'; tax.value=String(row.tax??settings.reducedTax);
+    bindInputUnitSuffix(price,'円');
+    const sync=()=>{ row.productInfo=info.value.trim(); row.price=numberOrBlank(price.value); row.amount=numberOrBlank(amount.value); row.unit=unit.value||'個'; row.priceType=ptype.value; row.tax=Number(tax.value); renderShelfCompare(); };
+    [info,price,amount,unit,ptype,tax].forEach(c=>{ c.addEventListener('change',sync); if(c===info||c===price||c===amount)c.addEventListener('blur',sync); });
+    card.querySelector('.shelf-remove').addEventListener('click',()=>{ shelfCompareRows.splice(index,1); renderShelfCompare(); });
+    card.querySelector('.sc-register').addEventListener('click',()=>registerShelfCompareRow(row));
+    container.appendChild(card);
+  });
+}
+
 function setStorePurchaseMode(enabled) {
   if (!!enabled && !confirmDiscardProductEdit()) return;
   if (!!enabled && openProductId) {
@@ -1198,13 +1264,12 @@ function setStorePurchaseMode(enabled) {
   }
 
   storePurchaseMode = !!enabled;
+  if (storePurchaseMode) shelfCompareMode = false;
 
   if (storePurchaseMode) {
-    shelfCompareMode = false;
     bulkMode = false;
     bulkSelected.clear();
     $('btnStorePurchase').textContent = '商品一覧';
-    $('btnShelfCompare').textContent = '売り場比較';
   } else {
     openStoreName = null;
     $('storePurchaseSearch').value = '';
@@ -1609,16 +1674,13 @@ function renderStorePurchaseView() {
 
         const productName = document.createElement('span');
         productName.className = 'store-product-name';
-        const productNameMain = document.createElement('span');
-        productNameMain.className = 'store-product-name-main';
-        productNameMain.textContent = item.product.name;
-        productNameMain.title = item.product.name;
-        productName.appendChild(productNameMain);
-        if (item.product.kind === 'type' && String(item.row.itemInfo || '').trim()) {
+        productName.textContent = item.product.name;
+        productName.title = item.product.name;
+        if (item.product.kind === 'type' && String(item.row.productInfo || '').trim()) {
           const info = document.createElement('small');
-          info.className = 'store-product-item-info';
-          info.textContent = String(item.row.itemInfo || '').trim();
-          info.title = info.textContent;
+          info.className = 'store-product-info';
+          info.textContent = item.row.productInfo;
+          info.title = item.row.productInfo;
           productName.appendChild(info);
         }
 
@@ -1693,392 +1755,6 @@ function renderStorePurchaseView() {
 
     container.appendChild(card);
   });
-}
-
-function makeShelfCompareCandidate() {
-  return {
-    id: makeId('sc'),
-    selected: false,
-    itemInfo: '',
-    price: '',
-    priceType: settings.defaultPriceType,
-    tax: Number(settings.reducedTax),
-    couponType: 'none',
-    couponValue: '',
-    amount: '',
-    unit: 'g'
-  };
-}
-
-function setShelfCompareMode(enabled) {
-  if (!!enabled && !confirmDiscardProductEdit()) return;
-  if (!!enabled && openProductId) {
-    openProductId = null;
-    productEditDraft = null;
-    productEditDirty = false;
-  }
-  if (shoppingMemoEditStore) {
-    const ok = window.confirm('買い物メモで保存していない変更があります。破棄して売り場比較へ移動しますか？');
-    if (!ok) return;
-    shoppingMemoEditStore = null;
-    shoppingMemoEditDraft = null;
-  }
-
-  shelfCompareMode = !!enabled;
-  if (shelfCompareMode) {
-    storePurchaseMode = false;
-    bulkMode = false;
-    bulkSelected.clear();
-    $('btnShelfCompare').textContent = '商品一覧';
-    $('btnStorePurchase').textContent = '買い物メモ';
-    if (!$('shelfCompareStoreName').value.trim()) {
-      $('shelfCompareStoreName').value = localStorage.getItem(SHELF_COMPARE_LAST_STORE_KEY) || '';
-    }
-  } else {
-    $('btnShelfCompare').textContent = '売り場比較';
-  }
-  render();
-}
-
-function shelfCompareTypeProduct() {
-  const name = $('shelfCompareTypeName').value.trim();
-  if (!name) return null;
-  const key = normalizeMergeText(name);
-  return products.find(product => product.kind === 'type' && normalizeMergeText(product.name) === key) || null;
-}
-
-function shelfCompareRegisteredEntry() {
-  const product = shelfCompareTypeProduct();
-  const storeName = $('shelfCompareStoreName').value.trim();
-  if (!product || !storeName) return { product, row: null };
-  const storeKey = normalizeMergeText(storeName);
-  const row = (product.stores || []).find(item => normalizeMergeText(item.store) === storeKey) || null;
-  return { product, row };
-}
-
-function updateShelfCompareSuggestions() {
-  const typeList = $('shelfCompareTypeSuggestions');
-  const storeList = $('shelfCompareStoreSuggestions');
-  typeList.innerHTML = '';
-  storeList.innerHTML = '';
-
-  Array.from(new Set(products.filter(p => p.kind === 'type').map(p => p.name).filter(Boolean)))
-    .sort((a,b) => a.localeCompare(b, 'ja', {numeric:true}))
-    .forEach(value => {
-      const option = document.createElement('option');
-      option.value = value;
-      typeList.appendChild(option);
-    });
-
-  const stores = new Set();
-  products.forEach(product => (product.stores || []).forEach(row => {
-    const name = String(row.store || '').trim();
-    if (name) stores.add(name);
-  }));
-  Array.from(stores).sort((a,b) => a.localeCompare(b, 'ja', {numeric:true})).forEach(value => {
-    const option = document.createElement('option');
-    option.value = value;
-    storeList.appendChild(option);
-  });
-}
-
-function shelfCompareRowCalc(row) {
-  return calcRow({ kind: 'type', amount: '', unit: '' }, row);
-}
-
-function shelfCompareResultText(row) {
-  const calc = shelfCompareRowCalc(row);
-  if (!calc) return '-';
-  const unit = String(row.unit || '個');
-  return `${fmtCalc(calc.grossBefore)}[${fmtCalc(calc.afterTotal)}](${fmtCalcDelta(calc.afterTotal - calc.grossBefore)})円 / ${fmtCalc(calc.beforeUnit)}[${fmtCalc(calc.afterUnit)}](${fmtCalcDelta(calc.afterUnit - calc.beforeUnit)})円/${unit}`;
-}
-
-function updateShelfCompareRegistrationStatus() {
-  if (!shelfCompareMode) return;
-  const typeName = $('shelfCompareTypeName').value.trim();
-  const storeName = $('shelfCompareStoreName').value.trim();
-  const status = $('shelfCompareStatus');
-  const registered = $('shelfCompareRegistered');
-  const { product, row } = shelfCompareRegisteredEntry();
-
-  status.className = 'shelf-compare-status';
-  registered.innerHTML = '';
-  registered.classList.add('hidden');
-
-  if (!typeName || !storeName) {
-    status.classList.add('is-neutral');
-    status.textContent = '商品名と店舗を入力すると、商品一覧の登録状況を確認できます。';
-    refreshShelfCompareResults();
-    return;
-  }
-
-  if (!product) {
-    status.classList.add('is-unregistered');
-    status.textContent = `未登録　「${typeName}」は商品一覧にまだ登録されていません。`;
-    refreshShelfCompareResults();
-    return;
-  }
-
-  if (!row) {
-    status.classList.add('is-unregistered');
-    status.textContent = `未登録　「${typeName}」は登録済みですが、「${storeName}」の店舗情報はまだありません。`;
-    refreshShelfCompareResults();
-    return;
-  }
-
-  status.classList.add('is-registered');
-  status.textContent = `登録済み　「${storeName}」の「${typeName}」の登録データがあります。`;
-
-  const calc = shelfCompareRowCalc(row);
-  const card = document.createElement('div');
-  card.className = 'shelf-compare-registered-card';
-  card.dataset.registeredCompare = '1';
-  const top = document.createElement('div');
-  top.className = 'shelf-candidate-top';
-  const badge = document.createElement('span');
-  badge.className = 'shelf-registered-badge';
-  badge.textContent = '登録済み';
-  const best = document.createElement('span');
-  best.className = 'shelf-best-badge hidden';
-  best.textContent = '最安';
-  top.append(badge, best);
-
-  const info = document.createElement('div');
-  info.className = 'shelf-registered-grid';
-  const itemInfo = String(row.itemInfo || '').trim() || '商品情報なし';
-  const quantity = Number(row.amount) > 0 ? `${fmt(row.amount)}${row.unit || ''}` : '内容量未登録';
-  const inputPrice = row.price === '' ? '価格未登録' : `${fmtCalc(Number(row.price))}円（${row.priceType === 'inc' ? '税込' : '税抜'}）`;
-  info.innerHTML = `<span><small>商品情報</small><strong>${escapeHtml(itemInfo)}</strong></span><span><small>内容量</small><strong>${escapeHtml(quantity)}</strong></span><span><small>入力価格</small><strong>${escapeHtml(inputPrice)}</strong></span>`;
-  const result = document.createElement('div');
-  result.className = 'shelf-candidate-result';
-  result.textContent = calc ? shelfCompareResultText(row) : '-';
-  card.append(top, info, result);
-  registered.appendChild(card);
-  registered.classList.remove('hidden');
-  refreshShelfCompareResults();
-}
-
-function renderShelfCompareView() {
-  updateShelfCompareSuggestions();
-  updateShelfCompareRegistrationStatus();
-  renderShelfCompareCandidates();
-}
-
-function shelfCompareUnitOptions(selected) {
-  const units = ['g','ml','m','個','枚','粒','本','袋','箱','パック','缶','瓶'];
-  const value = String(selected || 'g');
-  if (value && !units.includes(value)) units.push(value);
-  return units.map(unit => `<option value="${escapeAttr(unit)}"${unit === value ? ' selected' : ''}>${escapeHtml(unit)}</option>`).join('');
-}
-
-function renderShelfCompareCandidates() {
-  const container = $('shelfCompareCandidates');
-  if (!container) return;
-  container.innerHTML = '';
-
-  shelfCompareCandidates.forEach((candidate, index) => {
-    const card = document.createElement('article');
-    card.className = 'shelf-candidate-card';
-    card.dataset.candidateId = candidate.id;
-    card.innerHTML = `
-      <div class="shelf-candidate-top">
-        <label class="shelf-adopt-check"><input class="sc-selected" type="checkbox" ${candidate.selected ? 'checked' : ''}><span>商品一覧に採用</span></label>
-        <span class="shelf-best-badge hidden">最安</span>
-        <button class="sc-delete" type="button" aria-label="比較商品を削除">×</button>
-      </div>
-      <label class="shelf-item-info-label">商品情報
-        <input class="sc-item-info" type="text" maxlength="80" placeholder="メーカー・商品名・PBなど自由入力" value="${escapeAttr(candidate.itemInfo || '')}">
-      </label>
-      <div class="shelf-candidate-grid">
-        <label>価格<span class="unit-input"><input class="sc-price" type="text" inputmode="decimal" placeholder="価格" value="${escapeAttr(candidate.price ?? '')}"><span class="input-unit-suffix">円</span></span></label>
-        <label>税込/税抜<select class="sc-price-type"><option value="inc"${candidate.priceType === 'inc' ? ' selected' : ''}>税込</option><option value="ex"${candidate.priceType !== 'inc' ? ' selected' : ''}>税抜</option></select></label>
-        <label>税率<select class="sc-tax">${taxOptions(candidate.tax)}</select></label>
-        <label>内容量<input class="sc-amount" type="text" inputmode="decimal" placeholder="内容量" value="${escapeAttr(candidate.amount ?? '')}"></label>
-        <label>単位<select class="sc-unit">${shelfCompareUnitOptions(candidate.unit)}</select></label>
-        <label>クーポン<select class="sc-coupon-type"><option value="none"${candidate.couponType === 'none' ? ' selected' : ''}>なし</option><option value="percent"${candidate.couponType === 'percent' ? ' selected' : ''}>%OFF</option><option value="yen"${candidate.couponType === 'yen' ? ' selected' : ''}>円引</option></select></label>
-        <label>内容<span class="unit-input"><input class="sc-coupon-value" type="text" inputmode="decimal" placeholder="-" value="${escapeAttr(candidate.couponValue ?? '')}"><span class="input-unit-suffix"></span></span></label>
-      </div>
-      <div class="shelf-candidate-result">-</div>`;
-
-    const selected = card.querySelector('.sc-selected');
-    const itemInfo = card.querySelector('.sc-item-info');
-    const price = card.querySelector('.sc-price');
-    const priceType = card.querySelector('.sc-price-type');
-    const tax = card.querySelector('.sc-tax');
-    const amount = card.querySelector('.sc-amount');
-    const unit = card.querySelector('.sc-unit');
-    const couponType = card.querySelector('.sc-coupon-type');
-    const couponValue = card.querySelector('.sc-coupon-value');
-    const refreshPriceUnit = bindInputUnitSuffix(price, '円');
-    const refreshCouponUnit = bindInputUnitSuffix(couponValue, () => couponType.value === 'percent' ? '%' : couponType.value === 'yen' ? '円' : '');
-
-    const sync = () => {
-      candidate.itemInfo = itemInfo.value.trim();
-      candidate.price = numberOrBlank(price.value);
-      candidate.priceType = priceType.value === 'inc' ? 'inc' : 'ex';
-      candidate.tax = Number(tax.value);
-      candidate.amount = numberOrBlank(amount.value);
-      candidate.unit = unit.value || '個';
-      candidate.couponType = ['percent','yen'].includes(couponType.value) ? couponType.value : 'none';
-      candidate.couponValue = numberOrBlank(couponValue.value);
-      couponValue.disabled = candidate.couponType === 'none';
-      couponValue.placeholder = candidate.couponType === 'none' ? '-' : '数字';
-      refreshPriceUnit();
-      refreshCouponUnit();
-      refreshShelfCompareResults();
-    };
-
-    selected.addEventListener('change', () => {
-      if (selected.checked) {
-        shelfCompareCandidates.forEach(item => { item.selected = item.id === candidate.id; });
-        container.querySelectorAll('.sc-selected').forEach(box => {
-          const owner = box.closest('[data-candidate-id]');
-          box.checked = owner?.dataset.candidateId === candidate.id;
-        });
-      } else {
-        candidate.selected = false;
-      }
-    });
-    [itemInfo, price, priceType, tax, amount, unit, couponType, couponValue].forEach(control => {
-      control.addEventListener('input', sync);
-      control.addEventListener('change', sync);
-    });
-    card.querySelector('.sc-delete').addEventListener('click', () => {
-      shelfCompareCandidates.splice(index, 1);
-      if (!shelfCompareCandidates.length) shelfCompareCandidates.push(makeShelfCompareCandidate());
-      renderShelfCompareCandidates();
-    });
-    sync();
-    container.appendChild(card);
-  });
-  refreshShelfCompareResults();
-}
-
-function refreshShelfCompareResults() {
-  if (!shelfCompareMode) return;
-  const entries = [];
-  const registered = shelfCompareRegisteredEntry();
-  if (registered.row) {
-    const calc = shelfCompareRowCalc(registered.row);
-    if (calc) entries.push({ id: 'registered', calc });
-  }
-  shelfCompareCandidates.forEach(candidate => {
-    const calc = shelfCompareRowCalc(candidate);
-    if (calc) entries.push({ id: candidate.id, calc });
-    const card = document.querySelector(`[data-candidate-id="${cssEscape(candidate.id)}"]`);
-    const result = card?.querySelector('.shelf-candidate-result');
-    if (result) result.textContent = calc ? shelfCompareResultText(candidate) : '-';
-  });
-
-  let bestId = '';
-  entries.forEach(entry => {
-    if (!bestId) {
-      bestId = entry.id;
-      return;
-    }
-    const current = entries.find(item => item.id === bestId);
-    if (entry.calc.beforeUnit < current.calc.beforeUnit) bestId = entry.id;
-  });
-
-  document.querySelectorAll('#shelfCompareView .shelf-best-badge').forEach(el => el.classList.add('hidden'));
-  if (bestId === 'registered') {
-    $('shelfCompareRegistered').querySelector('.shelf-best-badge')?.classList.remove('hidden');
-  } else if (bestId) {
-    document.querySelector(`[data-candidate-id="${cssEscape(bestId)}"] .shelf-best-badge`)?.classList.remove('hidden');
-  }
-}
-
-function saveShelfCompareSelection() {
-  const typeName = $('shelfCompareTypeName').value.trim();
-  const storeName = $('shelfCompareStoreName').value.trim();
-  const selected = shelfCompareCandidates.find(candidate => candidate.selected);
-
-  if (!typeName) {
-    alert('比較する種類を入力してね。');
-    $('shelfCompareTypeName').focus();
-    return;
-  }
-  if (!storeName) {
-    alert('店舗名を入力してね。');
-    $('shelfCompareStoreName').focus();
-    return;
-  }
-  if (!selected) {
-    alert('商品一覧に採用する商品へチェックを付けてね。');
-    return;
-  }
-  if (!(Number(selected.price) > 0)) {
-    alert('採用する商品の価格を入力してね。');
-    return;
-  }
-  if (!(Number(selected.amount) > 0) || !String(selected.unit || '').trim()) {
-    alert('採用する商品の内容量と単位を入力してね。');
-    return;
-  }
-
-  localStorage.setItem(SHELF_COMPARE_LAST_STORE_KEY, storeName);
-  const savedAt = new Date().toISOString();
-  let product = shelfCompareTypeProduct();
-  let createdProduct = false;
-  if (!product) {
-    product = {
-      id: makeId('p'),
-      barcode: '',
-      name: typeName,
-      nameCandidates: { product: '', type: typeName },
-      reading: normalizeReadingInput(makeReadingCandidate(typeName)),
-      kind: 'type',
-      amount: '',
-      unit: '',
-      defaultTax: Number.isFinite(Number(selected.tax)) ? Number(selected.tax) : settings.reducedTax,
-      updatedAt: savedAt,
-      history: [],
-      stores: []
-    };
-    products.unshift(product);
-    createdProduct = true;
-  }
-
-  const storeKey = normalizeMergeText(storeName);
-  let row = (product.stores || []).find(item => normalizeMergeText(item.store) === storeKey);
-  const beforePrice = row ? historyPriceValue(row.price) : null;
-  if (!row) {
-    row = { id: makeId('s') };
-    product.stores.push(row);
-  }
-
-  Object.assign(row, {
-    store: storeName,
-    itemInfo: String(selected.itemInfo || '').trim(),
-    price: Number(selected.price),
-    priceType: selected.priceType === 'inc' ? 'inc' : 'ex',
-    tax: Number.isFinite(Number(selected.tax)) ? Number(selected.tax) : product.defaultTax,
-    couponType: ['percent','yen'].includes(selected.couponType) ? selected.couponType : 'none',
-    couponValue: selected.couponType === 'none' ? '' : numberOrBlank(selected.couponValue),
-    amount: Number(selected.amount),
-    unit: String(selected.unit || '個'),
-    updatedAt: savedAt
-  });
-  product.updatedAt = savedAt;
-
-  const afterPrice = historyPriceValue(row.price);
-  if (!createdProduct && beforePrice !== null && afterPrice !== null && !sameHistoryPrice(beforePrice, afterPrice)) {
-    const history = ensureHistory(product);
-    history.unshift({
-      id: makeId('h'),
-      updatedAt: savedAt,
-      store: storeName,
-      beforePrice: Number(beforePrice),
-      afterPrice: Number(afterPrice)
-    });
-    if (history.length > 20) history.length = 20;
-  }
-
-  products = normalizeProductsData(products);
-  persistNow();
-  shelfCompareCandidates = [makeShelfCompareCandidate()];
-  renderShelfCompareView();
-  showSaveToast(createdProduct ? '種類比較として商品一覧に登録しました' : '商品一覧の店舗情報を更新しました');
 }
 
 function deleteAllProducts() {
@@ -2191,7 +1867,6 @@ function bulkAddStore() {
     product.stores.push({
       id: makeId('s'),
       store: storeName,
-      itemInfo: '',
       price: '',
       priceType: settings.defaultPriceType,
       tax: product.defaultTax,
@@ -4455,7 +4130,7 @@ function makeBlankDialogStore() {
   return {
     id: makeId('qs'),
     store: '',
-    itemInfo: '',
+    productInfo: '',
     price: '',
     priceType: settings.defaultPriceType,
     tax: Number($('productTax')?.value || settings.reducedTax),
@@ -4496,9 +4171,7 @@ function renderProductDialogStores() {
         <label>クーポン<select class="qs-coupon-type"><option value="none">なし</option><option value="percent">%OFF</option><option value="yen">円引</option></select></label>
         <label>値<span class="unit-input"><input class="qs-coupon-value" type="text" inputmode="decimal" placeholder="-"><span class="input-unit-suffix"></span></span></label>
       </div>
-      <div class="quick-store-item-info ${kind === 'type' ? '' : 'hidden'}">
-        <label>商品情報<input class="qs-item-info" type="text" maxlength="80" placeholder="メーカー・商品名など自由入力"></label>
-      </div>
+      <div class="quick-store-product-info ${kind === 'type' ? '' : 'hidden'}"><label>商品情報<input class="qs-product-info" type="text" maxlength="80" placeholder="メーカー・ブランド・商品名など"></label></div>
       <div class="quick-store-quantity ${kind === 'type' ? '' : 'hidden'}">
         <label>内容量<input class="qs-amount" type="text" inputmode="decimal" placeholder="内容量"></label>
         <label>単位<select class="qs-unit"><option value="g">g</option><option value="ml">ml</option><option value="m">m</option><option value="個">個</option><option value="枚">枚</option><option value="粒">粒</option><option value="本">本</option><option value="袋">袋</option><option value="箱">箱</option><option value="パック">パック</option><option value="缶">缶</option><option value="瓶">瓶</option></select></label>
@@ -4506,7 +4179,7 @@ function renderProductDialogStores() {
       <div class="quick-store-result">税込価格・単価：<strong class="qs-result">-</strong></div>`;
 
     const store = card.querySelector('.qs-store');
-    const itemInfo = card.querySelector('.qs-item-info');
+    const productInfo = card.querySelector('.qs-product-info');
     const price = card.querySelector('.qs-price');
     const priceType = card.querySelector('.qs-price-type');
     const tax = card.querySelector('.qs-tax');
@@ -4517,7 +4190,7 @@ function renderProductDialogStores() {
     const result = card.querySelector('.qs-result');
 
     store.value = row.store || '';
-    if (itemInfo) itemInfo.value = row.itemInfo || '';
+    if (productInfo) productInfo.value = row.productInfo || '';
     price.value = row.price ?? '';
     priceType.value = row.priceType === 'inc' ? 'inc' : 'ex';
     tax.value = String(row.tax ?? settings.reducedTax);
@@ -4532,7 +4205,7 @@ function renderProductDialogStores() {
 
     const update = () => {
       row.store = store.value.trim();
-      row.itemInfo = kind === 'type' && itemInfo ? itemInfo.value.trim() : '';
+      row.productInfo = kind === 'type' && productInfo ? productInfo.value.trim() : '';
       row.price = numberOrBlank(price.value);
       row.priceType = priceType.value;
       row.tax = Number(tax.value);
@@ -4551,7 +4224,7 @@ function renderProductDialogStores() {
         : '-';
     };
 
-    [store, itemInfo, price, priceType, tax, couponType, couponValue, amount, unit].filter(Boolean).forEach(control => {
+    [store, productInfo, price, priceType, tax, couponType, couponValue, amount, unit].filter(Boolean).forEach(control => {
       control.addEventListener('input', update);
       control.addEventListener('change', update);
     });
@@ -4722,7 +4395,7 @@ function saveProductFromDialog() {
     const stores = meaningfulRows.map(row => ({
       id: makeId('s'),
       store: String(row.store || '').trim(),
-      itemInfo: kind === 'type' ? String(row.itemInfo || '').trim() : '',
+      productInfo: kind === 'type' ? String(row.productInfo || '').trim() : '',
       price: row.price ?? '',
       priceType: row.priceType === 'inc' ? 'inc' : 'ex',
       tax: Number.isFinite(Number(row.tax)) ? Number(row.tax) : defaultTax,
@@ -4827,7 +4500,6 @@ function openSettings() {
 function storeDataSnapshot(row) {
   return {
     store: normalizeMergeText(row?.store),
-    itemInfo: String(row?.itemInfo || '').normalize('NFKC').trim(),
     price: numberOrBlank(row?.price ?? ''),
     priceType: row?.priceType === 'inc' ? 'inc' : 'ex',
     tax: Number.isFinite(Number(row?.tax)) ? Number(row.tax) : '',
@@ -5166,8 +4838,7 @@ function storeDataSummary(row) {
       ? ` / ${fmt(Number(row.couponValue) || 0)}円引`
       : '';
   const quantity = Number(row?.amount) > 0 ? ` / ${fmt(row.amount)}${row.unit || ''}` : '';
-  const itemInfo = String(row?.itemInfo || '').trim() ? ` / ${String(row.itemInfo).trim()}` : '';
-  return `${price} / 税率${Number(row?.tax) || 0}%${coupon}${quantity}${itemInfo}`;
+  return `${price} / 税率${Number(row?.tax) || 0}%${coupon}${quantity}`;
 }
 
 function importSharedData(e) {
@@ -5390,10 +5061,6 @@ function fmtYen(v) {
 
 function escapeAttr(v) {
   return String(v).replace(/[&<>"']/g, ch => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[ch]));
-}
-
-function escapeHtml(v) {
-  return escapeAttr(v);
 }
 
 function cssEscape(v) {

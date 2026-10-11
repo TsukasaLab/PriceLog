@@ -70,36 +70,17 @@
     </section>
 
     <section id="shelfCompareView" class="shelf-compare-view hidden">
-      <div class="store-purchase-head shelf-compare-head">
-        <div>
-          <strong>売り場比較</strong>
-          <div class="shelf-compare-sub">同じ種類の商品を、その場で単価比較</div>
-        </div>
-      </div>
-
+      <div class="store-purchase-head"><div><strong>売り場比較</strong><small>同じ種類の商品を内容量が違っても単価で比較</small></div></div>
       <div class="shelf-compare-base">
-        <label>比較する種類
-          <input id="shelfCompareTypeName" type="text" maxlength="60" list="shelfCompareTypeSuggestions" placeholder="例：米油">
-        </label>
-        <label>店舗
-          <input id="shelfCompareStoreName" type="text" maxlength="40" list="shelfCompareStoreSuggestions" placeholder="店舗名">
-        </label>
-        <datalist id="shelfCompareTypeSuggestions"></datalist>
-        <datalist id="shelfCompareStoreSuggestions"></datalist>
+        <label>比較する種類<input id="shelfCompareType" type="text" maxlength="60" placeholder="例：米油"></label>
+        <label>店舗<input id="shelfCompareStore" type="text" maxlength="40" placeholder="例：イオン"></label>
       </div>
-
-      <div id="shelfCompareStatus" class="shelf-compare-status is-neutral">商品名と店舗を入力すると、商品一覧の登録状況を確認できます。</div>
-      <div id="shelfCompareRegistered" class="shelf-compare-registered hidden"></div>
-
-      <div class="shelf-compare-toolbar">
-        <strong>売り場の商品</strong>
-        <button id="btnAddShelfCandidate" class="ghost mini" type="button">＋比較商品</button>
-      </div>
-      <div id="shelfCompareCandidates" class="shelf-compare-candidates"></div>
+      <div id="shelfCompareList" class="shelf-compare-list"></div>
       <div class="shelf-compare-actions">
-        <span class="shelf-compare-hint">商品一覧に反映したい商品へチェック</span>
-        <button id="btnSaveShelfCompare" class="primary" type="button">チェックした内容を商品一覧へ登録</button>
+        <button id="btnAddShelfCompare" class="primary" type="button">＋比較商品</button>
+        <button id="btnClearShelfCompare" class="ghost" type="button">クリア</button>
       </div>
+      <div class="shelf-compare-note">商品情報はメーカー名・ブランド名・商品名など、分かる内容を自由に入力できます。</div>
     </section>
 
     <section class="ad-area" aria-label="広告">
@@ -548,7 +529,7 @@
         <div class="store-scroll">
           <div class="store-table">
             <div class="store-head">
-              <span class="mark-head"></span><span>店舗 / 商品情報</span><span>入力価格</span><span>税込</span><span>税率</span><span>クーポン</span><span>値</span><span>価格(クーポン適用)</span><span>単価(クーポン適用)</span><span></span>
+              <span class="mark-head"></span><span>店舗</span><span>入力価格</span><span>税込</span><span>税率</span><span>クーポン</span><span>値</span><span>価格(クーポン適用)</span><span>単価(クーポン適用)</span><span></span>
             </div>
             <div class="store-mobile-head" aria-hidden="true">
               <span class="mobile-mark-head"></span>
@@ -584,7 +565,7 @@
       <span class="best-mark" aria-hidden="true"></span>
       <div class="st-store-cell">
         <input class="st-store" type="text" maxlength="40" placeholder="店舗">
-        <input class="st-item-info hidden" type="text" maxlength="80" placeholder="商品情報（メーカー・商品名など自由入力）">
+        <input class="st-product-info hidden" type="text" maxlength="80" placeholder="商品情報（メーカー・ブランド・商品名など）" aria-label="商品情報">
         <div class="st-quantity-fields hidden">
           <input class="st-amount" type="text" inputmode="decimal" placeholder="内容量" aria-label="内容量">
           <select class="st-unit-select" aria-label="単位">
