@@ -8,7 +8,7 @@ const TEMPLATE_KEY = 'pricelog_custom_template_v1';
 const YAHOO_PRODUCT_CACHE_KEY = 'pricelog_yahoo_product_cache_v1';
 const SHOPPING_MEMO_KEY = 'pricelog_shopping_memo_v1';
 const V051_SETTINGS_MIGRATION_KEY = 'pricelog_v051_settings_migrated';
-const APP_VERSION = '0.80';
+const APP_VERSION = '0.82';
 const DATA_SCHEMA_VERSION = 3;
 
 const YAHOO_WORKER_URL = 'https://pricelog-yahoo.pricelog-api.workers.dev';
@@ -197,19 +197,12 @@ $('shelfCompareType').addEventListener('blur', () => { syncShelfCompareExistingR
 $('shelfCompareStore').addEventListener('input', () => { shelfCompareDirty = true; });
 $('shelfCompareStore').addEventListener('change', () => { syncShelfCompareExistingRows(); renderShelfCompare(); });
 $('shelfCompareStore').addEventListener('blur', () => { syncShelfCompareExistingRows(); renderShelfCompare(); });
-$('shelfCompareTypeSelect')?.addEventListener('change', () => {
-  const value = $('shelfCompareTypeSelect').value;
-  if (!value) return;
-  $('shelfCompareType').value = value;
-  shelfCompareDirty = true; shelfCompareSeedKey = '';
-  syncShelfCompareExistingRows(); renderShelfCompare();
-});
-$('shelfCompareStoreSelect')?.addEventListener('change', () => {
-  const value = $('shelfCompareStoreSelect').value;
-  if (!value) return;
-  $('shelfCompareStore').value = value;
-  shelfCompareDirty = true; shelfCompareSeedKey = '';
-  syncShelfCompareExistingRows(); renderShelfCompare();
+$('btnShelfCompareTypeChoices')?.addEventListener('click', () => openShelfChoiceDialog('type'));
+$('btnShelfCompareStoreChoices')?.addEventListener('click', () => openShelfChoiceDialog('store'));
+$('btnCloseShelfChoiceDialog')?.addEventListener('click', closeShelfChoiceDialog);
+$('shelfChoiceDialog')?.addEventListener('cancel', (e) => {
+  e.preventDefault();
+  closeShelfChoiceDialog();
 });
 $('shelfComparePriceType').addEventListener('change', () => { shelfCompareDirty = true; shelfCompareCommon.priceType = $('shelfComparePriceType').value === 'inc' ? 'inc' : 'ex'; renderShelfCompare(); });
 $('shelfCompareTax').addEventListener('change', () => { shelfCompareDirty = true; shelfCompareCommon.tax = Number($('shelfCompareTax').value); renderShelfCompare(); });
@@ -1231,18 +1224,33 @@ function hasShelfCompareUnsavedInput() {
   return shelfCompareDirty;
 }
 
+function discardShelfCompareDraft() {
+  shelfCompareRows = [makeShelfCompareRow({ selected:true })];
+  shelfCompareCommon = { priceType: settings.defaultPriceType, tax: settings.reducedTax };
+  shelfCompareSeedKey = '';
+  shelfCompareDirty = false;
+  shelfChoiceDialogMode = null;
+  const typeInput = $('shelfCompareType');
+  const storeInput = $('shelfCompareStore');
+  if (typeInput) typeInput.value = '';
+  if (storeInput) storeInput.value = '';
+  const choiceDialog = $('shelfChoiceDialog');
+  if (choiceDialog?.open) choiceDialog.close();
+}
+
 function confirmLeaveCurrentView(targetView) {
   if (targetView === currentMainView()) return true;
   if (!confirmDiscardProductEdit()) return false;
   if (storePurchaseMode && shoppingMemoEditStore) {
-    const ok = window.confirm('買い物メモで保存していない価格・容量の変更があります。破棄して移動しますか？');
+    const ok = window.confirm('買い物メモで保存していない価格・容量の変更があります。編集内容を破棄して移動しますか？');
     if (!ok) return false;
     shoppingMemoEditStore = null;
     shoppingMemoEditDraft = null;
   }
   if (shelfCompareMode && hasShelfCompareUnsavedInput()) {
-    const ok = window.confirm('売り場比較に保存していない入力があります。破棄せず画面を移動しますか？\n入力内容はこの画面に戻るまで保持されます。');
+    const ok = window.confirm('売り場比較に未反映の編集があります。編集内容を破棄して移動しますか？');
     if (!ok) return false;
+    discardShelfCompareDraft();
   }
   return true;
 }
@@ -1363,49 +1371,93 @@ function findShelfCompareTypeProduct(typeName) {
   )) || null;
 }
 
-function updateShelfCompareSuggestions() {
-  const typeSelect = $('shelfCompareTypeSelect');
-  const storeSelect = $('shelfCompareStoreSelect');
+function getShelfCompareTypeChoices() {
+  const seen = new Set();
+  const names = [];
+  for (const product of Array.isArray(products) ? products : []) {
+    if (!product || product.kind !== 'type') continue;
+    const name = String(product.name || '').trim();
+    if (!name || seen.has(name)) continue;
+    seen.add(name);
+    names.push(name);
+  }
+  return names.sort((a, b) => a.localeCompare(b, 'ja'));
+}
 
-  if (typeSelect) {
-    const current = String($('shelfCompareType')?.value || '');
-    const seen = new Set();
-    const names = [];
-    for (const product of Array.isArray(products) ? products : []) {
-      if (!product || product.kind !== 'type') continue;
-      const name = String(product.name || '').trim();
+function getShelfCompareStoreChoices() {
+  const seen = new Set();
+  const stores = [];
+  // 種類に関係なく、全商品に登録されている店舗を候補にする。
+  for (const product of Array.isArray(products) ? products : []) {
+    const rows = Array.isArray(product?.stores) ? product.stores : [];
+    for (const row of rows) {
+      const name = String(row?.store || '').trim();
       if (!name || seen.has(name)) continue;
       seen.add(name);
-      names.push(name);
+      stores.push(name);
     }
-    names.sort((a, b) => a.localeCompare(b, 'ja'));
-    typeSelect.innerHTML = '<option value="">選択</option>' + names
-      .map(name => `<option value="${escapeAttr(name)}">${escapeAttr(name)}</option>`)
-      .join('');
-    typeSelect.value = names.includes(current) ? current : '';
   }
-
-  if (storeSelect) {
-    const current = String($('shelfCompareStore')?.value || '');
-    const seen = new Set();
-    const stores = [];
-    // 種類に関係なく、全商品に登録されている店舗を候補にする。
-    for (const product of Array.isArray(products) ? products : []) {
-      const rows = Array.isArray(product?.stores) ? product.stores : [];
-      for (const row of rows) {
-        const name = String(row?.store || '').trim();
-        if (!name || seen.has(name)) continue;
-        seen.add(name);
-        stores.push(name);
-      }
-    }
-    stores.sort((a, b) => a.localeCompare(b, 'ja'));
-    storeSelect.innerHTML = '<option value="">選択</option>' + stores
-      .map(name => `<option value="${escapeAttr(name)}">${escapeAttr(name)}</option>`)
-      .join('');
-    storeSelect.value = stores.includes(current) ? current : '';
-  }
+  return stores.sort((a, b) => a.localeCompare(b, 'ja'));
 }
+
+function updateShelfCompareSuggestions() {
+  // Ver.0.81では候補を別ウィンドウで表示するため、入力中の再生成は不要。
+}
+
+let shelfChoiceDialogMode = null;
+
+function openShelfChoiceDialog(mode) {
+  const dialog = $('shelfChoiceDialog');
+  const list = $('shelfChoiceDialogList');
+  const empty = $('shelfChoiceDialogEmpty');
+  const title = $('shelfChoiceDialogTitle');
+  if (!dialog || !list || !empty || !title) return;
+
+  shelfChoiceDialogMode = mode === 'store' ? 'store' : 'type';
+  const choices = shelfChoiceDialogMode === 'store'
+    ? getShelfCompareStoreChoices()
+    : getShelfCompareTypeChoices();
+
+  title.textContent = shelfChoiceDialogMode === 'store' ? '店舗を選択' : '比較する種類を選択';
+  list.innerHTML = '';
+  empty.classList.toggle('hidden', choices.length > 0);
+  empty.textContent = shelfChoiceDialogMode === 'store'
+    ? '登録済みの店舗はありません。'
+    : '登録済みの種類はありません。';
+
+  choices.forEach(value => {
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.className = 'shelf-choice-option';
+    button.textContent = value;
+    button.addEventListener('click', () => applyShelfChoice(value));
+    list.appendChild(button);
+  });
+
+  if (!dialog.open) dialog.showModal();
+}
+
+function closeShelfChoiceDialog() {
+  const dialog = $('shelfChoiceDialog');
+  if (dialog?.open) dialog.close();
+  shelfChoiceDialogMode = null;
+}
+
+function applyShelfChoice(value) {
+  const input = shelfChoiceDialogMode === 'store' ? $('shelfCompareStore') : $('shelfCompareType');
+  if (!input) return closeShelfChoiceDialog();
+
+  // 既存の入力をいったんクリアしてから、選択した内容で置き換える。
+  input.value = '';
+  input.value = String(value || '');
+  shelfCompareDirty = true;
+  shelfCompareSeedKey = '';
+  closeShelfChoiceDialog();
+  syncShelfCompareExistingRows();
+  renderShelfCompare();
+  input.focus();
+}
+
 function getShelfCompareExistingRows(typeName, storeName) {
   const storeKey = normalizeMergeText(storeName);
   if (!storeKey) return [];
@@ -1438,6 +1490,21 @@ function getShelfCompareExistingRows(typeName, storeName) {
   })];
 }
 
+function syncShelfCompareCommonFromExistingRow(existingRow) {
+  if (!existingRow) return false;
+  const sourceProduct = products.find(p => p.id === existingRow.sourceProductId);
+  const sourceRow = (Array.isArray(sourceProduct?.stores) ? sourceProduct.stores : [])
+    .find(row => row.id === existingRow.sourceStoreRowId);
+  if (!sourceRow) return false;
+
+  // 登録済みの価格条件をそのまま比較欄へ読み込み、未操作のまま反映した際に
+  // 税込/税抜・税率だけが意図せず書き換わらないようにする。
+  shelfCompareCommon.priceType = sourceRow.priceType === 'inc' ? 'inc' : 'ex';
+  const registeredTax = Number(sourceRow.tax);
+  shelfCompareCommon.tax = Number.isFinite(registeredTax) ? registeredTax : settings.reducedTax;
+  return true;
+}
+
 function syncShelfCompareExistingRows() {
   updateShelfCompareSuggestions();
   const typeName = $('shelfCompareType').value.trim();
@@ -1451,14 +1518,7 @@ function syncShelfCompareExistingRows() {
   else if (manualRows.length && !manualRows.some(row => row.selected)) manualRows[0].selected = true;
   shelfCompareSeedKey = key;
 
-  if (existingRows.length) {
-    const sourceProduct = products.find(p => p.id === existingRows[0].sourceProductId);
-    const sourceRow = (Array.isArray(sourceProduct?.stores) ? sourceProduct.stores : []).find(row => row.id === existingRows[0].sourceStoreRowId);
-    if (sourceRow) {
-      shelfCompareCommon.priceType = sourceRow.priceType === 'inc' ? 'inc' : 'ex';
-      shelfCompareCommon.tax = Number.isFinite(Number(sourceRow.tax)) ? Number(sourceRow.tax) : settings.reducedTax;
-    }
-  }
+  if (existingRows.length) syncShelfCompareCommonFromExistingRow(existingRows[0]);
 
   shelfCompareRows = [...existingRows, ...manualRows];
   if (!shelfCompareRows.length) shelfCompareRows = [makeShelfCompareRow({ selected:true })];

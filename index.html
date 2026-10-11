@@ -7,14 +7,14 @@
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="default">
   <title>PriceLog</title>
-  <link rel="manifest" href="./manifest.webmanifest?v=0.80">
+  <link rel="manifest" href="./manifest.webmanifest?v=0.82">
   <link rel="apple-touch-icon" href="./icon-192-v058.png">
-  <link rel="stylesheet" href="./style.css?v=0.80">
+  <link rel="stylesheet" href="./style.css?v=0.82">
 </head>
 <body>
   <header class="topbar">
     <div>
-      <strong>PriceLog</strong> <small class="app-version">Ver.0.80</small>
+      <strong>PriceLog</strong> <small class="app-version">Ver.0.82</small>
     </div>
     <div class="top-actions">
       <button id="btnProductList" class="ghost mini view-jump" type="button">商品一覧</button>
@@ -74,9 +74,9 @@
       <div class="store-purchase-head"><div><strong>売り場比較</strong></div></div>
       <div id="shelfCompareError" class="shelf-compare-error hidden" role="alert"></div>
       <div class="shelf-compare-base">
-        <label>比較する種類<span class="shelf-choice-input"><input id="shelfCompareType" type="text" maxlength="60" autocomplete="off"><select id="shelfCompareTypeSelect" aria-label="登録済みの種類から選択"><option value="">選択</option></select></span></label>
-        <label>店舗<span class="shelf-choice-input"><input id="shelfCompareStore" type="text" maxlength="40" autocomplete="off"><select id="shelfCompareStoreSelect" aria-label="登録済みの店舗から選択"><option value="">選択</option></select></span></label>
-        <label>価格区分<select id="shelfComparePriceType"><option value="inc">税込</option><option value="ex">税抜</option></select></label>
+        <label>比較する種類<span class="shelf-choice-input"><input id="shelfCompareType" type="text" maxlength="60" autocomplete="off"><button id="btnShelfCompareTypeChoices" class="ghost shelf-choice-button" type="button" aria-label="登録済みの種類から選択"><span aria-hidden="true">⌄</span></button></span></label>
+        <label>店舗<span class="shelf-choice-input"><input id="shelfCompareStore" type="text" maxlength="40" autocomplete="off"><button id="btnShelfCompareStoreChoices" class="ghost shelf-choice-button" type="button" aria-label="登録済みの店舗から選択"><span aria-hidden="true">⌄</span></button></span></label>
+        <label>税込/抜<select id="shelfComparePriceType"><option value="inc">税込</option><option value="ex">税抜</option></select></label>
         <label>税率<select id="shelfCompareTax"></select></label>
       </div>
       <div class="shelf-compare-table">
@@ -508,6 +508,17 @@
     </form>
   </dialog>
 
+  <dialog id="shelfChoiceDialog" class="dialog shelf-choice-dialog">
+    <div class="shelf-choice-dialog-inner">
+      <div class="shelf-choice-dialog-head">
+        <strong id="shelfChoiceDialogTitle">候補を選択</strong>
+        <button id="btnCloseShelfChoiceDialog" class="icon-btn shelf-choice-dialog-close" type="button" aria-label="閉じる">×</button>
+      </div>
+      <div id="shelfChoiceDialogList" class="shelf-choice-dialog-list"></div>
+      <div id="shelfChoiceDialogEmpty" class="shelf-choice-dialog-empty hidden"></div>
+    </div>
+  </dialog>
+
   <template id="productTemplate">
     <article class="product-card">
       <div class="product-summary-row">
@@ -607,7 +618,7 @@
 
   <div id="saveToast" class="save-toast hidden" role="status" aria-live="polite">保存しました</div>
 
-  <script src="./app.js?v=0.80"></script>
-  <script src="./ads.js?v=0.80"></script>
+  <script src="./app.js?v=0.82"></script>
+  <script src="./ads.js?v=0.82"></script>
 </body>
 </html>

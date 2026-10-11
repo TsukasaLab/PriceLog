@@ -1921,7 +1921,7 @@ main{padding:10px 8px 14px}
 
 
 /* =========================================================
-   PriceLog Ver.0.80
+   PriceLog Ver.0.82
    - スマホ上部の画面切替3ボタンを均等化
    - 設定ボタンと＋商品は右上で隣接したまま維持
    - 売り場比較の datalist の大きな▼を非表示
@@ -2022,11 +2022,68 @@ main{padding:10px 8px 14px}
 }
 
 
-/* Ver.0.77: 売り場比較は直接入力＋明示プルダウン */
-.shelf-choice-input{display:grid;grid-template-columns:minmax(0,1fr) 76px;gap:5px;margin-top:3px}
-.shelf-compare-base .shelf-choice-input input,.shelf-compare-base .shelf-choice-input select{margin-top:0}
-@media(max-width:650px){.shelf-choice-input{grid-template-columns:minmax(0,1fr) 58px;gap:3px}.shelf-choice-input select{padding-left:3px!important;padding-right:2px!important;font-size:10px!important}}
+/* Ver.0.81: 売り場比較は広い入力欄＋小型候補ボタン＋上部選択ウィンドウ */
+.shelf-choice-input{display:grid;grid-template-columns:minmax(0,1fr) 28px;gap:5px;align-items:center;margin-top:3px}
+.shelf-compare-base .shelf-choice-input input{margin-top:0}
+.shelf-choice-button{width:28px;height:32px;min-width:28px;min-height:32px;margin:0;padding:0;display:inline-flex;align-items:center;justify-content:center;border-radius:7px;font-size:19px;line-height:1}
+.shelf-choice-button span{display:block;transform:translateY(-2px)}
+.shelf-choice-dialog{position:fixed;top:10px;bottom:auto;left:50%;transform:translateX(-50%);margin:0;width:min(94vw,560px);max-height:min(72vh,620px);overflow:hidden;padding:0}
+.shelf-choice-dialog-inner{display:flex;flex-direction:column;max-height:min(72vh,620px);padding:10px}
+.shelf-choice-dialog-head{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:8px}
+.shelf-choice-dialog-head strong{font-size:16px}
+.shelf-choice-dialog-close{width:32px;height:32px;min-width:32px;flex:none}
+.shelf-choice-dialog-list{display:flex;flex-direction:column;gap:5px;overflow:auto;overscroll-behavior:contain;padding:1px}
+.shelf-choice-option{width:100%;min-height:42px;padding:8px 10px;border:1px solid var(--line);border-radius:9px;background:#fffdf8;color:var(--text);text-align:left;font-size:14px;box-shadow:0 1px 4px rgba(105,78,48,.05)}
+.shelf-choice-option:active{background:#edf5e8;border-color:#88a86f}
+.shelf-choice-dialog-empty{padding:18px 10px;text-align:center;color:var(--muted);font-size:12px}
+@media(max-width:650px){
+  .shelf-choice-input{grid-template-columns:minmax(0,1fr) 26px;gap:3px}
+  .shelf-choice-button{width:26px;height:32px;min-width:26px;min-height:32px;font-size:18px}
+  .shelf-choice-dialog{top:8px;width:calc(100vw - 16px);max-height:70vh}
+  .shelf-choice-dialog-inner{max-height:70vh;padding:8px}
+  .shelf-choice-option{min-height:40px;font-size:13px}
+}
 
 
 /* Ver.0.79: 売り場比較の読み込み失敗時も画面遷移を維持 */
 .shelf-compare-error{padding:8px 10px;border:1px solid #e8c8bd;border-radius:9px;background:#fff5f1;color:#9b4d43;font-size:12px;line-height:1.45}
+
+
+/* Ver.0.82: 売り場比較の上段配分を入力欄優先へ。税込/抜・税率は最小幅。 */
+.shelf-compare-base{
+  grid-template-columns:minmax(0,1.55fr) minmax(0,1.25fr) 78px 62px;
+  gap:6px;
+}
+.shelf-compare-base>label:nth-child(3),
+.shelf-compare-base>label:nth-child(4){min-width:0}
+.shelf-compare-base>label:nth-child(3) select,
+.shelf-compare-base>label:nth-child(4) select{
+  padding-left:5px;
+  padding-right:18px;
+}
+@media(max-width:650px){
+  .shelf-compare-base{
+    grid-template-columns:minmax(0,1.45fr) minmax(0,1.25fr) 62px 52px;
+    gap:4px;
+  }
+  .shelf-compare-base>label:nth-child(3) select,
+  .shelf-compare-base>label:nth-child(4) select{
+    padding-left:3px;
+    padding-right:13px;
+    font-size:11px;
+  }
+}
+@media(max-width:360px){
+  .shelf-compare-base{
+    grid-template-columns:minmax(0,1.4fr) minmax(0,1.2fr) 58px 48px;
+    gap:3px;
+  }
+  .shelf-compare-base>label:nth-child(3),
+  .shelf-compare-base>label:nth-child(4){font-size:9px}
+  .shelf-compare-base>label:nth-child(3) select,
+  .shelf-compare-base>label:nth-child(4) select{
+    padding-left:2px;
+    padding-right:11px;
+    font-size:10px;
+  }
+}
