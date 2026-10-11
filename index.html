@@ -7,20 +7,20 @@
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="default">
   <title>PriceLog</title>
-  <link rel="manifest" href="./manifest.webmanifest?v=0.70">
+  <link rel="manifest" href="./manifest.webmanifest?v=0.72">
   <link rel="apple-touch-icon" href="./icon-192-v058.png">
-  <link rel="stylesheet" href="./style.css?v=0.70">
+  <link rel="stylesheet" href="./style.css?v=0.72">
 </head>
 <body>
   <header class="topbar">
     <div>
-      <strong>PriceLog</strong> <small class="app-version">Ver.0.70</small>
+      <strong>PriceLog</strong> <small class="app-version">Ver.0.72</small>
     </div>
     <div class="top-actions">
       <button id="btnSettings" class="icon-btn" type="button" aria-label="設定">⚙</button>
-      <button id="btnBulkStore" class="ghost mini" type="button">店舗一括追加</button>
-      <button id="btnStorePurchase" class="ghost mini" type="button">買い物メモ</button>
-      <button id="btnShelfCompare" class="ghost mini" type="button">売り場比較</button>
+      <button id="btnProductList" class="ghost mini view-jump" type="button">商品一覧</button>
+      <button id="btnStorePurchase" class="ghost mini view-jump" type="button">買い物メモ</button>
+      <button id="btnShelfCompare" class="ghost mini view-jump" type="button">売り場比較</button>
       <button id="btnAddProduct" class="primary mini" type="button">＋商品</button>
     </div>
   </header>
@@ -28,6 +28,7 @@
   <main>
     <div id="productListHead" class="store-purchase-head product-list-head">
       <div><strong>商品一覧</strong></div>
+      <button id="btnBulkStore" class="ghost mini" type="button">店舗一括追加</button>
     </div>
 
     <section class="searchbar">
@@ -72,8 +73,8 @@
     <section id="shelfCompareView" class="shelf-compare-view hidden">
       <div class="store-purchase-head"><div><strong>売り場比較</strong><small>同じ種類の商品を内容量が違っても単価で比較</small></div></div>
       <div class="shelf-compare-base">
-        <label>比較する種類<input id="shelfCompareType" type="text" maxlength="60"></label>
-        <label>店舗<input id="shelfCompareStore" type="text" maxlength="40"></label>
+        <label>比較する種類<input id="shelfCompareType" type="text" maxlength="60" list="shelfCompareTypeOptions"><datalist id="shelfCompareTypeOptions"></datalist></label>
+        <label>店舗<input id="shelfCompareStore" type="text" maxlength="40" list="shelfCompareStoreOptions"><datalist id="shelfCompareStoreOptions"></datalist></label>
         <label>価格区分<select id="shelfComparePriceType"><option value="inc">税込</option><option value="ex">税抜</option></select></label>
         <label>税率<select id="shelfCompareTax"></select></label>
       </div>
@@ -605,7 +606,7 @@
 
   <div id="saveToast" class="save-toast hidden" role="status" aria-live="polite">保存しました</div>
 
-  <script src="./app.js?v=0.70"></script>
-  <script src="./ads.js?v=0.70"></script>
+  <script src="./app.js?v=0.72"></script>
+  <script src="./ads.js?v=0.72"></script>
 </body>
 </html>

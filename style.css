@@ -1796,7 +1796,7 @@ main{padding:10px 8px 14px}
   .top-actions{display:contents}
   #btnSettings{grid-column:2;grid-row:1;width:36px;height:34px;justify-self:end}
   #btnAddProduct{grid-column:3;grid-row:1;width:68px;min-width:0;height:34px}
-  #btnBulkStore{grid-column:1;grid-row:2;width:100%;min-width:0}
+  #btnProductList{grid-column:1;grid-row:2;width:100%;min-width:0;padding-left:2px;padding-right:2px;font-size:10px}
   #btnStorePurchase{grid-column:2;grid-row:2;width:100%;min-width:0;padding-left:2px;padding-right:2px;font-size:10px}
   #btnShelfCompare{grid-column:3;grid-row:2;width:100%;min-width:0;padding-left:2px;padding-right:2px;font-size:10px}
   .top-actions .mini{min-height:34px}
@@ -1834,11 +1834,70 @@ main{padding:10px 8px 14px}
   .topbar>div:first-child{grid-column:1;grid-row:1}
   #btnSettings{grid-column:2;grid-row:1;justify-self:center}
   #btnAddProduct{grid-column:3;grid-row:1;justify-self:end;width:72px}
-  #btnBulkStore{grid-column:1;grid-row:2}
+  #btnProductList{grid-column:1;grid-row:2;font-size:11px}
   #btnStorePurchase{grid-column:2;grid-row:2;font-size:11px}
   #btnShelfCompare{grid-column:3;grid-row:2;font-size:11px}
 }
 @media(max-width:360px){
   .topbar{grid-template-columns:repeat(3,minmax(0,1fr))}
   #btnAddProduct{width:66px}
+}
+
+
+/* Ver.0.71: 売り場比較の容量・価格・単価の単位表示を他画面と統一 */
+.shelf-amount-cell{
+  position:relative;
+}
+.shelf-amount-input-wrap{
+  min-width:0;
+}
+.shelf-amount-input-wrap .sc-amount{
+  text-align:right;
+}
+/* 容量は通常時「600 g」のように1欄で表示。タップ中だけ数字＋単位選択に分ける。 */
+.shelf-amount-cell:not(:focus-within){
+  grid-template-columns:minmax(0,1fr)!important;
+}
+.shelf-amount-cell:not(:focus-within) .sc-unit{
+  display:none;
+}
+.shelf-amount-cell:focus-within{
+  grid-template-columns:minmax(0,1fr) 50px!important;
+}
+.shelf-amount-cell:focus-within .sc-unit{
+  display:block;
+}
+@media(max-width:600px){
+  .shelf-amount-cell:focus-within{grid-template-columns:minmax(0,1fr) 35px!important}
+}
+
+
+/* Ver.0.72: 常設ジャンプボタン・選択中画面の強調 */
+.view-jump.active,
+.view-jump[aria-current="page"]{
+  background:linear-gradient(180deg,#6ca970,#57955d);
+  border-color:#57955d;
+  color:#fff;
+  font-weight:700;
+  box-shadow:0 2px 7px rgba(69,116,72,.18);
+}
+.product-list-head #btnBulkStore{
+  width:auto;
+  min-width:0;
+  flex:none;
+}
+@media(max-width:650px){
+  #btnProductList,#btnStorePurchase,#btnShelfCompare{
+    width:100%;
+    min-width:0;
+    padding-left:3px;
+    padding-right:3px;
+    font-size:11px;
+  }
+  .product-list-head #btnBulkStore{
+    width:auto;
+    padding-left:8px;
+    padding-right:8px;
+    font-size:11px;
+  }
 }
