@@ -8,7 +8,7 @@ const TEMPLATE_KEY = 'pricelog_custom_template_v1';
 const YAHOO_PRODUCT_CACHE_KEY = 'pricelog_yahoo_product_cache_v1';
 const SHOPPING_MEMO_KEY = 'pricelog_shopping_memo_v1';
 const V051_SETTINGS_MIGRATION_KEY = 'pricelog_v051_settings_migrated';
-const APP_VERSION = '0.67';
+const APP_VERSION = '0.68';
 const DATA_SCHEMA_VERSION = 3;
 
 const YAHOO_WORKER_URL = 'https://pricelog-yahoo.pricelog-api.workers.dev';
@@ -403,7 +403,7 @@ window.addEventListener('beforeunload', (e) => {
 });
 
 if ('serviceWorker' in navigator) {
-  window.addEventListener('load', () => navigator.serviceWorker.register('./sw.js?v=0.67').catch(() => {}));
+  window.addEventListener('load', () => navigator.serviceWorker.register('./sw.js?v=0.68').catch(() => {}));
 }
 
 function loadJson(key, fallback) {
@@ -3998,6 +3998,9 @@ function setProductKindChoice(kind, { updateReading = true } = {}) {
   $('productNameField').classList.toggle('is-disabled', !productEnabled);
   $('productTypeNameField').classList.toggle('is-disabled', !typeEnabled);
   $('productAmountGroup').classList.toggle('hidden', normalized === 'type' || !normalized);
+  // 種類比較では内容量は店舗ごとに持つため、非表示の共通内容量を必須判定から外す。
+  // required のままだとブラウザ標準バリデーションが submit 自体を止め、保存ボタンが無反応に見える。
+  $('productAmount').required = productEnabled;
 
   if (updateReading && normalized) {
     const saved = productDialogReadings[normalized] || '';
