@@ -1599,3 +1599,21 @@ main{padding:10px 8px 14px}
 .product-add-store-card .unit-input{margin-top:2px}
 .product-add-store-card .unit-input>input{margin-top:0!important}
 .shopping-edit-price-wrap.unit-input{display:block}
+
+
+/* Ver.0.64: 単位サフィックスを入力欄より前面に表示 */
+.unit-input>input{
+  position:relative;
+  z-index:1;
+}
+.unit-input .input-unit-suffix{
+  z-index:3;
+}
+.unit-input.has-value:not(:focus-within) .input-unit-suffix{
+  opacity:1!important;
+  visibility:visible!important;
+}
+.unit-input:focus-within .input-unit-suffix{
+  opacity:0!important;
+  visibility:hidden!important;
+}
