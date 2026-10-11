@@ -8,7 +8,7 @@ const TEMPLATE_KEY = 'pricelog_custom_template_v1';
 const YAHOO_PRODUCT_CACHE_KEY = 'pricelog_yahoo_product_cache_v1';
 const SHOPPING_MEMO_KEY = 'pricelog_shopping_memo_v1';
 const V051_SETTINGS_MIGRATION_KEY = 'pricelog_v051_settings_migrated';
-const APP_VERSION = '0.72';
+const APP_VERSION = '0.74';
 const DATA_SCHEMA_VERSION = 3;
 
 const YAHOO_WORKER_URL = 'https://pricelog-yahoo.pricelog-api.workers.dev';
@@ -424,7 +424,7 @@ window.addEventListener('beforeunload', (e) => {
 });
 
 if ('serviceWorker' in navigator) {
-  window.addEventListener('load', () => navigator.serviceWorker.register('./sw.js?v=0.72').catch(() => {}));
+  window.addEventListener('load', () => navigator.serviceWorker.register('./sw.js?v=0.74').catch(() => {}));
 }
 
 function loadJson(key, fallback) {
@@ -1265,7 +1265,7 @@ function makeShelfCompareRow(overrides = {}) {
     price: '',
     amount: '',
     unit: 'g',
-    selected: true,
+    selected: false,
     existing: false,
     sourceProductId: '',
     sourceStoreRowId: '',
@@ -1274,7 +1274,8 @@ function makeShelfCompareRow(overrides = {}) {
 }
 
 function addShelfCompareRow(shouldRender = true) {
-  shelfCompareRows.push(makeShelfCompareRow());
+  const hasSelected = shelfCompareRows.some(row => row.selected);
+  shelfCompareRows.push(makeShelfCompareRow({ selected: !hasSelected }));
   if (shouldRender) {
     shelfCompareDirty = true;
     renderShelfCompare();
@@ -1318,20 +1319,29 @@ function getShelfCompareExistingRows(typeName, storeName) {
   const product = findShelfCompareTypeProduct(typeName);
   if (!product) return [];
 
-  return product.stores
+  const matches = product.stores
     .filter(row => normalizeMergeText(row.store) === storeKey)
-    .map(row => makeShelfCompareRow({
-      id: `existing_${row.id}`,
-      productInfo: String(row.productInfo || ''),
-      price: row.price ?? '',
-      amount: row.amount ?? '',
-      unit: row.unit || product.unit || '個',
-      selected: true,
-      existing: true,
-      sourceProductId: product.id,
-      sourceStoreRowId: row.id,
-      sourceUpdatedAt: row.updatedAt || ''
-    }));
+    .slice()
+    .sort((a, b) => {
+      const at = Date.parse(a.updatedAt || '') || 0;
+      const bt = Date.parse(b.updatedAt || '') || 0;
+      return bt - at;
+    });
+  const row = matches[0];
+  if (!row) return [];
+
+  return [makeShelfCompareRow({
+    id: `existing_${row.id}`,
+    productInfo: String(row.productInfo || ''),
+    price: row.price ?? '',
+    amount: row.amount ?? '',
+    unit: row.unit || product.unit || '個',
+    selected: true,
+    existing: true,
+    sourceProductId: product.id,
+    sourceStoreRowId: row.id,
+    sourceUpdatedAt: row.updatedAt || ''
+  })];
 }
 
 function syncShelfCompareExistingRows() {
@@ -1343,6 +1353,8 @@ function syncShelfCompareExistingRows() {
 
   const manualRows = shelfCompareRows.filter(row => !row.existing);
   const existingRows = getShelfCompareExistingRows(typeName, storeName);
+  if (existingRows.length) manualRows.forEach(row => { row.selected = false; });
+  else if (manualRows.length && !manualRows.some(row => row.selected)) manualRows[0].selected = true;
   shelfCompareSeedKey = key;
 
   if (existingRows.length) {
@@ -1355,12 +1367,12 @@ function syncShelfCompareExistingRows() {
   }
 
   shelfCompareRows = [...existingRows, ...manualRows];
-  if (!shelfCompareRows.length) shelfCompareRows = [makeShelfCompareRow()];
+  if (!shelfCompareRows.length) shelfCompareRows = [makeShelfCompareRow({ selected:true })];
 }
 
 function clearShelfCompare() {
   if (shelfCompareRows.some(r => r.productInfo || r.price !== '' || r.amount !== '') && !window.confirm('売り場比較の入力内容をクリアしますか？')) return;
-  shelfCompareRows = [makeShelfCompareRow()];
+  shelfCompareRows = [makeShelfCompareRow({ selected:true })];
   shelfCompareCommon = { priceType: settings.defaultPriceType, tax: settings.reducedTax };
   shelfCompareSeedKey = '';
   $('shelfCompareType').value = '';
@@ -1391,6 +1403,14 @@ function upsertShelfCompareRow(row, typeName, storeName, now) {
   }
 
   let storeRow = row.sourceStoreRowId ? product.stores.find(item => item.id === row.sourceStoreRowId) : null;
+  if (!storeRow) {
+    const storeKey = normalizeMergeText(storeName);
+    const matches = product.stores
+      .filter(item => normalizeMergeText(item.store) === storeKey)
+      .slice()
+      .sort((a, b) => (Date.parse(b.updatedAt || '') || 0) - (Date.parse(a.updatedAt || '') || 0));
+    storeRow = matches[0] || null;
+  }
   const nextPrice = Number(row.price);
   const nextAmount = Number(row.amount);
   const nextUnit = row.unit || '個';
@@ -1399,14 +1419,16 @@ function upsertShelfCompareRow(row, typeName, storeName, now) {
   const nextTax = Number(shelfCompareCommon.tax);
 
   if (storeRow) {
+    const storeKey = normalizeMergeText(storeName);
+    const duplicateCount = product.stores.filter(item => normalizeMergeText(item.store) === storeKey).length;
     const beforePrice = Number(storeRow.price);
     const changed = String(storeRow.store || '') !== storeName ||
       String(storeRow.productInfo || '') !== nextInfo || Number(storeRow.price) !== nextPrice ||
       Number(storeRow.amount) !== nextAmount || String(storeRow.unit || '') !== nextUnit ||
       storeRow.priceType !== nextPriceType || Number(storeRow.tax) !== nextTax;
-    if (!changed) return { changed:false, added:false };
+    if (!changed && duplicateCount <= 1) return { changed:false, added:false };
 
-    if (Number.isFinite(beforePrice) && beforePrice !== nextPrice) {
+    if (changed && Number.isFinite(beforePrice) && beforePrice !== nextPrice) {
       product.history = Array.isArray(product.history) ? product.history : [];
       product.history.unshift({ id:makeId('h'), updatedAt:now, store:storeName, beforePrice, afterPrice:nextPrice });
       product.history = product.history.slice(0,20);
@@ -1415,10 +1437,13 @@ function upsertShelfCompareRow(row, typeName, storeName, now) {
       store:storeName, productInfo:nextInfo, price:nextPrice, priceType:nextPriceType,
       tax:nextTax, couponType:'none', couponValue:'', amount:nextAmount, unit:nextUnit, updatedAt:now
     });
+    // 種類比較では同じ店舗の登録情報は1件に統一し、最新内容で上書きする。
+    product.stores = product.stores.filter(item => item === storeRow || normalizeMergeText(item.store) !== storeKey);
     product.updatedAt = now;
     return { changed:true, added:false };
   }
 
+  // 既存店舗がない場合だけ新規追加する。
   product.stores.push({
     id:makeId('s'), store:storeName, productInfo:nextInfo, price:nextPrice,
     priceType:nextPriceType, tax:nextTax, couponType:'none', couponValue:'',
@@ -1435,26 +1460,27 @@ function registerSelectedShelfCompareRows() {
   if (!storeName) return alert('店舗を入力してね。');
 
   const selected = shelfCompareRows.filter(row => row.selected);
-  if (!selected.length) return alert('商品一覧に反映する商品を選択してね。');
-  const invalid = selected.find(row => !shelfCompareCalc(row));
-  if (invalid) return alert('選択した商品の価格と容量を入力してね。');
+  if (!selected.length) return alert('商品一覧に反映する商品を1つ選択してね。');
+  if (selected.length > 1) return alert('反映できる商品は1つだけです。');
+  const selectedRow = selected[0];
+  if (!shelfCompareCalc(selectedRow)) return alert('選択した商品の価格と容量を入力してね。');
 
   const now = new Date().toISOString();
-  let added = 0, updated = 0;
-  selected.forEach(row => {
-    const result = upsertShelfCompareRow(row, typeName, storeName, now);
-    if (result.added) added += 1;
-    else if (result.changed) updated += 1;
-  });
+  const result = upsertShelfCompareRow(selectedRow, typeName, storeName, now);
 
   products = normalizeProductsData(products);
   persistNow();
+
+  // 選んだ比較候補は登録済みデータへ昇格させ、一覧上も最新の登録内容へ即時更新する。
+  const remainingManualRows = shelfCompareRows.filter(row => !row.existing && row.id !== selectedRow.id);
+  remainingManualRows.forEach(row => { row.selected = false; });
+  shelfCompareRows = remainingManualRows;
   shelfCompareSeedKey = '';
   syncShelfCompareExistingRows();
   shelfCompareDirty = false;
   renderShelfCompare();
   render();
-  showSaveToast(`商品一覧へ反映しました（追加${added}件・更新${updated}件）`);
+  showSaveToast(result.added ? '商品一覧へ登録しました' : '登録情報を最新内容に更新しました');
 }
 
 function renderShelfCompare() {
@@ -1469,7 +1495,7 @@ function renderShelfCompare() {
   tax.value = String(shelfCompareCommon.tax);
 
   container.innerHTML = '';
-  if (!shelfCompareRows.length) shelfCompareRows = [makeShelfCompareRow()];
+  if (!shelfCompareRows.length) shelfCompareRows = [makeShelfCompareRow({ selected:true })];
   const valid = shelfCompareRows.map(r => ({r, calc:shelfCompareCalc(r)})).filter(x => x.calc);
   const best = valid.length ? Math.min(...valid.map(x => x.calc.unitPrice)) : null;
 
@@ -1480,16 +1506,18 @@ function renderShelfCompare() {
     line.className = 'shelf-compare-row shelf-compare-item' + (isBest ? ' is-best' : '') + (row.existing ? ' is-existing' : '');
     line.innerHTML = `
       <span class="shelf-select-cell"><input class="sc-select" type="checkbox" aria-label="商品一覧へ反映"></span>
-      <span class="shelf-info-cell"><input class="sc-info" type="text" maxlength="80" aria-label="商品情報"><button class="shelf-remove" type="button" aria-label="比較対象を削除">×</button>${row.existing ? '<small class="shelf-existing-label">登録済み</small>' : ''}</span>
+      <span class="shelf-info-cell"><input class="sc-info" type="text" maxlength="80" aria-label="商品情報" placeholder="メーカーなど">${row.existing ? '<small class="shelf-existing-label">登録済み</small>' : ''}</span>
       <span class="shelf-amount-cell"><span class="unit-input shelf-amount-input-wrap"><input class="sc-amount" type="text" inputmode="decimal" aria-label="容量"><span class="input-unit-suffix"></span></span><select class="sc-unit" aria-label="単位"><option>g</option><option>ml</option><option>m</option><option>個</option><option>枚</option><option>粒</option><option>本</option><option>袋</option><option>箱</option><option>パック</option><option>缶</option><option>瓶</option></select></span>
       <span class="unit-input shelf-price-cell"><input class="sc-price" type="text" inputmode="decimal" aria-label="価格"><span class="input-unit-suffix">円</span></span>
-      <span class="shelf-unit-price">${calc ? `${isBest ? '<b>最安</b>' : ''}<strong>${fmtCalc(calc.unitPrice)}</strong><small>円/${escapeAttr(row.unit||'個')}</small>` : '-'}</span>`;
+      <span class="shelf-unit-price">${calc ? `${isBest ? '<b>最安</b>' : ''}<strong>${fmtCalc(calc.unitPrice)}</strong><small>円/${escapeAttr(row.unit||'個')}</small>` : '-'}</span>
+      ${row.existing ? '<span class="shelf-delete-placeholder" aria-hidden="true"></span>' : '<button class="st-delete shelf-delete" type="button" aria-label="比較商品を削除">×</button>'}`;
 
     const selected = line.querySelector('.sc-select');
     const info = line.querySelector('.sc-info');
     const price = line.querySelector('.sc-price');
     const amount = line.querySelector('.sc-amount');
     const unit = line.querySelector('.sc-unit');
+    const del = line.querySelector('.shelf-delete');
     selected.checked = row.selected !== false;
     info.value = row.productInfo || '';
     price.value = row.price ?? '';
@@ -1498,7 +1526,26 @@ function renderShelfCompare() {
     const refreshAmountUnit = bindInputUnitSuffix(amount, () => unit.value || row.unit || '個');
     bindInputUnitSuffix(price, '円');
 
-    selected.addEventListener('change', () => { row.selected = selected.checked; shelfCompareDirty = true; });
+    selected.addEventListener('change', () => {
+      if (selected.checked) {
+        shelfCompareRows.forEach(item => { item.selected = item.id === row.id; });
+      } else {
+        row.selected = false;
+      }
+      shelfCompareDirty = true;
+      renderShelfCompare();
+    });
+    if (del) del.addEventListener('click', () => {
+      const wasSelected = row.selected;
+      shelfCompareRows = shelfCompareRows.filter(item => item.id !== row.id);
+      if (!shelfCompareRows.length) {
+        shelfCompareRows = [makeShelfCompareRow({ selected:true })];
+      } else if (wasSelected && !shelfCompareRows.some(item => item.selected)) {
+        shelfCompareRows[0].selected = true;
+      }
+      shelfCompareDirty = true;
+      renderShelfCompare();
+    });
     const sync = () => {
       row.productInfo = info.value.trim();
       row.price = numberOrBlank(price.value);
@@ -1509,12 +1556,6 @@ function renderShelfCompare() {
     };
     [info, price, amount].forEach(control => control.addEventListener('change', sync));
     unit.addEventListener('change', () => { refreshAmountUnit(); sync(); });
-    line.querySelector('.shelf-remove').addEventListener('click', () => {
-      shelfCompareDirty = true;
-      shelfCompareRows.splice(index,1);
-      if (!shelfCompareRows.length) shelfCompareRows.push(makeShelfCompareRow());
-      renderShelfCompare();
-    });
     container.appendChild(line);
   });
 }

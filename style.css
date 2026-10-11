@@ -1751,22 +1751,22 @@ main{padding:10px 8px 14px}
 .shelf-compare-list{display:block}
 .shelf-compare-row{
   display:grid;
-  grid-template-columns:42px minmax(140px,1fr) 154px 100px 128px;
+  grid-template-columns:42px minmax(140px,1fr) 154px 100px 128px 30px;
   gap:6px;align-items:center;min-width:0;padding:7px 8px
 }
 .shelf-compare-head{padding-top:6px;padding-bottom:5px;background:#f6efe3;border-radius:11px 11px 0 0;color:#746658;font-size:11px;font-weight:700;text-align:center}
-.shelf-compare-head span:nth-child(2){text-align:left}
+.shelf-compare-head span:nth-child(2){text-align:center}
 .shelf-compare-item{position:relative;border-top:1px solid #eee2d2}
 .shelf-compare-item.is-best{background:#f6fbf1}
 .shelf-compare-item.is-existing{background:#fffaf0}
 .shelf-compare-item.is-existing.is-best{background:#f4faed}
 .shelf-select-cell{display:flex;align-items:center;justify-content:center}
 .sc-select{width:18px;height:18px;margin:0;accent-color:var(--accent)}
-.shelf-info-cell{position:relative;display:block;min-width:0;padding-right:22px}
+.shelf-info-cell{position:relative;display:block;min-width:0;padding-right:0}
 .shelf-compare-item input,.shelf-compare-item select{
   width:100%;height:34px;min-width:0;margin:0;border:1px solid var(--line);border-radius:7px;background:#fff;color:var(--text);padding:0 6px;font-size:13px
 }
-.shelf-info-cell .sc-info{padding-right:4px}
+.shelf-info-cell .sc-info{padding-right:6px}
 .shelf-remove{position:absolute;right:0;top:5px;width:20px;height:24px;padding:0;border:0;background:transparent;color:#8b7b6c;font-size:18px;line-height:1}
 .shelf-existing-label{position:absolute;left:5px;bottom:-7px;padding:0 3px;background:#fffaf0;color:#8b745f;font-size:8px;line-height:1}
 .shelf-amount-cell{display:grid;grid-template-columns:minmax(0,1fr) 50px;gap:3px;min-width:0}
@@ -1778,6 +1778,8 @@ main{padding:10px 8px 14px}
 .shelf-unit-price b{font-size:9px;color:#5f8d50}
 .shelf-unit-price strong{font-size:13px}
 .shelf-unit-price small{font-size:9px;color:#776b60}
+.shelf-delete,.shelf-delete-placeholder{justify-self:end;width:28px;height:32px;min-width:28px}
+.shelf-delete{padding:0;display:inline-flex;align-items:center;justify-content:center}
 .shelf-compare-actions{display:grid;grid-template-columns:auto minmax(160px,1fr) auto;gap:8px}
 .shelf-compare-actions button{width:100%}
 
@@ -1804,12 +1806,12 @@ main{padding:10px 8px 14px}
   .shelf-compare-base{grid-template-columns:minmax(0,1fr) minmax(0,1fr) 84px 68px;gap:5px;padding:8px}
   .shelf-compare-base label{font-size:10px}
   .shelf-compare-base input,.shelf-compare-base select{height:34px;padding:0 5px;font-size:12px}
-  .shelf-compare-row{grid-template-columns:26px minmax(56px,1fr) 76px 58px 72px;gap:4px;padding:7px 4px}
+  .shelf-compare-row{grid-template-columns:26px minmax(52px,1fr) 72px 56px 68px 28px;gap:4px;padding:7px 4px}
   .shelf-compare-head{font-size:9px;padding-top:5px;padding-bottom:4px}
   .shelf-compare-item input,.shelf-compare-item select{height:32px;padding:0 3px;font-size:11px}
   .sc-select{width:17px!important;height:17px!important}
-  .shelf-info-cell{padding-right:17px}
-  .shelf-remove{right:-2px;top:5px;width:18px;font-size:16px}
+  .shelf-info-cell{padding-right:0}
+  .shelf-delete,.shelf-delete-placeholder{width:26px;height:32px;min-width:26px}
   .shelf-existing-label{left:3px;bottom:-7px;font-size:7px}
   .shelf-amount-cell{grid-template-columns:minmax(0,1fr) 35px;gap:2px}
   .shelf-unit-price{gap:1px;flex-wrap:wrap;justify-content:flex-end;line-height:1.05}
@@ -1825,7 +1827,7 @@ main{padding:10px 8px 14px}
   .topbar strong{font-size:14px}
   .topbar strong::before{width:27px;height:27px}
   .shelf-compare-base{grid-template-columns:1fr 1fr 76px 62px}
-  .shelf-compare-row{grid-template-columns:24px minmax(50px,1fr) 72px 54px 68px;gap:3px;padding-left:3px;padding-right:3px}
+  .shelf-compare-row{grid-template-columns:24px minmax(46px,1fr) 68px 52px 64px 26px;gap:3px;padding-left:3px;padding-right:3px}
   .shelf-compare-item input,.shelf-compare-item select{font-size:10px}
   .shelf-unit-price strong{font-size:10px}
 }
@@ -1900,4 +1902,19 @@ main{padding:10px 8px 14px}
     padding-right:8px;
     font-size:11px;
   }
+}
+
+
+/* Ver.0.73: 売り場比較の単一選択・登録上書き・ヘッダー配置調整 */
+.shelf-info-cell .sc-info::placeholder{color:#aaa39b;opacity:1}
+@media(max-width:650px){
+  .topbar{grid-template-columns:minmax(0,1fr) 36px 72px;column-gap:4px}
+  #btnSettings{grid-column:2;grid-row:1;justify-self:end;margin:0}
+  #btnAddProduct{grid-column:3;grid-row:1;justify-self:end;width:72px;margin:0}
+  .shelf-info-cell{padding-right:0}
+}
+@media(max-width:360px){
+  .topbar{grid-template-columns:minmax(0,1fr) 34px 66px;column-gap:3px}
+  #btnSettings{width:34px}
+  #btnAddProduct{width:66px}
 }
