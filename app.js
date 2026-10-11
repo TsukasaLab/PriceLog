@@ -8,7 +8,7 @@ const TEMPLATE_KEY = 'pricelog_custom_template_v1';
 const YAHOO_PRODUCT_CACHE_KEY = 'pricelog_yahoo_product_cache_v1';
 const SHOPPING_MEMO_KEY = 'pricelog_shopping_memo_v1';
 const V051_SETTINGS_MIGRATION_KEY = 'pricelog_v051_settings_migrated';
-const APP_VERSION = '0.76';
+const APP_VERSION = '0.77';
 const DATA_SCHEMA_VERSION = 3;
 
 const YAHOO_WORKER_URL = 'https://pricelog-yahoo.pricelog-api.workers.dev';
@@ -201,17 +201,15 @@ $('shelfCompareTypeSelect').addEventListener('change', () => {
   const value = $('shelfCompareTypeSelect').value;
   if (!value) return;
   $('shelfCompareType').value = value;
-  shelfCompareDirty = true;
-  syncShelfCompareExistingRows();
-  renderShelfCompare();
+  shelfCompareDirty = true; shelfCompareSeedKey = '';
+  syncShelfCompareExistingRows(); renderShelfCompare();
 });
 $('shelfCompareStoreSelect').addEventListener('change', () => {
   const value = $('shelfCompareStoreSelect').value;
   if (!value) return;
   $('shelfCompareStore').value = value;
-  shelfCompareDirty = true;
-  syncShelfCompareExistingRows();
-  renderShelfCompare();
+  shelfCompareDirty = true; shelfCompareSeedKey = '';
+  syncShelfCompareExistingRows(); renderShelfCompare();
 });
 $('shelfComparePriceType').addEventListener('change', () => { shelfCompareDirty = true; shelfCompareCommon.priceType = $('shelfComparePriceType').value === 'inc' ? 'inc' : 'ex'; renderShelfCompare(); });
 $('shelfCompareTax').addEventListener('change', () => { shelfCompareDirty = true; shelfCompareCommon.tax = Number($('shelfCompareTax').value); renderShelfCompare(); });
@@ -1315,19 +1313,19 @@ function updateShelfCompareSuggestions() {
   const typeSelect = $('shelfCompareTypeSelect');
   const storeSelect = $('shelfCompareStoreSelect');
   if (typeSelect) {
+    const current = $('shelfCompareType')?.value || '';
     const names = Array.from(new Set(products.filter(p => p.kind === 'type').map(p => String(p.name || '').trim()).filter(Boolean)))
       .sort((a,b) => a.localeCompare(b, 'ja'));
-    const current = typeSelect.value;
     typeSelect.innerHTML = '<option value="">選択</option>' + names.map(name => `<option value="${escapeAttr(name)}">${escapeHtml(name)}</option>`).join('');
-    if (names.includes(current)) typeSelect.value = current;
+    typeSelect.value = names.includes(current) ? current : '';
   }
   if (storeSelect) {
-    // 種類に関係なく、全商品に登録されている全店舗を候補にする。
+    const current = $('shelfCompareStore')?.value || '';
+    // 種類に関係なく、PriceLog内の全商品に登録されている店舗を候補にする。
     const stores = Array.from(new Set(products.flatMap(p => p.stores || []).map(row => String(row.store || '').trim()).filter(Boolean)))
       .sort((a,b) => a.localeCompare(b, 'ja'));
-    const current = storeSelect.value;
     storeSelect.innerHTML = '<option value="">選択</option>' + stores.map(name => `<option value="${escapeAttr(name)}">${escapeHtml(name)}</option>`).join('');
-    if (stores.includes(current)) storeSelect.value = current;
+    storeSelect.value = stores.includes(current) ? current : '';
   }
 }
 
@@ -1565,20 +1563,16 @@ function renderShelfCompare() {
       shelfCompareDirty = true;
       renderShelfCompare();
     });
-    const saveDraft = () => {
-      row.productInfo = info.value.trim();
+    const keepDraft = () => {
+      row.productInfo = info.value;
       row.price = numberOrBlank(price.value);
       row.amount = numberOrBlank(amount.value);
       row.unit = unit.value || '個';
       shelfCompareDirty = true;
     };
-    const sync = () => {
-      saveDraft();
-      renderShelfCompare();
-    };
-    // Android等で別欄へ移動した時も、再描画より先に現在の入力値を行データへ保持する。
+    const sync = () => { keepDraft(); renderShelfCompare(); };
     [info, price, amount].forEach(control => {
-      control.addEventListener('input', saveDraft);
+      control.addEventListener('input', keepDraft);
       control.addEventListener('change', sync);
     });
     unit.addEventListener('change', () => { refreshAmountUnit(); sync(); });
