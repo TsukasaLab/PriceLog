@@ -1535,3 +1535,67 @@ main{padding:10px 8px 14px}
   .store-row::before{left:40px}
   .mobile-head-label{font-size:8px;padding:0 2px}
 }
+
+
+/* Ver.0.63: 数値入力の単位表示と商品一覧バッジ位置を固定 */
+.unit-input{
+  position:relative;
+  display:block;
+  min-width:0;
+}
+.unit-input>input{width:100%!important;min-width:0!important}
+.unit-input .input-unit-suffix{
+  position:absolute;
+  top:50%;
+  right:6px;
+  transform:translateY(-50%);
+  pointer-events:none;
+  opacity:0;
+  color:#776657;
+  font-size:.82em;
+  font-weight:700;
+  line-height:1;
+}
+.unit-input.has-value:not(:focus-within)>input{padding-right:1.7em!important}
+.unit-input.has-value:not(:focus-within) .input-unit-suffix{opacity:1}
+.unit-input:focus-within .input-unit-suffix{opacity:0}
+.store-row .st-price-wrap{grid-column:auto}
+.store-row .st-coupon-value-wrap{grid-column:auto}
+
+/* 商品一覧は 最安 / 特安 / 価格 の3列を固定。価格桁数でバッジ位置を動かさない。 */
+.product-card:not(.open) .best-wrap{
+  width:154px;
+  display:grid;
+  grid-template-columns:36px 36px 74px;
+  gap:4px;
+  align-items:center;
+  justify-content:end;
+}
+.best-badge-slot{
+  width:36px;
+  display:flex;
+  align-items:center;
+  justify-content:center;
+}
+.best-badge-slot.is-hidden{visibility:hidden}
+.product-card:not(.open) .best-price{
+  width:74px;
+  min-width:74px;
+  text-align:right;
+  font-variant-numeric:tabular-nums;
+  white-space:nowrap;
+}
+.best-wrap.no-best .best-list-badge{display:inline-flex}
+@media(max-width:420px){
+  .product-card:not(.open) .best-wrap{width:146px;grid-template-columns:34px 34px 70px;gap:4px}
+  .best-badge-slot{width:34px}
+  .product-card:not(.open) .best-price{width:70px;min-width:70px;font-size:11px}
+}
+@media(max-width:650px){
+  .store-row .st-price-wrap{grid-area:price}
+  .store-row .st-coupon-value-wrap{grid-area:cvalue}
+  .store-row .st-price-wrap,.store-row .st-coupon-value-wrap{position:relative;z-index:1}
+}
+.product-add-store-card .unit-input{margin-top:2px}
+.product-add-store-card .unit-input>input{margin-top:0!important}
+.shopping-edit-price-wrap.unit-input{display:block}

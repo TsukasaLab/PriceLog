@@ -8,7 +8,7 @@ const TEMPLATE_KEY = 'pricelog_custom_template_v1';
 const YAHOO_PRODUCT_CACHE_KEY = 'pricelog_yahoo_product_cache_v1';
 const SHOPPING_MEMO_KEY = 'pricelog_shopping_memo_v1';
 const V051_SETTINGS_MIGRATION_KEY = 'pricelog_v051_settings_migrated';
-const APP_VERSION = '0.62';
+const APP_VERSION = '0.63';
 const DATA_SCHEMA_VERSION = 3;
 
 const YAHOO_WORKER_URL = 'https://pricelog-yahoo.pricelog-api.workers.dev';
@@ -403,7 +403,7 @@ window.addEventListener('beforeunload', (e) => {
 });
 
 if ('serviceWorker' in navigator) {
-  window.addEventListener('load', () => navigator.serviceWorker.register('./sw.js?v=0.62').catch(() => {}));
+  window.addEventListener('load', () => navigator.serviceWorker.register('./sw.js?v=0.63').catch(() => {}));
 }
 
 function loadJson(key, fallback) {
@@ -663,14 +663,20 @@ function render() {
 
     const bestWrap = node.querySelector('.best-wrap');
     const bestPrice = node.querySelector('.best-price');
+    const bestLowSlot = node.querySelector('.best-low-slot');
+    const bestSpecialSlot = node.querySelector('.best-special-slot');
     if (bests.before) {
       const baseCalc = bests.before.calc;
       bestPrice.textContent = `${fmtPrice(baseCalc.grossBefore)}円`;
       bestWrap.classList.remove('no-best');
+      bestLowSlot?.classList.remove('is-hidden');
+      bestSpecialSlot?.classList.toggle('is-hidden', !bests.after);
       node.classList.add('has-best');
     } else {
       bestPrice.textContent = '価格未登録';
       bestWrap.classList.add('no-best');
+      bestLowSlot?.classList.add('is-hidden');
+      bestSpecialSlot?.classList.add('is-hidden');
     }
 
     const bulkWrap = node.querySelector('.bulk-check-wrap');
@@ -765,6 +771,25 @@ function render() {
   });
 }
 
+function bindInputUnitSuffix(input, unitSource) {
+  if (!input) return () => {};
+  const wrap = input.closest('.unit-input');
+  const suffix = wrap?.querySelector('.input-unit-suffix');
+  if (!wrap || !suffix) return () => {};
+
+  const refresh = () => {
+    const unit = typeof unitSource === 'function' ? unitSource() : unitSource;
+    suffix.textContent = unit || '';
+    const hasValue = String(input.value ?? '').trim() !== '' && !!unit && !input.disabled;
+    wrap.classList.toggle('has-value', hasValue);
+  };
+  input.addEventListener('input', refresh);
+  input.addEventListener('change', refresh);
+  input.addEventListener('blur', refresh);
+  refresh();
+  return refresh;
+}
+
 function renderStoreRow(product, row, bestFlags = {before:false, after:false}) {
   const el = storeTemplate.content.firstElementChild.cloneNode(true);
   const bestMark = el.querySelector('.best-mark');
@@ -788,6 +813,10 @@ function renderStoreRow(product, row, bestFlags = {before:false, after:false}) {
   tax.innerHTML = taxOptions(row.tax ?? product.defaultTax);
   couponType.value = ['percent','yen'].includes(row.couponType) ? row.couponType : 'none';
   couponValue.value = row.couponValue ?? '';
+  const refreshPriceUnit = bindInputUnitSuffix(price, '円');
+  const refreshCouponUnit = bindInputUnitSuffix(couponValue, () =>
+    couponType.value === 'percent' ? '%' : couponType.value === 'yen' ? '円' : ''
+  );
 
   const isType = product.kind === 'type';
   quantityFields.classList.toggle('hidden', !isType);
@@ -798,7 +827,9 @@ function renderStoreRow(product, row, bestFlags = {before:false, after:false}) {
 
   function updateOutputs() {
     couponValue.disabled = couponType.value === 'none';
-    couponValue.placeholder = couponType.value === 'percent' ? '%' : couponType.value === 'yen' ? '円' : '-';
+    couponValue.placeholder = couponType.value === 'none' ? '-' : '数字';
+    refreshPriceUnit();
+    refreshCouponUnit();
     const calc = calcRow(product, row);
     if (calc) {
       priceResultOut.textContent = `${fmtCalc(calc.grossBefore)}[${fmtCalc(calc.afterTotal)}](${fmtCalcDelta(calc.afterTotal - calc.grossBefore)})`;
@@ -1530,7 +1561,7 @@ function renderStorePurchaseView() {
           amountWrap.append(amountInput, unitSelect);
 
           const priceWrap = document.createElement('span');
-          priceWrap.className = 'shopping-edit-price-wrap';
+          priceWrap.className = 'shopping-edit-price-wrap unit-input';
           const priceInput = document.createElement('input');
           priceInput.className = 'shopping-edit-price';
           priceInput.type = 'text';
@@ -1541,8 +1572,10 @@ function renderStorePurchaseView() {
             edit.grossPrice = priceInput.value.replace(/,/g, '');
           });
           const yen = document.createElement('span');
+          yen.className = 'input-unit-suffix';
           yen.textContent = '円';
           priceWrap.append(priceInput, yen);
+          bindInputUnitSuffix(priceInput, '円');
 
           row.append(mark, checkbox, productName, amountWrap, priceWrap);
         } else {
@@ -3985,14 +4018,14 @@ function renderProductDialogStores() {
     card.innerHTML = `
       <div class="quick-store-main">
         <label>店舗<input class="qs-store" type="text" maxlength="40" placeholder="店舗名"></label>
-        <label>価格<input class="qs-price" type="text" inputmode="decimal" placeholder="価格"></label>
+        <label>価格<span class="unit-input"><input class="qs-price" type="text" inputmode="decimal" placeholder="価格"><span class="input-unit-suffix">円</span></span></label>
         <button class="qs-delete" type="button" aria-label="この店舗を削除">×</button>
       </div>
       <div class="quick-store-options">
         <label>税込/税抜<select class="qs-price-type"><option value="inc">税込</option><option value="ex">税抜</option></select></label>
         <label>税率<select class="qs-tax">${taxOptions(row.tax)}</select></label>
         <label>クーポン<select class="qs-coupon-type"><option value="none">なし</option><option value="percent">%OFF</option><option value="yen">円引</option></select></label>
-        <label>値<input class="qs-coupon-value" type="text" inputmode="decimal" placeholder="-"></label>
+        <label>値<span class="unit-input"><input class="qs-coupon-value" type="text" inputmode="decimal" placeholder="-"><span class="input-unit-suffix"></span></span></label>
       </div>
       <div class="quick-store-quantity ${kind === 'type' ? '' : 'hidden'}">
         <label>内容量<input class="qs-amount" type="text" inputmode="decimal" placeholder="内容量"></label>
@@ -4016,6 +4049,10 @@ function renderProductDialogStores() {
     tax.value = String(row.tax ?? settings.reducedTax);
     couponType.value = ['percent','yen'].includes(row.couponType) ? row.couponType : 'none';
     couponValue.value = row.couponValue ?? '';
+    const refreshPriceUnit = bindInputUnitSuffix(price, '円');
+    const refreshCouponUnit = bindInputUnitSuffix(couponValue, () =>
+      couponType.value === 'percent' ? '%' : couponType.value === 'yen' ? '円' : ''
+    );
     amount.value = Number(row.amount) > 0 ? row.amount : '';
     setSelectValueWithOption(unit, row.unit || '個');
 
@@ -4029,6 +4066,9 @@ function renderProductDialogStores() {
       row.amount = numberOrBlank(amount.value);
       row.unit = unit.value || '個';
       couponValue.disabled = row.couponType === 'none';
+      couponValue.placeholder = row.couponType === 'none' ? '-' : '数字';
+      refreshPriceUnit();
+      refreshCouponUnit();
       const tempProduct = { kind: kind || 'product', amount: productAmount, unit: productUnit };
       const calc = calcRow(tempProduct, row);
       result.textContent = calc
