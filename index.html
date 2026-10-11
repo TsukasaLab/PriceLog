@@ -7,14 +7,14 @@
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="default">
   <title>PriceLog</title>
-  <link rel="manifest" href="./manifest.webmanifest?v=0.69">
+  <link rel="manifest" href="./manifest.webmanifest?v=0.70">
   <link rel="apple-touch-icon" href="./icon-192-v058.png">
-  <link rel="stylesheet" href="./style.css?v=0.69">
+  <link rel="stylesheet" href="./style.css?v=0.70">
 </head>
 <body>
   <header class="topbar">
     <div>
-      <strong>PriceLog</strong> <small class="app-version">Ver.0.69</small>
+      <strong>PriceLog</strong> <small class="app-version">Ver.0.70</small>
     </div>
     <div class="top-actions">
       <button id="btnSettings" class="icon-btn" type="button" aria-label="設定">⚙</button>
@@ -72,15 +72,22 @@
     <section id="shelfCompareView" class="shelf-compare-view hidden">
       <div class="store-purchase-head"><div><strong>売り場比較</strong><small>同じ種類の商品を内容量が違っても単価で比較</small></div></div>
       <div class="shelf-compare-base">
-        <label>比較する種類<input id="shelfCompareType" type="text" maxlength="60" placeholder="例：米油"></label>
-        <label>店舗<input id="shelfCompareStore" type="text" maxlength="40" placeholder="例：イオン"></label>
+        <label>比較する種類<input id="shelfCompareType" type="text" maxlength="60"></label>
+        <label>店舗<input id="shelfCompareStore" type="text" maxlength="40"></label>
+        <label>価格区分<select id="shelfComparePriceType"><option value="inc">税込</option><option value="ex">税抜</option></select></label>
+        <label>税率<select id="shelfCompareTax"></select></label>
       </div>
-      <div id="shelfCompareList" class="shelf-compare-list"></div>
+      <div class="shelf-compare-table">
+        <div class="shelf-compare-row shelf-compare-head" aria-hidden="true">
+          <span>選択</span><span>商品情報</span><span>容量</span><span>価格</span><span>単価</span>
+        </div>
+        <div id="shelfCompareList" class="shelf-compare-list"></div>
+      </div>
       <div class="shelf-compare-actions">
-        <button id="btnAddShelfCompare" class="primary" type="button">＋比較商品</button>
+        <button id="btnAddShelfCompare" class="ghost" type="button">＋比較商品</button>
+        <button id="btnRegisterShelfCompare" class="primary" type="button">選択した商品を反映</button>
         <button id="btnClearShelfCompare" class="ghost" type="button">クリア</button>
       </div>
-      <div class="shelf-compare-note">商品情報はメーカー名・ブランド名・商品名など、分かる内容を自由に入力できます。</div>
     </section>
 
     <section class="ad-area" aria-label="広告">
@@ -124,7 +131,7 @@
       <span class="field-hint">選ばれていない方の入力内容も保持する。バーコード読取時は両方を自動入力する。</span>
 
       <label class="reading-field">よみがな
-        <input id="productReading" maxlength="80" placeholder="選択した名前から自動入力">
+        <input id="productReading" maxlength="80">
         <span class="field-hint">選択中の名前から候補を自動入力。必要なら修正できる。</span>
       </label>
 
@@ -564,10 +571,10 @@
     <div class="store-row">
       <span class="best-mark" aria-hidden="true"></span>
       <div class="st-store-cell">
-        <input class="st-store" type="text" maxlength="40" placeholder="店舗">
-        <input class="st-product-info hidden" type="text" maxlength="80" placeholder="商品情報（メーカー・ブランド・商品名など）" aria-label="商品情報">
+        <input class="st-store" type="text" maxlength="40">
+        <input class="st-product-info hidden" type="text" maxlength="80" aria-label="商品情報">
         <div class="st-quantity-fields hidden">
-          <input class="st-amount" type="text" inputmode="decimal" placeholder="内容量" aria-label="内容量">
+          <input class="st-amount" type="text" inputmode="decimal" aria-label="内容量">
           <select class="st-unit-select" aria-label="単位">
             <option value="g">g</option><option value="ml">ml</option><option value="m">m</option>
             <option value="個">個</option><option value="枚">枚</option><option value="粒">粒</option>
@@ -576,7 +583,7 @@
           </select>
         </div>
       </div>
-      <span class="unit-input st-price-wrap"><input class="st-price" type="text" inputmode="decimal" placeholder="価格"><span class="input-unit-suffix">円</span></span>
+      <span class="unit-input st-price-wrap"><input class="st-price" type="text" inputmode="decimal"><span class="input-unit-suffix">円</span></span>
       <select class="st-price-type" aria-label="税込・税抜">
         <option value="inc">込</option>
         <option value="ex">抜</option>
@@ -598,7 +605,7 @@
 
   <div id="saveToast" class="save-toast hidden" role="status" aria-live="polite">保存しました</div>
 
-  <script src="./app.js?v=0.69"></script>
-  <script src="./ads.js?v=0.69"></script>
+  <script src="./app.js?v=0.70"></script>
+  <script src="./ads.js?v=0.70"></script>
 </body>
 </html>

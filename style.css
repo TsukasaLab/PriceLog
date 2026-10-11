@@ -1735,3 +1735,110 @@ main{padding:10px 8px 14px}
 .shelf-compare-card-head{display:grid;grid-template-columns:46px 1fr 30px;align-items:center;margin-bottom:7px}.shelf-best{font-size:11px;font-weight:700;color:#557c43}.shelf-remove{border:0;background:transparent;font-size:20px;color:#7d746a}
 .shelf-compare-inputs{display:grid;grid-template-columns:1fr 1fr 74px;gap:6px;margin-top:7px}.shelf-compare-options{display:grid;grid-template-columns:100px 100px;gap:6px;margin-top:7px}.shelf-compare-result{margin-top:8px;padding:8px;border-radius:8px;background:#f5efe5;text-align:right;font-size:14px}.shelf-compare-actions{display:flex;gap:8px}.shelf-compare-note{font-size:11px;color:#7d746a}.sc-register{margin-top:7px}
 @media(max-width:600px){.shelf-compare-base{grid-template-columns:1fr}.shelf-compare-inputs{grid-template-columns:minmax(0,1fr) minmax(0,1fr) 68px}.shelf-compare-card{padding:9px}.st-store-cell .st-product-info{font-size:10px!important;height:28px!important}.top-actions .mini{padding-left:5px;padding-right:5px}}
+
+/* Ver.0.70: スマホ上部2段化・売り場比較一覧 */
+.shelf-compare-base{
+  display:grid;
+  grid-template-columns:minmax(0,1.4fr) minmax(0,1fr) 110px 90px;
+  gap:8px;
+}
+.shelf-compare-base label{min-width:0}
+.shelf-compare-base input,.shelf-compare-base select{
+  width:100%;height:38px;margin-top:3px;border:1px solid var(--line);border-radius:8px;
+  background:#fff;padding:0 8px;font-size:14px;color:var(--text)
+}
+.shelf-compare-table{width:100%;overflow:visible;border:1px solid #e5d6c0;border-radius:12px;background:#fffefb}
+.shelf-compare-list{display:block}
+.shelf-compare-row{
+  display:grid;
+  grid-template-columns:42px minmax(140px,1fr) 154px 100px 128px;
+  gap:6px;align-items:center;min-width:0;padding:7px 8px
+}
+.shelf-compare-head{padding-top:6px;padding-bottom:5px;background:#f6efe3;border-radius:11px 11px 0 0;color:#746658;font-size:11px;font-weight:700;text-align:center}
+.shelf-compare-head span:nth-child(2){text-align:left}
+.shelf-compare-item{position:relative;border-top:1px solid #eee2d2}
+.shelf-compare-item.is-best{background:#f6fbf1}
+.shelf-compare-item.is-existing{background:#fffaf0}
+.shelf-compare-item.is-existing.is-best{background:#f4faed}
+.shelf-select-cell{display:flex;align-items:center;justify-content:center}
+.sc-select{width:18px;height:18px;margin:0;accent-color:var(--accent)}
+.shelf-info-cell{position:relative;display:block;min-width:0;padding-right:22px}
+.shelf-compare-item input,.shelf-compare-item select{
+  width:100%;height:34px;min-width:0;margin:0;border:1px solid var(--line);border-radius:7px;background:#fff;color:var(--text);padding:0 6px;font-size:13px
+}
+.shelf-info-cell .sc-info{padding-right:4px}
+.shelf-remove{position:absolute;right:0;top:5px;width:20px;height:24px;padding:0;border:0;background:transparent;color:#8b7b6c;font-size:18px;line-height:1}
+.shelf-existing-label{position:absolute;left:5px;bottom:-7px;padding:0 3px;background:#fffaf0;color:#8b745f;font-size:8px;line-height:1}
+.shelf-amount-cell{display:grid;grid-template-columns:minmax(0,1fr) 50px;gap:3px;min-width:0}
+.shelf-amount-cell .sc-amount{text-align:right}
+.shelf-amount-cell .sc-unit{padding-left:2px;padding-right:2px}
+.shelf-price-cell{display:block;min-width:0}
+.shelf-price-cell .sc-price{text-align:right;padding-right:6px}
+.shelf-unit-price{display:flex;align-items:baseline;justify-content:flex-end;gap:2px;min-width:0;white-space:nowrap;text-align:right}
+.shelf-unit-price b{font-size:9px;color:#5f8d50}
+.shelf-unit-price strong{font-size:13px}
+.shelf-unit-price small{font-size:9px;color:#776b60}
+.shelf-compare-actions{display:grid;grid-template-columns:auto minmax(160px,1fr) auto;gap:8px}
+.shelf-compare-actions button{width:100%}
+
+@media(max-width:650px){
+  .topbar{
+    display:grid;
+    grid-template-columns:minmax(0,1fr) 38px 68px;
+    grid-template-rows:36px 34px;
+    gap:4px 5px;
+    min-height:80px;
+    padding:5px 7px;
+    align-items:center;
+  }
+  .topbar>div:first-child{grid-column:1;grid-row:1;min-width:0;overflow:hidden}
+  .topbar .app-version{display:none}
+  .top-actions{display:contents}
+  #btnSettings{grid-column:2;grid-row:1;width:36px;height:34px;justify-self:end}
+  #btnAddProduct{grid-column:3;grid-row:1;width:68px;min-width:0;height:34px}
+  #btnBulkStore{grid-column:1;grid-row:2;width:100%;min-width:0}
+  #btnStorePurchase{grid-column:2;grid-row:2;width:100%;min-width:0;padding-left:2px;padding-right:2px;font-size:10px}
+  #btnShelfCompare{grid-column:3;grid-row:2;width:100%;min-width:0;padding-left:2px;padding-right:2px;font-size:10px}
+  .top-actions .mini{min-height:34px}
+
+  .shelf-compare-base{grid-template-columns:minmax(0,1fr) minmax(0,1fr) 84px 68px;gap:5px;padding:8px}
+  .shelf-compare-base label{font-size:10px}
+  .shelf-compare-base input,.shelf-compare-base select{height:34px;padding:0 5px;font-size:12px}
+  .shelf-compare-row{grid-template-columns:26px minmax(56px,1fr) 76px 58px 72px;gap:4px;padding:7px 4px}
+  .shelf-compare-head{font-size:9px;padding-top:5px;padding-bottom:4px}
+  .shelf-compare-item input,.shelf-compare-item select{height:32px;padding:0 3px;font-size:11px}
+  .sc-select{width:17px!important;height:17px!important}
+  .shelf-info-cell{padding-right:17px}
+  .shelf-remove{right:-2px;top:5px;width:18px;font-size:16px}
+  .shelf-existing-label{left:3px;bottom:-7px;font-size:7px}
+  .shelf-amount-cell{grid-template-columns:minmax(0,1fr) 35px;gap:2px}
+  .shelf-unit-price{gap:1px;flex-wrap:wrap;justify-content:flex-end;line-height:1.05}
+  .shelf-unit-price b{width:100%;font-size:8px;text-align:right}
+  .shelf-unit-price strong{font-size:11px}
+  .shelf-unit-price small{font-size:8px}
+  .shelf-compare-actions{grid-template-columns:1fr 1.55fr 1fr;gap:5px}
+  .shelf-compare-actions button{min-width:0;padding-left:5px;padding-right:5px;font-size:11px}
+}
+@media(max-width:360px){
+  .topbar{grid-template-columns:minmax(0,1fr) 36px 64px}
+  #btnAddProduct{width:64px}
+  .topbar strong{font-size:14px}
+  .topbar strong::before{width:27px;height:27px}
+  .shelf-compare-base{grid-template-columns:1fr 1fr 76px 62px}
+  .shelf-compare-row{grid-template-columns:24px minmax(50px,1fr) 72px 54px 68px;gap:3px;padding-left:3px;padding-right:3px}
+  .shelf-compare-item input,.shelf-compare-item select{font-size:10px}
+  .shelf-unit-price strong{font-size:10px}
+}
+@media(max-width:650px){
+  .topbar{grid-template-columns:repeat(3,minmax(0,1fr))}
+  .topbar>div:first-child{grid-column:1;grid-row:1}
+  #btnSettings{grid-column:2;grid-row:1;justify-self:center}
+  #btnAddProduct{grid-column:3;grid-row:1;justify-self:end;width:72px}
+  #btnBulkStore{grid-column:1;grid-row:2}
+  #btnStorePurchase{grid-column:2;grid-row:2;font-size:11px}
+  #btnShelfCompare{grid-column:3;grid-row:2;font-size:11px}
+}
+@media(max-width:360px){
+  .topbar{grid-template-columns:repeat(3,minmax(0,1fr))}
+  #btnAddProduct{width:66px}
+}
