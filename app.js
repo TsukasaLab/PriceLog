@@ -8,7 +8,7 @@ const TEMPLATE_KEY = 'pricelog_custom_template_v1';
 const YAHOO_PRODUCT_CACHE_KEY = 'pricelog_yahoo_product_cache_v1';
 const SHOPPING_MEMO_KEY = 'pricelog_shopping_memo_v1';
 const V051_SETTINGS_MIGRATION_KEY = 'pricelog_v051_settings_migrated';
-const APP_VERSION = '0.66';
+const APP_VERSION = '0.67';
 const DATA_SCHEMA_VERSION = 3;
 
 const YAHOO_WORKER_URL = 'https://pricelog-yahoo.pricelog-api.workers.dev';
@@ -403,7 +403,7 @@ window.addEventListener('beforeunload', (e) => {
 });
 
 if ('serviceWorker' in navigator) {
-  window.addEventListener('load', () => navigator.serviceWorker.register('./sw.js?v=0.63').catch(() => {}));
+  window.addEventListener('load', () => navigator.serviceWorker.register('./sw.js?v=0.67').catch(() => {}));
 }
 
 function loadJson(key, fallback) {
@@ -615,8 +615,8 @@ function render() {
   $('productList').classList.toggle('hidden', storePurchaseMode);
   $('searchInput').closest('.searchbar').classList.toggle('hidden', storePurchaseMode);
   $('btnBulkStore').classList.toggle('hidden', storePurchaseMode);
-  const legend = document.querySelector('.best-legend');
-  if (legend) legend.classList.toggle('hidden', storePurchaseMode);
+  const productListHead = $('productListHead');
+  if (productListHead) productListHead.classList.toggle('hidden', storePurchaseMode);
 
   if (storePurchaseMode) {
     $('emptyState').classList.add('hidden');
@@ -663,20 +663,22 @@ function render() {
 
     const bestWrap = node.querySelector('.best-wrap');
     const bestPrice = node.querySelector('.best-price');
+    const bestStoreName = node.querySelector('.best-store-name');
     const bestLowSlot = node.querySelector('.best-low-slot');
-    const bestSpecialSlot = node.querySelector('.best-special-slot');
     if (bests.before) {
       const baseCalc = bests.before.calc;
-      bestPrice.textContent = `${fmtPrice(baseCalc.grossBefore)}円`;
+      bestPrice.textContent = `${fmtCalc(baseCalc.grossBefore)}円`;
+      bestStoreName.textContent = String(bests.before.row.store || '').trim() || '店舗未入力';
+      bestStoreName.title = bestStoreName.textContent;
       bestWrap.classList.remove('no-best');
       bestLowSlot?.classList.remove('is-hidden');
-      bestSpecialSlot?.classList.toggle('is-hidden', !bests.after);
       node.classList.add('has-best');
     } else {
       bestPrice.textContent = '価格未登録';
+      bestStoreName.textContent = '';
+      bestStoreName.removeAttribute('title');
       bestWrap.classList.add('no-best');
       bestLowSlot?.classList.add('is-hidden');
-      bestSpecialSlot?.classList.add('is-hidden');
     }
 
     const bulkWrap = node.querySelector('.bulk-check-wrap');
@@ -921,12 +923,24 @@ function refreshBestOnly(productId) {
   const hasBest = !!bests.before;
   const bestWrap = card.querySelector('.best-wrap');
   const bestPrice = card.querySelector('.best-price');
+  const bestStoreName = card.querySelector('.best-store-name');
+  const bestLowSlot = card.querySelector('.best-low-slot');
 
   if (hasBest) {
-    bestPrice.textContent = `${fmtPrice(bests.before.calc.grossBefore)}円`;
+    bestPrice.textContent = `${fmtCalc(bests.before.calc.grossBefore)}円`;
+    if (bestStoreName) {
+      bestStoreName.textContent = String(bests.before.row.store || '').trim() || '店舗未入力';
+      bestStoreName.title = bestStoreName.textContent;
+    }
+    bestLowSlot?.classList.remove('is-hidden');
     bestWrap?.classList.remove('no-best');
   } else {
     bestPrice.textContent = '価格未登録';
+    if (bestStoreName) {
+      bestStoreName.textContent = '';
+      bestStoreName.removeAttribute('title');
+    }
+    bestLowSlot?.classList.add('is-hidden');
     bestWrap?.classList.add('no-best');
   }
 
@@ -1436,7 +1450,7 @@ function renderStorePurchaseView() {
     const storeTotal = storeCheckedItems.reduce((sum, item) => sum + (item.grossPrice ?? 0), 0);
     const count = document.createElement('span');
     count.className = 'store-summary-count';
-    count.textContent = `予定${storeCheckedItems.length}品 / ${fmtPrice(storeTotal)}円（税込）`;
+    count.textContent = `予定${storeCheckedItems.length}品 / ${fmtCalc(storeTotal)}円（税込）`;
 
     const chev = document.createElement('span');
     chev.className = 'store-summary-chev';
@@ -1556,7 +1570,7 @@ function renderStorePurchaseView() {
           const refreshedItems = refreshedMap.get(storeName) || [];
           const checkedItems = refreshedItems.filter(entry => shoppingMemoChecked.has(shoppingMemoKey(entry)));
           const checkedTotal = checkedItems.reduce((sum, entry) => sum + (entry.grossPrice ?? 0), 0);
-          count.textContent = `予定${checkedItems.length}品 / ${fmtPrice(checkedTotal)}円（税込）`;
+          count.textContent = `予定${checkedItems.length}品 / ${fmtCalc(checkedTotal)}円（税込）`;
           const resetButton = actions.querySelector('[data-shopping-reset]');
           if (resetButton) resetButton.disabled = checkedItems.length === 0;
         });
@@ -1588,7 +1602,7 @@ function renderStorePurchaseView() {
           priceInput.className = 'shopping-edit-price';
           priceInput.type = 'text';
           priceInput.inputMode = 'decimal';
-          priceInput.value = edit.grossPrice === '' ? '' : fmtPrice(edit.grossPrice);
+          priceInput.value = edit.grossPrice === '' ? '' : fmtCalc(edit.grossPrice);
           priceInput.setAttribute('aria-label', `${item.product.name}の税込価格`);
           priceInput.addEventListener('input', () => {
             edit.grossPrice = normalizeNumericInputText(priceInput.value);
@@ -1612,7 +1626,7 @@ function renderStorePurchaseView() {
 
           const price = document.createElement('span');
           price.className = 'store-product-price';
-          price.textContent = item.grossPrice !== null ? `${fmtPrice(item.grossPrice)}円` : '-';
+          price.textContent = item.grossPrice !== null ? `${fmtCalc(item.grossPrice)}円` : '-';
 
           row.append(mark, checkbox, productName, amount, price);
         }

@@ -1622,3 +1622,101 @@ main{padding:10px 8px 14px}
 /* Ver.0.65: 単位は非フォーカス時に入力値そのものへ表示して確実に見えるようにする */
 .unit-input .input-unit-suffix{display:none!important}
 .unit-input.has-value:not(:focus-within)>input{padding-right:8px!important}
+
+/* Ver.0.67: 商品一覧の情報整理・表示統一・主要画面の文字サイズ調整 */
+.product-list-head{
+  margin-bottom:6px;
+  padding:4px 4px 7px;
+}
+.product-list-head strong{
+  font-size:17px;
+  color:#49392d;
+}
+
+/* 商品一覧は「最安 / 店舗名 / 価格」。特安は詳細内だけで表示する。 */
+.product-card:not(.open) .best-wrap{
+  width:194px;
+  display:grid;
+  grid-template-columns:36px minmax(0,66px) 84px;
+  gap:4px;
+  align-items:center;
+  justify-content:end;
+}
+.product-card:not(.open) .best-store-name{
+  min-width:0;
+  color:var(--muted);
+  font-size:11px;
+  font-weight:400;
+  white-space:nowrap;
+  overflow:hidden;
+  text-overflow:ellipsis;
+  text-align:left;
+}
+.product-card:not(.open) .best-price{
+  width:84px;
+  min-width:84px;
+  font-size:14px;
+  font-weight:700;
+  text-align:right;
+  font-variant-numeric:tabular-nums;
+  white-space:nowrap;
+}
+.best-wrap.no-best .best-store-name{visibility:hidden}
+.best-wrap.no-best .best-price{font-size:12px}
+
+/* 買い物メモの検索欄は商品一覧の検索欄と同じ見た目・寸法を共有。 */
+.shopping-memo-tools.searchbar{display:flex;margin-bottom:9px}
+.shopping-memo-tools.searchbar .store-purchase-search{
+  height:34px;
+  padding:0 10px;
+  font-size:16px;
+  border-radius:13px;
+}
+
+/* 設定以外の、日常的に触る画面だけを少し読みやすくする。 */
+.product-name{font-size:15px}
+.product-size{font-size:11px}
+.product-group-label{font-size:13px}
+.detail-toolbar .mini{font-size:14px}
+.store-summary-name{font-size:15px}
+.store-summary-count{font-size:11px}
+.shopping-filter{font-size:12px}
+.shopping-store-action{font-size:11px}
+.store-product-row{font-size:13px}
+.store-product-amount{font-size:12px}
+.store-product-price{font-size:13px}
+.product-add-store-head strong{font-size:14px}
+.product-add-store-head small{font-size:11px}
+.product-add-store-card label{font-size:11px}
+.quick-store-result{font-size:11px}
+.kind-choice-card small{font-size:11px}
+
+@media(max-width:650px){
+  .product-card:not(.open) .best-wrap{
+    width:184px;
+    grid-template-columns:34px minmax(0,58px) 84px;
+    gap:4px;
+  }
+  .product-card:not(.open) .best-store-name{font-size:11px}
+  .product-card:not(.open) .best-price{width:84px;min-width:84px;font-size:13px}
+  .shopping-memo-tools.searchbar{display:flex;flex-direction:row;align-items:center}
+  .store-row input,.store-row select{font-size:12px!important}
+  .store-row .st-quantity-fields input,.store-row .st-quantity-fields select{font-size:11px!important}
+  .store-row .st-price-result,.store-row .st-unit{font-size:11px!important}
+  .mobile-head-label{font-size:9px}
+  .store-product-row{font-size:12px}
+  .store-product-amount{font-size:11px}
+  .shopping-edit-amount,.shopping-edit-unit,.shopping-edit-price{font-size:12px}
+}
+@media(max-width:380px){
+  .product-name{font-size:14px}
+  .product-card:not(.open) .best-wrap{
+    width:174px;
+    grid-template-columns:34px minmax(0,50px) 82px;
+    gap:4px;
+  }
+  .product-card:not(.open) .best-price{width:82px;min-width:82px;font-size:12px}
+  .product-card:not(.open) .best-store-name{font-size:10px}
+  .store-row .st-price-result,.store-row .st-unit{font-size:10px!important}
+  .mobile-head-label{font-size:9px;padding:0 2px}
+}
