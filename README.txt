@@ -1,3 +1,11 @@
+Ver.0.78
+
+【Ver.0.78 変更内容】
+- GitHub上はVer.0.77でも端末側で古いPWAキャッシュを掴む可能性があったため、Service Worker登録URLをAPP_VERSION連動へ変更。
+- Service Worker登録時に updateViaCache:'none' を指定し、登録後に update() を実行して更新確認を強化。
+- ZIP内の余分な親フォルダをなくし、index.html等がZIP直下に並ぶ構成に修正。
+- 売り場比較の直接入力＋プルダウン、全商品からの店舗候補、入力値保持のVer.0.77機能は維持。
+
 Ver.0.77
 
 【Ver.0.77 変更内容】
