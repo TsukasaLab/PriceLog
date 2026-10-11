@@ -1918,3 +1918,105 @@ main{padding:10px 8px 14px}
   #btnSettings{width:34px}
   #btnAddProduct{width:66px}
 }
+
+
+/* =========================================================
+   PriceLog Ver.0.75
+   - スマホ上部の画面切替3ボタンを均等化
+   - 設定ボタンと＋商品は右上で隣接したまま維持
+   - 売り場比較の datalist の大きな▼を非表示
+   ========================================================= */
+#shelfCompareType,
+#shelfCompareStore{
+  -webkit-appearance:none;
+  appearance:none;
+}
+#shelfCompareType::-webkit-calendar-picker-indicator,
+#shelfCompareStore::-webkit-calendar-picker-indicator{
+  display:none!important;
+  opacity:0!important;
+  width:0!important;
+  height:0!important;
+  padding:0!important;
+  margin:0!important;
+  pointer-events:none!important;
+}
+
+@media(max-width:650px){
+  .topbar{
+    display:grid;
+    grid-template-columns:repeat(3,minmax(0,1fr));
+    grid-template-rows:36px 38px;
+    gap:4px 5px;
+    min-height:83px;
+    padding:5px 7px;
+    align-items:center;
+  }
+  .topbar>div:first-child{
+    grid-column:1/-1;
+    grid-row:1;
+    min-width:0;
+    padding-right:116px;
+    overflow:hidden;
+    white-space:nowrap;
+  }
+  .topbar .app-version{display:none}
+  .top-actions{display:contents}
+
+  /* 設定と＋商品は上段右側にぴったり並べる */
+  #btnSettings{
+    position:absolute;
+    top:5px;
+    right:83px;
+    width:36px;
+    height:34px;
+    margin:0;
+  }
+  #btnAddProduct{
+    position:absolute;
+    top:5px;
+    right:7px;
+    width:72px;
+    height:34px;
+    min-width:0;
+    margin:0;
+  }
+
+  /* 画面切替は下段を完全3等分 */
+  #btnProductList,
+  #btnStorePurchase,
+  #btnShelfCompare{
+    position:static;
+    width:100%;
+    min-width:0;
+    height:38px;
+    min-height:38px;
+    padding:0 4px;
+    font-size:11px;
+    line-height:1;
+    white-space:nowrap;
+    word-break:keep-all;
+  }
+  #btnProductList{grid-column:1;grid-row:2}
+  #btnStorePurchase{grid-column:2;grid-row:2}
+  #btnShelfCompare{grid-column:3;grid-row:2}
+}
+
+@media(max-width:360px){
+  .topbar>div:first-child{padding-right:106px}
+  #btnSettings{
+    right:77px;
+    width:34px;
+  }
+  #btnAddProduct{
+    right:7px;
+    width:66px;
+  }
+  #btnProductList,
+  #btnStorePurchase,
+  #btnShelfCompare{
+    font-size:10px;
+    padding-left:2px;
+    padding-right:2px;
+  }
+}
