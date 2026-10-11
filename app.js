@@ -8,7 +8,7 @@ const TEMPLATE_KEY = 'pricelog_custom_template_v1';
 const YAHOO_PRODUCT_CACHE_KEY = 'pricelog_yahoo_product_cache_v1';
 const SHOPPING_MEMO_KEY = 'pricelog_shopping_memo_v1';
 const V051_SETTINGS_MIGRATION_KEY = 'pricelog_v051_settings_migrated';
-const APP_VERSION = '0.75';
+const APP_VERSION = '0.76';
 const DATA_SCHEMA_VERSION = 3;
 
 const YAHOO_WORKER_URL = 'https://pricelog-yahoo.pricelog-api.workers.dev';
@@ -197,6 +197,22 @@ $('shelfCompareType').addEventListener('blur', () => { syncShelfCompareExistingR
 $('shelfCompareStore').addEventListener('input', () => { shelfCompareDirty = true; });
 $('shelfCompareStore').addEventListener('change', () => { syncShelfCompareExistingRows(); renderShelfCompare(); });
 $('shelfCompareStore').addEventListener('blur', () => { syncShelfCompareExistingRows(); renderShelfCompare(); });
+$('shelfCompareTypeSelect').addEventListener('change', () => {
+  const value = $('shelfCompareTypeSelect').value;
+  if (!value) return;
+  $('shelfCompareType').value = value;
+  shelfCompareDirty = true;
+  syncShelfCompareExistingRows();
+  renderShelfCompare();
+});
+$('shelfCompareStoreSelect').addEventListener('change', () => {
+  const value = $('shelfCompareStoreSelect').value;
+  if (!value) return;
+  $('shelfCompareStore').value = value;
+  shelfCompareDirty = true;
+  syncShelfCompareExistingRows();
+  renderShelfCompare();
+});
 $('shelfComparePriceType').addEventListener('change', () => { shelfCompareDirty = true; shelfCompareCommon.priceType = $('shelfComparePriceType').value === 'inc' ? 'inc' : 'ex'; renderShelfCompare(); });
 $('shelfCompareTax').addEventListener('change', () => { shelfCompareDirty = true; shelfCompareCommon.tax = Number($('shelfCompareTax').value); renderShelfCompare(); });
 $('storePurchaseSearch').addEventListener('input', renderStorePurchaseView);
@@ -1296,19 +1312,22 @@ function findShelfCompareTypeProduct(typeName) {
 }
 
 function updateShelfCompareSuggestions() {
-  const typeList = $('shelfCompareTypeOptions');
-  const storeList = $('shelfCompareStoreOptions');
-  if (typeList) {
-    const names = Array.from(new Set(products.filter(p => p.kind === 'type').map(p => p.name).filter(Boolean)))
+  const typeSelect = $('shelfCompareTypeSelect');
+  const storeSelect = $('shelfCompareStoreSelect');
+  if (typeSelect) {
+    const names = Array.from(new Set(products.filter(p => p.kind === 'type').map(p => String(p.name || '').trim()).filter(Boolean)))
       .sort((a,b) => a.localeCompare(b, 'ja'));
-    typeList.innerHTML = names.map(name => `<option value="${escapeAttr(name)}"></option>`).join('');
+    const current = typeSelect.value;
+    typeSelect.innerHTML = '<option value="">選択</option>' + names.map(name => `<option value="${escapeAttr(name)}">${escapeHtml(name)}</option>`).join('');
+    if (names.includes(current)) typeSelect.value = current;
   }
-  if (storeList) {
-    const product = findShelfCompareTypeProduct($('shelfCompareType')?.value || '');
-    const sourceRows = product ? product.stores : products.flatMap(p => p.stores || []);
-    const stores = Array.from(new Set(sourceRows.map(row => String(row.store || '').trim()).filter(Boolean)))
+  if (storeSelect) {
+    // 種類に関係なく、全商品に登録されている全店舗を候補にする。
+    const stores = Array.from(new Set(products.flatMap(p => p.stores || []).map(row => String(row.store || '').trim()).filter(Boolean)))
       .sort((a,b) => a.localeCompare(b, 'ja'));
-    storeList.innerHTML = stores.map(name => `<option value="${escapeAttr(name)}"></option>`).join('');
+    const current = storeSelect.value;
+    storeSelect.innerHTML = '<option value="">選択</option>' + stores.map(name => `<option value="${escapeAttr(name)}">${escapeHtml(name)}</option>`).join('');
+    if (stores.includes(current)) storeSelect.value = current;
   }
 }
 
@@ -1546,15 +1565,22 @@ function renderShelfCompare() {
       shelfCompareDirty = true;
       renderShelfCompare();
     });
-    const sync = () => {
+    const saveDraft = () => {
       row.productInfo = info.value.trim();
       row.price = numberOrBlank(price.value);
       row.amount = numberOrBlank(amount.value);
       row.unit = unit.value || '個';
       shelfCompareDirty = true;
+    };
+    const sync = () => {
+      saveDraft();
       renderShelfCompare();
     };
-    [info, price, amount].forEach(control => control.addEventListener('change', sync));
+    // Android等で別欄へ移動した時も、再描画より先に現在の入力値を行データへ保持する。
+    [info, price, amount].forEach(control => {
+      control.addEventListener('input', saveDraft);
+      control.addEventListener('change', sync);
+    });
     unit.addEventListener('change', () => { refreshAmountUnit(); sync(); });
     container.appendChild(line);
   });

@@ -2020,3 +2020,13 @@ main{padding:10px 8px 14px}
     padding-right:2px;
   }
 }
+
+
+/* Ver.0.76: 売り場比較を自由入力＋明示プルダウンに対応 */
+.shelf-combo{display:grid;grid-template-columns:minmax(0,1fr) 88px;gap:5px;margin-top:3px}
+.shelf-compare-base .shelf-combo input,.shelf-compare-base .shelf-combo select{margin-top:0}
+.shelf-combo select{padding-left:7px!important;padding-right:22px!important}
+@media(max-width:650px){
+  .shelf-combo{grid-template-columns:minmax(0,1fr) 62px;gap:3px}
+  .shelf-combo select{font-size:11px!important;padding-left:4px!important;padding-right:16px!important}
+}
