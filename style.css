@@ -1617,3 +1617,8 @@ main{padding:10px 8px 14px}
   opacity:0!important;
   visibility:hidden!important;
 }
+
+
+/* Ver.0.65: 単位は非フォーカス時に入力値そのものへ表示して確実に見えるようにする */
+.unit-input .input-unit-suffix{display:none!important}
+.unit-input.has-value:not(:focus-within)>input{padding-right:8px!important}

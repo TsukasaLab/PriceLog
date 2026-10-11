@@ -8,7 +8,7 @@ const TEMPLATE_KEY = 'pricelog_custom_template_v1';
 const YAHOO_PRODUCT_CACHE_KEY = 'pricelog_yahoo_product_cache_v1';
 const SHOPPING_MEMO_KEY = 'pricelog_shopping_memo_v1';
 const V051_SETTINGS_MIGRATION_KEY = 'pricelog_v051_settings_migrated';
-const APP_VERSION = '0.63';
+const APP_VERSION = '0.66';
 const DATA_SCHEMA_VERSION = 3;
 
 const YAHOO_WORKER_URL = 'https://pricelog-yahoo.pricelog-api.workers.dev';
@@ -771,21 +771,43 @@ function render() {
   });
 }
 
+function normalizeNumericInputText(value) {
+  return String(value ?? '')
+    .normalize('NFKC')
+    .trim()
+    .replace(/,/g, '')
+    .replace(/\s*(?:円|%)\s*$/, '')
+    .trim();
+}
+
 function bindInputUnitSuffix(input, unitSource) {
   if (!input) return () => {};
   const wrap = input.closest('.unit-input');
   const suffix = wrap?.querySelector('.input-unit-suffix');
-  if (!wrap || !suffix) return () => {};
+  if (suffix) suffix.textContent = '';
 
-  const refresh = () => {
+  const getUnit = () => {
     const unit = typeof unitSource === 'function' ? unitSource() : unitSource;
-    suffix.textContent = unit || '';
-    const hasValue = String(input.value ?? '').trim() !== '' && !!unit && !input.disabled;
-    wrap.classList.toggle('has-value', hasValue);
+    return String(unit || '').trim();
   };
-  input.addEventListener('input', refresh);
-  input.addEventListener('change', refresh);
-  input.addEventListener('blur', refresh);
+  const showUnit = () => {
+    const raw = normalizeNumericInputText(input.value);
+    const unit = getUnit();
+    input.value = raw && unit && !input.disabled ? `${raw} ${unit}` : raw;
+    wrap?.classList.toggle('has-value', !!(raw && unit && !input.disabled));
+  };
+  const hideUnit = () => {
+    input.value = normalizeNumericInputText(input.value);
+    wrap?.classList.remove('has-value');
+  };
+  const refresh = () => {
+    if (document.activeElement === input) hideUnit();
+    else showUnit();
+  };
+
+  input.addEventListener('focus', hideUnit);
+  input.addEventListener('input', hideUnit);
+  input.addEventListener('blur', showUnit);
   refresh();
   return refresh;
 }
@@ -832,8 +854,8 @@ function renderStoreRow(product, row, bestFlags = {before:false, after:false}) {
     refreshCouponUnit();
     const calc = calcRow(product, row);
     if (calc) {
-      priceResultOut.textContent = `${fmtCalc(calc.grossBefore)}[${fmtCalc(calc.afterTotal)}](${fmtCalcDelta(calc.afterTotal - calc.grossBefore)})`;
-      unitOut.textContent = `${fmtCalc(calc.beforeUnit)}[${fmtCalc(calc.afterUnit)}](${fmtCalcDelta(calc.afterUnit - calc.beforeUnit)})`;
+      priceResultOut.textContent = `${fmtCalc(calc.grossBefore)}[${fmtCalc(calc.afterTotal)}](${fmtCalcDelta(calc.afterTotal - calc.grossBefore)})円`;
+      unitOut.textContent = `${fmtCalc(calc.beforeUnit)}[${fmtCalc(calc.afterUnit)}](${fmtCalcDelta(calc.afterUnit - calc.beforeUnit)})円/${(product.kind === 'type' ? (row.unit || product.unit) : product.unit) || '個'}`;
     } else {
       priceResultOut.textContent = '-';
       unitOut.textContent = '-';
@@ -920,12 +942,12 @@ function refreshBestOnly(productId) {
 
     if (priceResultOut) {
       priceResultOut.textContent = calc
-        ? `${fmtCalc(calc.grossBefore)}[${fmtCalc(calc.afterTotal)}](${fmtCalcDelta(calc.afterTotal - calc.grossBefore)})`
+        ? `${fmtCalc(calc.grossBefore)}[${fmtCalc(calc.afterTotal)}](${fmtCalcDelta(calc.afterTotal - calc.grossBefore)})円`
         : '-';
     }
     if (unitOut) {
       unitOut.textContent = calc
-        ? `${fmtCalc(calc.beforeUnit)}[${fmtCalc(calc.afterUnit)}](${fmtCalcDelta(calc.afterUnit - calc.beforeUnit)})`
+        ? `${fmtCalc(calc.beforeUnit)}[${fmtCalc(calc.afterUnit)}](${fmtCalcDelta(calc.afterUnit - calc.beforeUnit)})円/${(product.kind === 'type' ? (row.unit || product.unit) : product.unit) || '個'}`
         : '-';
     }
     applyBestFlags(rowEl, mark, {
@@ -1569,7 +1591,7 @@ function renderStorePurchaseView() {
           priceInput.value = edit.grossPrice === '' ? '' : fmtPrice(edit.grossPrice);
           priceInput.setAttribute('aria-label', `${item.product.name}の税込価格`);
           priceInput.addEventListener('input', () => {
-            edit.grossPrice = priceInput.value.replace(/,/g, '');
+            edit.grossPrice = normalizeNumericInputText(priceInput.value);
           });
           const yen = document.createElement('span');
           yen.className = 'input-unit-suffix';
@@ -4072,7 +4094,7 @@ function renderProductDialogStores() {
       const tempProduct = { kind: kind || 'product', amount: productAmount, unit: productUnit };
       const calc = calcRow(tempProduct, row);
       result.textContent = calc
-        ? `${fmtCalc(calc.grossBefore)}円 / ${fmtCalc(calc.beforeUnit)}`
+        ? `${fmtCalc(calc.grossBefore)}円 / ${fmtCalc(calc.beforeUnit)}円/${(tempProduct.kind === 'type' ? (row.unit || tempProduct.unit) : tempProduct.unit) || '個'}`
         : '-';
     };
 
@@ -4858,8 +4880,9 @@ function applyPendingMerge() {
 }
 
 function numberOrBlank(v) {
-  if (v === '') return '';
-  const n = Number(v);
+  const text = normalizeNumericInputText(v);
+  if (text === '') return '';
+  const n = Number(text);
   return Number.isFinite(n) ? n : '';
 }
 
