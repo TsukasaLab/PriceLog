@@ -7,14 +7,14 @@
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="default">
   <title>PriceLog</title>
-  <link rel="manifest" href="./manifest.webmanifest?v=0.85">
+  <link rel="manifest" href="./manifest.webmanifest?v=0.86">
   <link rel="apple-touch-icon" href="./icon-192-v058.png">
-  <link rel="stylesheet" href="./style.css?v=0.85">
+  <link rel="stylesheet" href="./style.css?v=0.86">
 </head>
 <body>
   <header class="topbar">
     <div>
-      <strong>PriceLog</strong> <small class="app-version">Ver.0.85</small>
+      <strong>PriceLog</strong> <small class="app-version">Ver.0.86</small>
     </div>
     <div class="top-actions">
       <button id="btnProductList" class="ghost mini view-jump" type="button">商品一覧</button>
@@ -106,10 +106,6 @@
         <strong id="productDialogTitle">商品追加</strong>
       </div>
 
-      <button id="btnBarcodeAdd" class="barcode-launch" type="button">
-        📷 バーコードから追加
-      </button>
-
       <fieldset class="product-kind-choice">
         <legend>どちらで登録する？</legend>
         <input id="productKind" type="hidden" value="">
@@ -131,7 +127,7 @@
           <input id="productTypeName" maxlength="60" disabled placeholder="先に「種類比較」を選択">
         </label>
       </div>
-      <span class="field-hint">選ばれていない方の入力内容も保持する。バーコード読取時は両方を自動入力する。</span>
+      <span class="field-hint">選ばれていない方の入力内容も保持します。</span>
 
       <label class="reading-field">よみがな
         <input id="productReading" maxlength="80">
@@ -250,37 +246,8 @@
           </select>
         </label>
         <div class="template-note">
-          手入力・バーコード入力のどちらでも、この選択を初期値として使用する。<br>種類比較を選んだ場合、JANコードは商品に紐づけない。
+          商品追加を開いた時の初期選択として使用します。
         </div>
-      </div>
-
-      <div class="settings-block">
-        <div class="settings-title">バーコード検索</div>
-        <label>Yahoo!ショッピング Client ID
-          <input id="yahooClientId" type="password" autocomplete="off" placeholder="取得したClient IDを貼り付け">
-        </label>
-        <div class="barcode-api-actions">
-          <button id="btnToggleYahooClientId" class="ghost mini" type="button">表示</button>
-          <button id="btnTestYahooApi" class="ghost mini" type="button">接続テスト</button>
-        </div>
-        <div class="template-note">
-          Yahoo!検索を使用する場合はClient IDを設定してください。<br>
-          Client IDの取得方法は「はじめに・使い方」を参照
-        </div>
-        <div id="yahooApiStatus" class="template-message"></div>
-      </div>
-
-      <div class="settings-block">
-        <div class="settings-title">テンプレート</div>
-        <div class="template-note">現在登録している商品と店舗をテンプレートJSONに保存する。価格・履歴は引き継がない。</div>
-        <div class="stack">
-          <button id="btnEditTemplate" class="ghost backup-btn" type="button">現在の商品からテンプレート作成</button>
-          <button id="btnLoadTemplate" class="ghost backup-btn" type="button">テンプレートファイルを読み込む</button>
-          <button id="btnLoadRecommendedTemplate" class="ghost backup-btn" type="button">おすすめ商品を追加</button>
-          <input id="templateImportFile" class="hidden-file-input" type="file" accept="application/json,.json">
-        </div>
-        <div id="templateSummary" class="template-summary"></div>
-        <div id="templateMessage" class="template-message"></div>
       </div>
 
       <div class="settings-block">
@@ -308,161 +275,6 @@
         <button class="primary" value="default" type="submit">設定を保存</button>
       </div>
     </form>
-  </dialog>
-
-
-  <dialog id="barcodeDialog" class="dialog barcode-dialog">
-    <div class="barcode-wrap">
-      <div class="dialog-head">
-        <div>
-          <strong>バーコードから商品追加</strong>
-          <div class="barcode-sub">JAN/EANコードをカメラで読み取って商品情報を検索する。</div>
-        </div>
-        <button id="btnCloseBarcode" class="icon-btn" type="button" aria-label="閉じる">×</button>
-      </div>
-
-      <section id="barcodeCameraSection" class="barcode-camera-section">
-        <video id="barcodeVideo" class="barcode-video" playsinline muted></video>
-        <div class="barcode-guide">
-          <span></span>
-        </div>
-        <div id="barcodeCameraMessage" class="barcode-message">カメラを起動してね。</div>
-        <button id="btnStartBarcodeCamera" class="primary backup-btn" type="button">カメラで読み取る</button>
-      </section>
-
-      <div id="barcodeManualSection" class="barcode-manual">
-        <input id="barcodeManualCode" type="text" inputmode="numeric" maxlength="20" placeholder="JANコードを直接入力">
-        <button id="btnLookupBarcode" class="ghost mini" type="button">検索</button>
-      </div>
-
-      <section id="barcodeResult" class="barcode-result hidden">
-        <div class="barcode-result-code">バーコード: <strong id="barcodeResultCode"></strong></div>
-        <div id="barcodeLookupStatus" class="barcode-message"></div>
-
-        <div class="barcode-choice-title">登録する名前</div>
-        <label class="barcode-choice">
-          <input id="barcodeChoiceProduct" type="radio" name="barcodeNameChoice" value="product" checked>
-          <span>
-            <small>商品名</small>
-            <strong id="barcodeProductName"></strong>
-          </span>
-        </label>
-
-        <label class="barcode-choice">
-          <input id="barcodeChoiceType" type="radio" name="barcodeNameChoice" value="type">
-          <span>
-            <small>種類</small>
-            <strong id="barcodeTypeName"></strong>
-          </span>
-        </label>
-
-        <div class="barcode-edit-grid">
-          <label>商品名候補
-            <input id="barcodeProductNameEdit" type="text" maxlength="80">
-          </label>
-          <label>種類候補
-            <input id="barcodeTypeNameEdit" type="text" maxlength="60">
-          </label>
-          <label>よみがな
-            <input id="barcodeReading" type="text" maxlength="100">
-          </label>
-          <label>内容量
-            <input id="barcodeAmount" type="text" inputmode="decimal">
-          </label>
-          <label>単位
-            <select id="barcodeUnit">
-              <option value=""></option>
-              <option value="g">g</option>
-              <option value="ml">ml</option>
-              <option value="m">m</option>
-              <option value="個">個</option>
-              <option value="枚">枚</option>
-              <option value="粒">粒</option>
-              <option value="本">本</option>
-              <option value="袋">袋</option>
-              <option value="箱">箱</option>
-              <option value="パック">パック</option>
-              <option value="缶">缶</option>
-              <option value="瓶">瓶</option>
-            </select>
-          </label>
-        </div>
-
-        <div class="barcode-result-actions">
-          <button id="btnBarcodeRescan" class="ghost" type="button">別のバーコードを読み取る</button>
-          <button id="btnRegisterBarcodeProduct" class="primary" type="button">この内容を商品追加へ</button>
-        </div>
-      </section>
-    </div>
-  </dialog>
-
-
-  <dialog id="templateDialog" class="dialog template-dialog">
-    <div class="template-editor">
-      <div class="dialog-head">
-        <div>
-          <strong>テンプレートファイルを作成</strong>
-          <div class="template-editor-sub">チェックした商品と店舗だけを保存する。</div>
-        </div>
-        <button id="btnCloseTemplate" class="icon-btn" type="button" aria-label="閉じる">×</button>
-      </div>
-
-      <section class="template-editor-section">
-        <div class="template-section-head">
-          <strong>商品</strong>
-          <div class="template-section-actions">
-            <button id="btnTemplateProductsAll" class="ghost mini" type="button">全選択</button>
-            <button id="btnTemplateProductsNone" class="ghost mini" type="button">全解除</button>
-            <button id="btnImportRecommendedProducts" class="ghost mini" type="button">おすすめ商品を追加</button>
-          </div>
-        </div>
-
-        <div class="template-product-add">
-          <input id="tplProductName" type="text" maxlength="60" placeholder="商品名">
-          <input id="tplProductReading" type="text" maxlength="80" placeholder="よみがな">
-          <input id="tplProductAmount" type="text" inputmode="decimal" value="100" placeholder="内容量">
-          <select id="tplProductUnit">
-            <option value="g">g</option>
-            <option value="ml">ml</option>
-            <option value="個">個</option>
-            <option value="枚">枚</option>
-            <option value="本">本</option>
-            <option value="袋">袋</option>
-            <option value="箱">箱</option>
-          </select>
-          <select id="tplProductTax"></select>
-          <button id="btnAddTemplateProduct" class="primary mini" type="button">追加</button>
-        </div>
-
-        <div id="templateProductList" class="template-entry-list"></div>
-        <div id="templateProductEmpty" class="template-empty">商品はまだないよ。</div>
-      </section>
-
-      <section class="template-editor-section">
-        <div class="template-section-head">
-          <strong>店舗</strong>
-          <div class="template-section-actions">
-            <button id="btnTemplateStoresAll" class="ghost mini" type="button">全選択</button>
-            <button id="btnTemplateStoresNone" class="ghost mini" type="button">全解除</button>
-          </div>
-        </div>
-
-        <div class="template-store-add">
-          <input id="tplStoreName" type="text" maxlength="40" placeholder="店舗名">
-          <button id="btnAddTemplateStore" class="primary mini" type="button">追加</button>
-        </div>
-
-        <div id="templateStoreList" class="template-entry-list"></div>
-        <div id="templateStoreEmpty" class="template-empty">店舗はまだないよ。</div>
-      </section>
-
-      <div id="templateEditorMessage" class="template-message"></div>
-
-      <div class="template-editor-actions">
-        <button id="btnExportTemplateFile" class="ghost" type="button">テンプレートJSONを書き出す</button>
-        <button id="btnSaveTemplate" class="primary" type="button">選択内容を保存</button>
-      </div>
-    </div>
   </dialog>
 
 
@@ -495,7 +307,7 @@
   <dialog id="shareDialog" class="dialog share-dialog">
     <form id="shareForm" method="dialog">
       <div class="dialog-head settings-dialog-head">
-        <div><strong>別の端末に共有</strong><div class="barcode-sub">共有する商品をチェックしてファイルを渡す。</div></div>
+        <div><strong>別の端末に共有</strong><div class="field-hint">共有する商品をチェックしてファイルを渡す。</div></div>
         <button id="btnCloseShare" class="icon-btn" type="button" aria-label="閉じる">×</button>
       </div>
       <div class="share-tools">
@@ -516,7 +328,7 @@
   <dialog id="mergeDialog" class="dialog merge-dialog">
     <form id="mergeForm" method="dialog">
       <div class="dialog-head settings-dialog-head">
-        <div><strong>共有データを追加</strong><div class="barcode-sub">差分を確認してから取り込む。</div></div>
+        <div><strong>共有データを追加</strong><div class="field-hint">差分を確認してから取り込む。</div></div>
         <button id="btnCloseMerge" class="icon-btn" type="button" aria-label="閉じる">×</button>
       </div>
       <div id="mergeSummary" class="merge-summary"></div>
@@ -637,8 +449,8 @@
     <div class="simple-dialog-body">
       <div class="dialog-head"><strong>商品を追加</strong><button id="btnCloseAddChoice" class="icon-btn" type="button" aria-label="閉じる">×</button></div>
       <div class="add-choice-grid">
-        <button id="btnAddSingle" class="ghost add-choice-card" type="button"><strong>1件追加</strong><small>バーコード・通常入力</small></button>
-        <button id="btnAddBulkProducts" class="primary add-choice-card" type="button"><strong>まとめて追加</strong><small>同じ店舗の商品を連続登録</small></button>
+        <button id="btnAddSingle" class="ghost add-choice-card" type="button"><strong>1件追加</strong><small>商品を1件ずつ登録</small></button>
+        <button id="btnAddBulkProducts" class="ghost add-choice-card" type="button"><strong>まとめて追加</strong><small>同じ店舗の商品を連続登録</small></button>
       </div>
     </div>
   </dialog>
@@ -708,9 +520,9 @@
 
   <div id="saveToast" class="save-toast hidden" role="status" aria-live="polite">保存しました</div>
 
-  <script src="./config.js?v=0.85"></script>
-  <script src="./app.js?v=0.85"></script>
-  <script src="./cloud.js?v=0.85"></script>
-  <script src="./ads.js?v=0.85"></script>
+  <script src="./config.js?v=0.86"></script>
+  <script src="./app.js?v=0.86"></script>
+  <script src="./cloud.js?v=0.86"></script>
+  <script src="./ads.js?v=0.86"></script>
 </body>
 </html>

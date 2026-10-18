@@ -23,7 +23,17 @@ let migrationResolver = null;
 
 function setMessage(text='') { const el=$('accountMessage'); if(el) el.textContent=text; }
 function safeName(user) { return user?.user_metadata?.full_name || user?.user_metadata?.name || user?.email || 'Googleアカウント'; }
-function avatarUrl(user) { return user?.user_metadata?.avatar_url || user?.user_metadata?.picture || ''; }
+function avatarUrl(user) {
+  const meta = user?.user_metadata || {};
+  const direct = meta.avatar_url || meta.picture || meta.photo_url || '';
+  if (direct) return direct;
+  for (const identity of (user?.identities || [])) {
+    const data = identity?.identity_data || {};
+    const url = data.avatar_url || data.picture || data.photo_url || '';
+    if (url) return url;
+  }
+  return '';
+}
 function setAvatar(img, url, fallback='') {
   if (!img) return;
   if (url) { img.src=url; img.classList.remove('hidden'); img.alt=fallback || 'アカウント'; }
@@ -38,14 +48,14 @@ function renderAccount() {
   const topAvatar=$('accountAvatar'), fallback=$('accountFallback');
   if (!currentUser) {
     signedOut?.classList.remove('hidden'); signedIn?.classList.add('hidden');
-    topAvatar?.classList.add('hidden'); fallback?.classList.remove('hidden');
+    topAvatar?.classList.add('hidden'); if (fallback) { fallback.textContent='人'; fallback.classList.remove('hidden'); }
     return;
   }
   signedOut?.classList.add('hidden'); signedIn?.classList.remove('hidden');
   const name=safeName(currentUser), email=currentUser.email || '';
   $('accountDisplayName').textContent=name; $('accountEmail').textContent=email;
   const avatar=avatarUrl(currentUser);
-  setAvatar(topAvatar,avatar,name); fallback?.classList.toggle('hidden',!!avatar);
+  setAvatar(topAvatar,avatar,name); if (fallback) { fallback.textContent=(name||'A').slice(0,1).toUpperCase(); fallback.classList.toggle('hidden',!!avatar); }
   setAvatar($('accountDialogAvatar'),avatar,name);
   if (!avatar && $('accountDialogAvatar')) { $('accountDialogAvatar').src='./icon-192-v058.png'; $('accountDialogAvatar').classList.remove('hidden'); }
   renderGroups();
