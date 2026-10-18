@@ -6,7 +6,7 @@ const SETTINGS_KEY = 'pricelog_v02_settings';
 const INITIALIZED_KEY = 'pricelog_initialized_v1';
 const SHOPPING_MEMO_KEY = 'pricelog_shopping_memo_v1';
 const V051_SETTINGS_MIGRATION_KEY = 'pricelog_v051_settings_migrated';
-const APP_VERSION = '0.88';
+const APP_VERSION = '0.90';
 const DATA_SCHEMA_VERSION = 3;
 const UNIT_OPTIONS = ['g','kg','mg','ml','L','cl','dl','m','cm','mm','個','枚','粒','本','袋','箱','パック','セット','束','缶','瓶','カップ','食','ロール','組','錠','包','ケース','台','冊','足'];
 const CUSTOM_UNIT_VALUE = '__custom__';
@@ -788,9 +788,15 @@ function render() {
     const bests = getBests(displayProduct);
 
     node.querySelector('.product-name').textContent = displayProduct.name;
-    node.querySelector('.product-size').textContent = displayProduct.kind === 'type'
+    const productListMeta = displayProduct.kind === 'type'
       ? '種類比較'
-      : '';
+      : (() => {
+          const amount = Number(displayProduct.amount);
+          const unit = String(displayProduct.unit || '').trim();
+          return amount > 0 && unit ? `${fmt(amount)}${unit}` : '容量未設定';
+        })();
+    node.querySelector('.product-size').textContent = productListMeta;
+    node.querySelector('.product-size').title = productListMeta;
 
     const bestWrap = node.querySelector('.best-wrap');
     const bestPrice = node.querySelector('.best-price');
@@ -2707,13 +2713,16 @@ function makeBulkAddRow(kind = 'product') {
 }
 
 function openBulkAddDialog() {
-  bulkAddKind='product';
+  // 通常の商品追加と同じ設定を使う。以前はここだけ常に「商品名」固定だったため、
+  // 「種類比較」が初期値のユーザーは登録済み候補が出ない状態になっていた。
+  const initialKind = settings.registrationNameDefault === 'type' ? 'type' : 'product';
+  bulkAddKind=initialKind;
   bulkAddRowsByKind={product:[makeBulkAddRow('product')],type:[makeBulkAddRow('type')]};
   $('bulkAddStore').value='';
   $('bulkAddPriceType').value=settings.defaultPriceType;
   $('bulkAddTax').innerHTML=taxOptions(settings.reducedTax);
   $('bulkAddTax').value=String(settings.reducedTax);
-  setBulkAddKind('product');
+  setBulkAddKind(initialKind);
   $('bulkAddDialog').showModal();
   requestAnimationFrame(()=>$('bulkAddStore').focus());
 }
