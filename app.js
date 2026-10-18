@@ -6,7 +6,7 @@ const SETTINGS_KEY = 'pricelog_v02_settings';
 const INITIALIZED_KEY = 'pricelog_initialized_v1';
 const SHOPPING_MEMO_KEY = 'pricelog_shopping_memo_v1';
 const V051_SETTINGS_MIGRATION_KEY = 'pricelog_v051_settings_migrated';
-const APP_VERSION = '0.87';
+const APP_VERSION = '0.88';
 const DATA_SCHEMA_VERSION = 3;
 const UNIT_OPTIONS = ['g','kg','mg','ml','L','cl','dl','m','cm','mm','個','枚','粒','本','袋','箱','パック','セット','束','缶','瓶','カップ','食','ロール','組','錠','包','ケース','台','冊','足'];
 const CUSTOM_UNIT_VALUE = '__custom__';
@@ -452,7 +452,10 @@ function suggestionValues(type) {
 
 function hideSmartSuggestions() {
   const box = $('smartSuggestionBox');
-  if (box) box.classList.add('hidden');
+  if (box) {
+    try { if (box.matches(':popover-open')) box.hidePopover(); } catch {}
+    box.classList.add('hidden');
+  }
   smartSuggestionState = null;
 }
 
@@ -483,11 +486,21 @@ function showSmartSuggestions(input, type) {
     });
     box.appendChild(button);
   });
+  const hostDialog = input.closest('dialog');
+  if (hostDialog && box.parentElement !== hostDialog) hostDialog.appendChild(box);
+  else if (!hostDialog && box.parentElement !== document.body) document.body.appendChild(box);
   const rect = input.getBoundingClientRect();
-  box.style.left = `${Math.max(6, Math.min(rect.left, window.innerWidth - Math.min(360, Math.max(220, rect.width))))}px`;
-  box.style.top = `${Math.min(window.innerHeight - 180, rect.bottom + 3)}px`;
-  box.style.width = `${Math.min(360, Math.max(220, rect.width))}px`;
+  const boxWidth = Math.min(360, Math.max(220, rect.width));
+  const preferredTop = rect.bottom + 4;
+  const roomBelow = window.innerHeight - preferredTop;
+  const top = roomBelow >= 150 ? preferredTop : Math.max(6, rect.top - 174);
+  box.style.left = `${Math.max(6, Math.min(rect.left, window.innerWidth - boxWidth - 6))}px`;
+  box.style.top = `${top}px`;
+  box.style.width = `${boxWidth}px`;
   box.classList.remove('hidden');
+  try {
+    if (typeof box.showPopover === 'function' && !box.matches(':popover-open')) box.showPopover();
+  } catch {}
   smartSuggestionState = {input,type};
 }
 
