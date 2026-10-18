@@ -1,5 +1,5 @@
-const CACHE='pricelog-v084';
-const ASSETS=['./','./index.html','./guide.html','./style.css?v=0.84','./config.js?v=0.84','./app.js?v=0.84','./cloud.js?v=0.84','./manifest.webmanifest?v=0.84','./template-products.json','./icon-192-v058.png','./icon-512-v058.png','./ads.js?v=0.84','./ad-pc.html','./ad-sp.html'];
+const CACHE='pricelog-v085';
+const ASSETS=['./','./index.html','./guide.html','./style.css?v=0.85','./config.js?v=0.85','./app.js?v=0.85','./cloud.js?v=0.85','./manifest.webmanifest?v=0.85','./template-products.json','./icon-192-v058.png','./icon-512-v058.png','./ads.js?v=0.85','./ad-pc.html','./ad-sp.html'];
 self.addEventListener('install',e=>{self.skipWaiting();e.waitUntil(caches.open(CACHE).then(c=>c.addAll(ASSETS)))});
 self.addEventListener('activate',e=>{e.waitUntil(Promise.all([caches.keys().then(keys=>Promise.all(keys.filter(k=>k!==CACHE).map(k=>caches.delete(k)))),self.clients.claim()]))});
 self.addEventListener('fetch',e=>{

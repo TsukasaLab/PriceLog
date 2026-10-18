@@ -2219,3 +2219,13 @@ main{padding:10px 8px 14px}
   .store-row::before{left:40px}
   .mobile-result-head>span{font-size:8px}
 }
+
+
+/* Ver.0.85 cloud migration / live sync */
+.cloud-migration-dialog{width:min(92vw,480px)}
+.cloud-migration-actions{display:grid;gap:10px;margin-top:14px}
+.cloud-migration-actions button{width:100%;min-height:46px}
+.cloud-migration-empty{color:#a33;border-color:#d9b3aa}
+.cloud-migration-note{display:block;margin-top:10px;color:var(--muted);line-height:1.6}
+.cloud-sync-banner{position:fixed;left:50%;top:calc(env(safe-area-inset-top,0px) + 8px);transform:translateX(-50%);z-index:4000;width:min(92vw,620px);padding:10px 14px;border:1px solid #c89f38;border-radius:12px;background:#fff7dc;color:#51411c;box-shadow:0 6px 24px rgba(0,0,0,.16);font-size:12px;font-weight:700;text-align:center}
+@media(max-width:650px){.cloud-sync-banner{font-size:11px;padding:9px 12px}.cloud-migration-dialog{width:min(94vw,480px)}}

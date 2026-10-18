@@ -120,3 +120,17 @@ begin
 end $$;
 
 grant execute on function public.pricelog_leave_group(uuid) to authenticated;
+
+
+-- Ver.0.85: PriceLogデータをRealtime同期の対象にする
+do $$
+begin
+  if not exists (
+    select 1 from pg_publication_tables
+    where pubname = 'supabase_realtime'
+      and schemaname = 'public'
+      and tablename = 'pricelog_documents'
+  ) then
+    alter publication supabase_realtime add table public.pricelog_documents;
+  end if;
+end $$;
