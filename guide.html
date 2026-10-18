@@ -5,9 +5,9 @@
   <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
   <meta name="theme-color" content="#f7f7f5">
   <title>はじめに・使い方 | PriceLog</title>
-  <link rel="manifest" href="./manifest.webmanifest?v=0.74">
+  <link rel="manifest" href="./manifest.webmanifest?v=0.83">
   <link rel="apple-touch-icon" href="./icon-192-v058.png">
-  <link rel="stylesheet" href="./style.css?v=0.74">
+  <link rel="stylesheet" href="./style.css?v=0.83">
 </head>
 <body class="guide-body">
   <header class="guide-topbar">
@@ -21,7 +21,7 @@
       <h1>買う前に「どこが安い？」を<br>すぐ確認できるようにする</h1>
       <p>
         PriceLogは、商品ごとの価格を店舗別に記録して、
-        通常時の買い場所やクーポン使用時のお得な店を確認するための価格管理ツールです。
+        どの店で買うと安いかをすぐ確認するための価格管理ツールです。
       </p>
       <a class="primary guide-primary" href="#first-setup">最初の設定から始める</a>
     </section>
@@ -29,13 +29,12 @@
     <section class="guide-card guide-important">
       <h2>最初に知っておくこと</h2>
       <p>
-        商品・店舗・価格・履歴などのデータは、この端末のブラウザ内に保存されます。
-        別のスマホやPCへ自動では引き継がれません。
+        Googleアカウントを使わない場合は、商品・店舗・価格・履歴などをこの端末のブラウザ内に保存します。
+        これまで通りローカル保存だけでも利用できます。
       </p>
       <p>
-        機種変更やブラウザ変更に備えて、定期的に
-        <strong>設定 → バックアップを書き出す</strong>
-        を使ってください。
+        Googleでログインすると、現在この端末にあるデータを引き継いで複数端末で利用したり、共有グループで家族などと同じPriceLogを使えます。
+        ローカル利用時は、機種変更に備えて<strong>設定 → バックアップを書き出す</strong>も利用してください。
       </p>
     </section>
 
@@ -116,6 +115,22 @@
     </section>
 
     <section class="guide-section">
+      <div class="guide-section-no">ACCOUNT</div>
+      <h2>Googleログインと共有（任意）</h2>
+      <div class="guide-feature-grid">
+        <article class="guide-feature">
+          <h3>複数端末で使う</h3>
+          <p>右上のアカウントボタンからGoogleでログインします。初回は、この端末に保存済みのPriceLogデータをアカウント側へ引き継ぎます。</p>
+        </article>
+        <article class="guide-feature">
+          <h3>家族などと共有する</h3>
+          <p>共有を作成すると招待コードが発行されます。相手が同じ画面から招待コードを入力すると、同じPriceLogデータを共同で更新できます。</p>
+        </article>
+      </div>
+      <p class="guide-note">Googleを使わない場合は何もしなくて大丈夫です。引き続きローカル保存だけで利用できます。</p>
+    </section>
+
+    <section class="guide-section">
       <div class="guide-section-no">02</div>
       <h2>商品を登録する</h2>
 
@@ -123,7 +138,7 @@
         <article class="guide-feature">
           <h3>バーコードから登録</h3>
           <p>
-            「＋商品」→「📷 バーコードから追加」を押し、
+            「＋商品」→「1件追加」→「📷 バーコードから追加」を押し、
             カメラでJANコードを読み取ります。
           </p>
           <p>
@@ -141,6 +156,11 @@
           </p>
           <p>
             よみがなを入れておくと、五十音順で並びやすくなり、検索もしやすくなります。
+            入力中には登録済み名称の候補が表示され、空白位置などの表記差による二重登録を減らせます。
+          </p>
+          <p>
+            同じ店舗で複数商品を続けて登録する場合は「＋商品」→「まとめて追加」を使います。
+            店舗名・税込/税抜・税率を一度だけ入力し、「商品名」「種類比較」を切り替えながら横一列で追加できます。
           </p>
         </article>
       </div>
@@ -167,8 +187,9 @@
         <div>
           <h3>店舗を追加して価格を入力</h3>
           <p>
-            店舗名、価格、税込・税抜、税率、クーポン情報などを入力します。
-            入力した内容から単価を自動計算します。
+            店舗名、価格、税込・税抜、税率などを入力します。
+            入力した内容から税込価格と税込単価を自動計算します。
+            同じ商品・同じ店舗がすでにある場合は確認後に上書きし、二重登録を防ぎます。
           </p>
         </div>
       </div>
@@ -176,14 +197,13 @@
       <div class="guide-step">
         <div class="guide-step-no">3</div>
         <div>
-          <h3>「最安」と「特安」で買う店を判断</h3>
+          <h3>「最安」で買う店を判断</h3>
           <div class="guide-symbols">
-            <div><strong>最安</strong><span>通常価格で最も安く、普段買う候補の店</span></div>
-            <div><strong>特安</strong><span>クーポンを使うと最安の店より安くなる別の店</span></div>
+            <div><strong>最安</strong><span>登録している店舗の中で税込価格が最も安い店</span></div>
           </div>
           <p>
-            商品一覧では「最安」バッジ・店舗名・通常価格を表示します。
-            「特安」は商品詳細の店舗欄で確認でき、クーポンが使える時だけ別店舗を選ぶ目安になります。
+            商品一覧では「最安」バッジ・店舗名・税込価格を表示します。
+            商品を開くと、各店舗の入力価格・税込/税抜・税率・税込価格・税込単価を確認できます。
           </p>
         </div>
       </div>
@@ -210,8 +230,9 @@
           <h3>売り場比較</h3>
           <p>
             同じ種類の商品を売り場で1行ずつ追加し、容量が違っても単価で比較できます。
+            税込/税抜の選択に合わせて単価の基準も切り替わります。
             同じ種類・店舗の登録済みデータがある場合は先頭に表示され、比較対象としてそのまま使えます。
-            商品情報にはメーカー名・ブランド名・商品名などを自由に入力でき、チェックした商品を商品一覧へまとめて反映できます。
+            入力中は画面を作り直さないため、キーボードを表示したまま連続入力しやすくしています。
           </p>
         </article>
         <article class="guide-feature">

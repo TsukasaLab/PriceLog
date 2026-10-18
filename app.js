@@ -8,8 +8,14 @@ const TEMPLATE_KEY = 'pricelog_custom_template_v1';
 const YAHOO_PRODUCT_CACHE_KEY = 'pricelog_yahoo_product_cache_v1';
 const SHOPPING_MEMO_KEY = 'pricelog_shopping_memo_v1';
 const V051_SETTINGS_MIGRATION_KEY = 'pricelog_v051_settings_migrated';
-const APP_VERSION = '0.82';
+const APP_VERSION = '0.83';
 const DATA_SCHEMA_VERSION = 3;
+const UNIT_OPTIONS = ['g','kg','mg','ml','L','cl','dl','m','cm','mm','個','枚','粒','本','袋','箱','パック','セット','束','缶','瓶','カップ','食','ロール','組','錠','包','ケース','台','冊','足'];
+const CUSTOM_UNIT_VALUE = '__custom__';
+let bulkAddKind = 'product';
+let bulkAddRowsByKind = { product: [], type: [] };
+let smartSuggestionState = null;
+
 
 const YAHOO_WORKER_URL = 'https://pricelog-yahoo.pricelog-api.workers.dev';
 
@@ -163,7 +169,7 @@ loadRecommendedReadingMap();
 render();
 
 $('searchInput').addEventListener('input', render);
-$('btnAddProduct').addEventListener('click', () => openProductDialog());
+$('btnAddProduct').addEventListener('click', () => $('addChoiceDialog').showModal());
 $('btnBulkStore').addEventListener('click', () => setBulkMode(!bulkMode));
 $('btnBulkCancel').addEventListener('click', () => setBulkMode(false));
 $('btnBulkSelectAll').addEventListener('click', toggleBulkSelectAll);
@@ -258,6 +264,7 @@ $('btnCloseProductDialog').addEventListener('click', (e) => {
   e.stopPropagation();
 
   const dialog = $('productDialog');
+  hideSmartSuggestions();
   if (dialog.open) dialog.close();
 });
 
@@ -326,7 +333,7 @@ $('barcodeAmount').addEventListener('input', () => {
   const unit = $('barcodeUnit').value;
   barcodeLookupData.typeQuantity = amount > 0 && unit ? { amount, unit } : null;
 });
-$('barcodeUnit').addEventListener('change', () => {
+function syncBarcodeUnitState() {
   if (!barcodeLookupData) return;
 
   if ($('barcodeChoiceProduct').checked) {
@@ -337,7 +344,8 @@ $('barcodeUnit').addEventListener('change', () => {
   const amount = Number($('barcodeAmount').value);
   const unit = $('barcodeUnit').value;
   barcodeLookupData.typeQuantity = amount > 0 && unit ? { amount, unit } : null;
-});
+}
+$('barcodeUnit').addEventListener('change', syncBarcodeUnitState);
 $('barcodeReading').addEventListener('input', () => {
   barcodeReadingManuallyEdited = true;
 });
@@ -348,8 +356,34 @@ $('barcodeDialog').addEventListener('cancel', (e) => { e.preventDefault(); close
 $('productKindProduct').addEventListener('change', () => setProductKindChoice('product'));
 $('productKindType').addEventListener('change', () => setProductKindChoice('type'));
 $('btnAddProductStore').addEventListener('click', () => { productDialogStores.push(makeBlankDialogStore()); renderProductDialogStores(); });
-$('productAmount').addEventListener('change', renderProductDialogStores);
-$('productUnit').addEventListener('change', renderProductDialogStores);
+$('productAmount').addEventListener('input', refreshProductDialogStoreResults);
+$('productAmount').addEventListener('change', refreshProductDialogStoreResults);
+$('productUnit').addEventListener('change', refreshProductDialogStoreResults);
+
+$('btnCloseAddChoice')?.addEventListener('click', () => $('addChoiceDialog').close());
+$('btnAddSingle')?.addEventListener('click', () => { $('addChoiceDialog').close(); openProductDialog(); });
+$('btnAddBulkProducts')?.addEventListener('click', () => { $('addChoiceDialog').close(); openBulkAddDialog(); });
+$('btnCloseBulkAdd')?.addEventListener('click', () => closeBulkAddDialog());
+$('bulkTabProduct')?.addEventListener('click', () => setBulkAddKind('product'));
+$('bulkTabType')?.addEventListener('click', () => setBulkAddKind('type'));
+$('btnBulkAddRow')?.addEventListener('click', () => { bulkAddRowsByKind[bulkAddKind].push(makeBulkAddRow(bulkAddKind)); renderBulkAddRows(); });
+$('btnSaveBulkAdd')?.addEventListener('click', saveBulkAdd);
+$('bulkAddStore')?.addEventListener('input', () => showSmartSuggestions($('bulkAddStore'),'store'));
+
+bindSmartSuggestion($('productName'),'product');
+bindSmartSuggestion($('productTypeName'),'type');
+bindSmartSuggestion($('shelfCompareType'),'type');
+bindSmartSuggestion($('shelfCompareStore'),'store');
+bindSmartSuggestion($('bulkAddStore'),'store');
+bindSmartSuggestion($('bulkStoreName'),'store');
+bindSmartSuggestion($('tplProductName'),'product');
+bindSmartSuggestion($('tplStoreName'),'store');
+bindSmartSuggestion($('barcodeProductNameEdit'),'product');
+bindSmartSuggestion($('barcodeTypeNameEdit'),'type');
+enableCustomUnitSelect($('productUnit'));
+enableCustomUnitSelect($('barcodeUnit'), syncBarcodeUnitState);
+enableCustomUnitSelect($('tplProductUnit'));
+setupInputExperience();
 
 function bindProductNameReadingEvents(input) {
   input.addEventListener('compositionstart', () => {
@@ -534,12 +568,236 @@ function persistSoon() {
 function persistNow() {
   clearTimeout(saveTimer);
   localStorage.setItem(STORAGE_KEY, JSON.stringify(products));
+  try {
+    window.dispatchEvent(new CustomEvent('pricelog:data-changed', { detail: { products: structuredCloneSafe(products) } }));
+  } catch {}
 }
 
 function taxOptions(selected) {
   const values = Array.from(new Set([Number(settings.reducedTax), Number(settings.standardTax), Number(selected)]))
     .filter(v => Number.isFinite(v) && v >= 0);
   return values.map(v => `<option value="${escapeAttr(v)}"${Number(v)===Number(selected)?' selected':''}>${v}%</option>`).join('');
+}
+
+
+function normalizeLooseKey(value) {
+  return katakanaToHiragana(String(value || ''))
+    .normalize('NFKC')
+    .replace(/[\s\u3000]+/g, '')
+    .trim()
+    .toLowerCase();
+}
+
+function getUnitOptionsHtml(selected = '') {
+  const current = String(selected || '').trim();
+  const values = current && !UNIT_OPTIONS.includes(current) ? [...UNIT_OPTIONS, current] : UNIT_OPTIONS.slice();
+  return values.map(value => `<option value="${escapeAttr(value)}"${value===current?' selected':''}>${escapeAttr(value)}</option>`).join('') +
+    `<option value="${CUSTOM_UNIT_VALUE}">その他…</option>`;
+}
+
+function enableCustomUnitSelect(select, onChanged = null) {
+  if (!select) return;
+  const current = String(select.value || '').trim();
+  select.innerHTML = getUnitOptionsHtml(current || '個');
+  if (current) setSelectValueWithOption(select, current);
+  select.addEventListener('change', () => {
+    if (select.value !== CUSTOM_UNIT_VALUE) {
+      onChanged?.();
+      return;
+    }
+    const custom = window.prompt('単位を入力してね。', '');
+    if (!custom || !custom.trim()) {
+      select.value = current || '個';
+      return;
+    }
+    const value = custom.trim();
+    const option = document.createElement('option');
+    option.value = value;
+    option.textContent = value;
+    select.insertBefore(option, select.querySelector(`option[value="${CUSTOM_UNIT_VALUE}"]`));
+    select.value = value;
+    onChanged?.();
+  });
+}
+
+function suggestionValues(type) {
+  const values = [];
+  if (type === 'product' || type === 'type') {
+    products.forEach(product => {
+      if ((product.kind === 'type' ? 'type' : 'product') !== type) return;
+      const name = String(product.name || '').trim();
+      if (name) values.push(name);
+    });
+  } else if (type === 'store') {
+    products.forEach(product => (product.stores || []).forEach(row => {
+      const name = String(row.store || '').trim();
+      if (name) values.push(name);
+    }));
+  }
+  const seen = new Set();
+  return values.filter(value => {
+    const key = normalizeLooseKey(value);
+    if (!key || seen.has(key)) return false;
+    seen.add(key); return true;
+  }).sort((a,b)=>a.localeCompare(b,'ja',{sensitivity:'base',numeric:true}));
+}
+
+function hideSmartSuggestions() {
+  const box = $('smartSuggestionBox');
+  if (box) box.classList.add('hidden');
+  smartSuggestionState = null;
+}
+
+function showSmartSuggestions(input, type) {
+  const box = $('smartSuggestionBox');
+  if (!box || !input || document.activeElement !== input) return;
+  const query = normalizeLooseKey(input.value);
+  if (!query) return hideSmartSuggestions();
+  const candidates = suggestionValues(type)
+    .filter(value => normalizeLooseKey(value).includes(query))
+    .sort((a,b) => {
+      const ak = normalizeLooseKey(a), bk = normalizeLooseKey(b);
+      const ap = ak.startsWith(query) ? 0 : 1, bp = bk.startsWith(query) ? 0 : 1;
+      return ap-bp || ak.length-bk.length || a.localeCompare(b,'ja');
+    }).slice(0,8);
+  if (!candidates.length) return hideSmartSuggestions();
+  box.innerHTML = '';
+  candidates.forEach(value => {
+    const button = document.createElement('button');
+    button.type='button'; button.className='smart-suggestion-item'; button.textContent=value;
+    button.addEventListener('mousedown', e => e.preventDefault());
+    button.addEventListener('click', () => {
+      input.value = value;
+      input.dispatchEvent(new Event('input',{bubbles:true}));
+      input.dispatchEvent(new Event('change',{bubbles:true}));
+      hideSmartSuggestions();
+      try { input.focus({preventScroll:true}); } catch { input.focus(); }
+    });
+    box.appendChild(button);
+  });
+  const rect = input.getBoundingClientRect();
+  box.style.left = `${Math.max(6, Math.min(rect.left, window.innerWidth - Math.min(360, Math.max(220, rect.width))))}px`;
+  box.style.top = `${Math.min(window.innerHeight - 180, rect.bottom + 3)}px`;
+  box.style.width = `${Math.min(360, Math.max(220, rect.width))}px`;
+  box.classList.remove('hidden');
+  smartSuggestionState = {input,type};
+}
+
+function bindSmartSuggestion(input, type) {
+  if (!input || input.dataset.smartSuggestBound === '1') return;
+  input.dataset.smartSuggestBound='1';
+  input.addEventListener('input', () => showSmartSuggestions(input,type));
+  input.addEventListener('focus', () => { if (input.value.trim()) showSmartSuggestions(input,type); });
+  input.addEventListener('blur', () => setTimeout(() => { if (smartSuggestionState?.input===input) hideSmartSuggestions(); },120));
+}
+
+function findExistingProductLoose(kind, name) {
+  const key = normalizeLooseKey(name);
+  if (!key) return null;
+  return products.find(product => (product.kind==='type'?'type':'product')===kind && normalizeLooseKey(product.name)===key) || null;
+}
+
+function findStoreRowLoose(product, storeName) {
+  const key = normalizeLooseKey(storeName);
+  if (!key || !product) return null;
+  const rows = (product.stores || []).filter(row => normalizeLooseKey(row.store)===key);
+  if (!rows.length) return null;
+  return rows.slice().sort((a,b)=>(Date.parse(b.updatedAt||'')||0)-(Date.parse(a.updatedAt||'')||0))[0];
+}
+
+function mergeStoreIntoProduct(product, source, {kind='product', amount='', unit='', defaultTax=settings.reducedTax, savedAt=new Date().toISOString()}={}) {
+  const storeName = String(source.store || '').trim();
+  if (!storeName) return {added:false, overwritten:false};
+  let target = findStoreRowLoose(product, storeName);
+  const nextPrice = source.price ?? '';
+  const oldPrice = target ? Number(target.price) : null;
+  if (!target) {
+    target = { id:makeId('s'), store:storeName, productInfo:'', price:'', priceType:settings.defaultPriceType, tax:defaultTax,
+      couponType:'none', couponValue:'', amount:kind==='type'?'':amount, unit:kind==='type'?'個':unit, updatedAt:savedAt };
+    product.stores = Array.isArray(product.stores) ? product.stores : [];
+    product.stores.push(target);
+  }
+  const overwritten = !!findStoreRowLoose(product, storeName) && target.price !== '';
+  target.store = storeName;
+  target.productInfo = kind==='type' ? String(source.productInfo || '').trim() : '';
+  target.price = nextPrice;
+  target.priceType = source.priceType === 'inc' ? 'inc' : 'ex';
+  target.tax = Number.isFinite(Number(source.tax)) ? Number(source.tax) : Number(defaultTax);
+  target.amount = kind==='type' ? (Number(source.amount)>0 ? Number(source.amount) : '') : amount;
+  target.unit = kind==='type' ? String(source.unit || '個') : unit;
+  target.updatedAt = savedAt;
+  if (Number.isFinite(oldPrice) && nextPrice !== '' && Number(oldPrice) !== Number(nextPrice)) {
+    product.history = Array.isArray(product.history) ? product.history : [];
+    product.history.unshift({id:makeId('h'),updatedAt:savedAt,store:storeName,beforePrice:Number(oldPrice),afterPrice:Number(nextPrice)});
+    product.history = product.history.slice(0,20);
+  }
+  const key = normalizeLooseKey(storeName);
+  product.stores = product.stores.filter(row => row===target || normalizeLooseKey(row.store)!==key);
+  return {added: oldPrice===null, overwritten: oldPrice!==null};
+}
+
+function duplicateStoreNames(rows = []) {
+  const counts = new Map();
+  rows.forEach(row => {
+    const key = normalizeLooseKey(row.store);
+    if (!key) return;
+    const item = counts.get(key) || {name:String(row.store||'').trim(), count:0};
+    item.count += 1; counts.set(key,item);
+  });
+  return [...counts.values()].filter(item=>item.count>1).map(item=>item.name);
+}
+
+function collapseDuplicateStores(rows = []) {
+  const map = new Map();
+  rows.forEach((row,index) => {
+    const key = normalizeLooseKey(row.store) || `__${index}`;
+    if (!map.has(key)) map.set(key,row);
+    else {
+      const prev = map.get(key);
+      const prevTime = Date.parse(prev.updatedAt||'') || 0;
+      const nextTime = Date.parse(row.updatedAt||'') || 0;
+      if (nextTime >= prevTime || row.price !== '') map.set(key,row);
+    }
+  });
+  return [...map.values()];
+}
+
+function setupInputExperience() {
+  const updateViewport = () => {
+    const h = window.visualViewport?.height || window.innerHeight;
+    document.documentElement.style.setProperty('--visual-viewport-height', `${h}px`);
+  };
+  updateViewport();
+  window.visualViewport?.addEventListener('resize', updateViewport);
+  window.visualViewport?.addEventListener('scroll', updateViewport);
+
+  document.addEventListener('focusin', event => {
+    const input = event.target;
+    if (!(input instanceof HTMLInputElement)) return;
+    if (!input.matches('.dialog input, .shelf-compare-view input, .product-detail input')) return;
+    if (['checkbox','radio','file','date','datetime-local','time'].includes(input.type)) return;
+    const pointerFocused = input.dataset.pointerFocused === '1';
+    input.dataset.pointerFocused = '0';
+    if (!pointerFocused && input.value) requestAnimationFrame(() => { try { input.select(); } catch {} });
+    setTimeout(() => input.scrollIntoView({block:'center',behavior:'smooth'}), 120);
+  });
+  document.addEventListener('pointerdown', event => {
+    const input = event.target;
+    if (input instanceof HTMLInputElement && document.activeElement===input) input.dataset.pointerFocused='1';
+  }, true);
+  document.addEventListener('keydown', event => {
+    if (event.key !== 'Enter') return;
+    const el = event.target;
+    if (!(el instanceof HTMLInputElement) || !el.matches('.dialog input')) return;
+    if (['checkbox','radio','file'].includes(el.type)) return;
+    const scope = el.closest('dialog') || document;
+    const focusables = [...scope.querySelectorAll('input:not([disabled]):not([type=hidden]), select:not([disabled]), button:not([disabled])')]
+      .filter(node => node.offsetParent !== null && !node.classList.contains('st-delete'));
+    const i = focusables.indexOf(el);
+    const next = focusables.slice(i+1).find(node => node.tagName==='INPUT' || node.tagName==='SELECT');
+    if (next) { event.preventDefault(); next.focus(); }
+  });
+  document.querySelectorAll('.dialog input:not([type=hidden])').forEach((input,i,all) => input.setAttribute('enterkeyhint', i===all.length-1?'done':'next'));
 }
 
 function beginProductEdit(productId) {
@@ -591,6 +849,15 @@ function saveProductEdit(productId) {
 
   const original = products[index];
   const draft = structuredCloneSafe(productEditDraft);
+  const duplicateNames = duplicateStoreNames(draft.stores || []);
+  if (duplicateNames.length) {
+    const ok = window.confirm(`同じ店舗が重複しています。
+${duplicateNames.map(name=>`・${name}`).join('\n')}
+
+登録済みの店舗情報を上書きして1件にまとめますか？`);
+    if (!ok) return;
+    draft.stores = collapseDuplicateStores(draft.stores || []);
+  }
   const history = Array.isArray(original.history) ? structuredCloneSafe(original.history) : [];
   const originalRows = new Map((original.stores || []).map(row => [row.id, row]));
 
@@ -867,8 +1134,6 @@ function renderStoreRow(product, row, bestFlags = {before:false, after:false}) {
   const price = el.querySelector('.st-price');
   const priceType = el.querySelector('.st-price-type');
   const tax = el.querySelector('.st-tax');
-  const couponType = el.querySelector('.st-coupon-type');
-  const couponValue = el.querySelector('.st-coupon-value');
   const amount = el.querySelector('.st-amount');
   const unitSelect = el.querySelector('.st-unit-select');
   const quantityFields = el.querySelector('.st-quantity-fields');
@@ -876,16 +1141,12 @@ function renderStoreRow(product, row, bestFlags = {before:false, after:false}) {
   const unitOut = el.querySelector('.st-unit');
 
   store.value = row.store ?? '';
+  bindSmartSuggestion(store, 'store');
   productInfo.value = row.productInfo ?? '';
   price.value = row.price ?? '';
   priceType.value = row.priceType === 'inc' ? 'inc' : 'ex';
   tax.innerHTML = taxOptions(row.tax ?? product.defaultTax);
-  couponType.value = ['percent','yen'].includes(row.couponType) ? row.couponType : 'none';
-  couponValue.value = row.couponValue ?? '';
   const refreshPriceUnit = bindInputUnitSuffix(price, '円');
-  const refreshCouponUnit = bindInputUnitSuffix(couponValue, () =>
-    couponType.value === 'percent' ? '%' : couponType.value === 'yen' ? '円' : ''
-  );
 
   const isType = product.kind === 'type';
   quantityFields.classList.toggle('hidden', !isType);
@@ -893,17 +1154,15 @@ function renderStoreRow(product, row, bestFlags = {before:false, after:false}) {
   if (isType) {
     amount.value = Number(row.amount) > 0 ? row.amount : (product.amount || 1);
     setSelectValueWithOption(unitSelect, row.unit || product.unit || '個');
+    enableCustomUnitSelect(unitSelect, sync);
   }
 
   function updateOutputs() {
-    couponValue.disabled = couponType.value === 'none';
-    couponValue.placeholder = couponType.value === 'none' ? '-' : '数字';
     refreshPriceUnit();
-    refreshCouponUnit();
     const calc = calcRow(product, row);
     if (calc) {
-      priceResultOut.textContent = `${fmtCalc(calc.grossBefore)}[${fmtCalc(calc.afterTotal)}](${fmtCalcDelta(calc.afterTotal - calc.grossBefore)})円`;
-      unitOut.textContent = `${fmtCalc(calc.beforeUnit)}[${fmtCalc(calc.afterUnit)}](${fmtCalcDelta(calc.afterUnit - calc.beforeUnit)})円/${(product.kind === 'type' ? (row.unit || product.unit) : product.unit) || '個'}`;
+      priceResultOut.textContent = `${fmtCalc(calc.grossBefore)}円`;
+      unitOut.textContent = `${fmtCalc(calc.beforeUnit)}円/${(product.kind === 'type' ? (row.unit || product.unit) : product.unit) || '個'}`;
     } else {
       priceResultOut.textContent = '-';
       unitOut.textContent = '-';
@@ -916,8 +1175,6 @@ function renderStoreRow(product, row, bestFlags = {before:false, after:false}) {
     row.price = numberOrBlank(price.value);
     row.priceType = priceType.value;
     row.tax = Number(tax.value);
-    row.couponType = couponType.value;
-    row.couponValue = numberOrBlank(couponValue.value);
     if (isType) {
       row.amount = numberOrBlank(amount.value);
       row.unit = unitSelect.value || product.unit || '個';
@@ -927,7 +1184,7 @@ function renderStoreRow(product, row, bestFlags = {before:false, after:false}) {
     refreshBestOnly(product.id);
   }
 
-  [store, productInfo, price, priceType, tax, couponType, couponValue, amount, unitSelect].forEach(ctrl => {
+  [store, productInfo, price, priceType, tax, amount, unitSelect].forEach(ctrl => {
     if (!ctrl) return;
     ctrl.addEventListener('input', sync);
     ctrl.addEventListener('change', sync);
@@ -1003,12 +1260,12 @@ function refreshBestOnly(productId) {
 
     if (priceResultOut) {
       priceResultOut.textContent = calc
-        ? `${fmtCalc(calc.grossBefore)}[${fmtCalc(calc.afterTotal)}](${fmtCalcDelta(calc.afterTotal - calc.grossBefore)})円`
+        ? `${fmtCalc(calc.grossBefore)}円`
         : '-';
     }
     if (unitOut) {
       unitOut.textContent = calc
-        ? `${fmtCalc(calc.beforeUnit)}[${fmtCalc(calc.afterUnit)}](${fmtCalcDelta(calc.afterUnit - calc.beforeUnit)})円/${(product.kind === 'type' ? (row.unit || product.unit) : product.unit) || '個'}`
+        ? `${fmtCalc(calc.beforeUnit)}円/${(product.kind === 'type' ? (row.unit || product.unit) : product.unit) || '個'}`
         : '-';
     }
     applyBestFlags(rowEl, mark, {
@@ -1026,70 +1283,34 @@ function calcRow(product, row) {
 
   const grossBefore = row.priceType === 'ex' ? price * (1 + tax / 100) : price;
   const netBefore = row.priceType === 'ex' ? price : price / (1 + tax / 100);
-
-  let afterTotal = grossBefore;
-  const cv = Math.max(0, Number(row.couponValue) || 0);
-
-  if (row.couponType === 'percent') {
-    afterTotal = grossBefore * (1 - Math.min(cv, 100) / 100);
-  } else if (row.couponType === 'yen') {
-    afterTotal = Math.max(0, grossBefore - cv);
-  }
-
   return {
     grossBefore,
     netBefore,
-    afterTotal,
+    afterTotal: grossBefore,
     beforeUnit: grossBefore / amount,
-    afterUnit: afterTotal / amount
+    afterUnit: grossBefore / amount
   };
 }
 
 function getBests(product) {
   let before = null;
-
-  // ★ = クーポンを使わない通常時の最安店舗
   product.stores.forEach(row => {
     const calc = calcRow(product, row);
     if (!calc) return;
-
     if (!before || calc.beforeUnit < before.calc.beforeUnit) {
       before = { row, store: row.store, calc, unit: product.kind === 'type' ? (row.unit || product.unit) : product.unit };
     }
   });
-
-  if (!before) return { before: null, after: null };
-
-  // ◆ = ★とは別店舗で、クーポン使用後価格が
-  // ★店舗の通常価格・クーポン適用後価格の両方より安い場合だけ表示。
-  let after = null;
-
-  product.stores.forEach(row => {
-    if (row.id === before.row.id) return;
-
-    const calc = calcRow(product, row);
-    if (!calc) return;
-
-    const beatsBaseBefore = calc.afterUnit < before.calc.beforeUnit;
-    const beatsBaseAfter = calc.afterUnit < before.calc.afterUnit;
-
-    if (!beatsBaseBefore || !beatsBaseAfter) return;
-
-    if (!after || calc.afterUnit < after.calc.afterUnit) {
-      after = { row, store: row.store, calc, unit: product.kind === 'type' ? (row.unit || product.unit) : product.unit };
-    }
-  });
-
-  return { before, after };
+  return { before, after: null };
 }
 
-function createPriceBadge(kind, compact = false) {
+function createPriceBadge(_kind = 'low', compact = false) {
   const badge = document.createElement('span');
-  badge.className = `price-badge ${kind === 'special' ? 'badge-special' : 'badge-low'}${compact ? ' mini-badge' : ''}`;
+  badge.className = `price-badge badge-low${compact ? ' mini-badge' : ''}`;
   const icon = document.createElement('span');
   icon.className = 'badge-icon';
-  icon.textContent = kind === 'special' ? '◆' : '♛';
-  badge.append(icon, document.createTextNode(kind === 'special' ? '特安' : '最安'));
+  icon.textContent = '♛';
+  badge.append(icon, document.createTextNode('最安'));
   return badge;
 }
 
@@ -1108,14 +1329,12 @@ function renderBestStoreSummary(container, bests) {
   };
 
   add('low', bests.before.store);
-  if (bests.after) add('special', bests.after.store);
 }
 
 function applyBestFlags(rowEl, markEl, flags) {
   if (!markEl) return;
   markEl.innerHTML = '';
   if (flags.before) markEl.appendChild(createPriceBadge('low', true));
-  else if (flags.after) markEl.appendChild(createPriceBadge('special', true));
 }
 
 function ensureHistory(product) {
@@ -1538,9 +1757,12 @@ function clearShelfCompare() {
 
 function shelfCompareCalc(row) {
   const price = Number(row.price), amount = Number(row.amount), tax = Number(shelfCompareCommon.tax);
-  if (!(price >= 0) || !(amount > 0)) return null;
-  const gross = shelfCompareCommon.priceType === 'inc' ? price : price * (1 + (Number.isFinite(tax) ? tax : 0) / 100);
-  return { gross, unitPrice: gross / amount };
+  if (!(price >= 0) || row.price === '' || !(amount > 0)) return null;
+  const safeTax = Number.isFinite(tax) ? tax : 0;
+  const gross = shelfCompareCommon.priceType === 'inc' ? price : price * (1 + safeTax / 100);
+  const net = shelfCompareCommon.priceType === 'ex' ? price : price / (1 + safeTax / 100);
+  const basisPrice = shelfCompareCommon.priceType === 'inc' ? gross : net;
+  return { gross, net, basisPrice, unitPrice: basisPrice / amount };
 }
 
 function upsertShelfCompareRow(row, typeName, storeName, now) {
@@ -1653,15 +1875,19 @@ function renderShelfCompare() {
   const valid = shelfCompareRows.map(r => ({r, calc:shelfCompareCalc(r)})).filter(x => x.calc);
   const best = valid.length ? Math.min(...valid.map(x => x.calc.unitPrice)) : null;
 
+  const head = $('shelfUnitPriceHead');
+  if (head) head.textContent = shelfCompareCommon.priceType === 'inc' ? '税込単価' : '税抜単価';
+
   shelfCompareRows.forEach((row, index) => {
     const calc = shelfCompareCalc(row);
     const isBest = !!(calc && best !== null && Math.abs(calc.unitPrice-best) < 1e-9);
     const line = document.createElement('div');
     line.className = 'shelf-compare-row shelf-compare-item' + (isBest ? ' is-best' : '') + (row.existing ? ' is-existing' : '');
+    line.dataset.rowId = row.id;
     line.innerHTML = `
       <span class="shelf-select-cell"><input class="sc-select" type="checkbox" aria-label="商品一覧へ反映"></span>
       <span class="shelf-info-cell"><input class="sc-info" type="text" maxlength="80" aria-label="商品情報" placeholder="メーカーなど">${row.existing ? '<small class="shelf-existing-label">登録済み</small>' : ''}</span>
-      <span class="shelf-amount-cell"><span class="unit-input shelf-amount-input-wrap"><input class="sc-amount" type="text" inputmode="decimal" aria-label="容量"><span class="input-unit-suffix"></span></span><select class="sc-unit" aria-label="単位"><option>g</option><option>ml</option><option>m</option><option>個</option><option>枚</option><option>粒</option><option>本</option><option>袋</option><option>箱</option><option>パック</option><option>缶</option><option>瓶</option></select></span>
+      <span class="shelf-amount-cell"><span class="unit-input shelf-amount-input-wrap"><input class="sc-amount" type="text" inputmode="decimal" aria-label="容量"><span class="input-unit-suffix"></span></span><select class="sc-unit" aria-label="単位"></select></span>
       <span class="unit-input shelf-price-cell"><input class="sc-price" type="text" inputmode="decimal" aria-label="価格"><span class="input-unit-suffix">円</span></span>
       <span class="shelf-unit-price">${calc ? `${isBest ? '<b>最安</b>' : ''}<strong>${fmtCalc(calc.unitPrice)}</strong><small>円/${escapeAttr(row.unit||'個')}</small>` : '-'}</span>
       ${row.existing ? '<span class="shelf-delete-placeholder" aria-hidden="true"></span>' : '<button class="st-delete shelf-delete" type="button" aria-label="比較商品を削除">×</button>'}`;
@@ -1677,6 +1903,7 @@ function renderShelfCompare() {
     price.value = row.price ?? '';
     amount.value = row.amount ?? '';
     setSelectValueWithOption(unit, row.unit || 'g');
+    enableCustomUnitSelect(unit);
     const refreshAmountUnit = bindInputUnitSuffix(amount, () => unit.value || row.unit || '個');
     bindInputUnitSuffix(price, '円');
 
@@ -1706,14 +1933,32 @@ function renderShelfCompare() {
       row.amount = numberOrBlank(amount.value);
       row.unit = unit.value || '個';
       shelfCompareDirty = true;
+      refreshShelfCompareResults();
     };
-    const sync = () => { keepDraft(); renderShelfCompare(); };
     [info, price, amount].forEach(control => {
       control.addEventListener('input', keepDraft);
-      control.addEventListener('change', sync);
+      control.addEventListener('change', keepDraft);
     });
-    unit.addEventListener('change', () => { refreshAmountUnit(); sync(); });
+    unit.addEventListener('change', () => { refreshAmountUnit(); keepDraft(); });
     container.appendChild(line);
+  });
+}
+
+function refreshShelfCompareResults() {
+  const head = $('shelfUnitPriceHead');
+  if (head) head.textContent = shelfCompareCommon.priceType === 'inc' ? '税込単価' : '税抜単価';
+  const valid = shelfCompareRows.map(row => ({row,calc:shelfCompareCalc(row)})).filter(item=>item.calc);
+  const best = valid.length ? Math.min(...valid.map(item=>item.calc.unitPrice)) : null;
+  const container = $('shelfCompareList');
+  if (!container) return;
+  container.querySelectorAll('.shelf-compare-item').forEach(line => {
+    const row = shelfCompareRows.find(item=>item.id===line.dataset.rowId);
+    if (!row) return;
+    const calc = shelfCompareCalc(row);
+    const isBest = !!(calc && best!==null && Math.abs(calc.unitPrice-best)<1e-9);
+    line.classList.toggle('is-best',isBest);
+    const out = line.querySelector('.shelf-unit-price');
+    if (out) out.innerHTML = calc ? `${isBest?'<b>最安</b>':''}<strong>${fmtCalc(calc.unitPrice)}</strong><small>円/${escapeAttr(row.unit||'個')}</small>` : '-';
   });
 }
 
@@ -1896,17 +2141,25 @@ function shoppingMemoUnitSelect(value, onChange) {
   const select = document.createElement('select');
   select.className = 'shopping-edit-unit';
   select.setAttribute('aria-label', '単位');
-  const units = ['', 'g', 'ml', 'm', '個', '枚', '粒', '本', '袋', '箱', 'パック', '缶', '瓶'];
-  const normalized = String(value || '');
-  if (normalized && !units.includes(normalized)) units.push(normalized);
-  units.forEach(unit => {
-    const option = document.createElement('option');
-    option.value = unit;
-    option.textContent = unit;
-    select.appendChild(option);
+  const normalized = String(value || '').trim();
+  select.innerHTML = `<option value=""></option>` + getUnitOptionsHtml(normalized);
+  if (normalized) setSelectValueWithOption(select, normalized);
+  select.addEventListener('change', () => {
+    if (select.value === CUSTOM_UNIT_VALUE) {
+      const custom = window.prompt('単位を入力してね。', '');
+      if (!custom || !custom.trim()) {
+        select.value = normalized || '';
+        return;
+      }
+      const unit = custom.trim();
+      const option = document.createElement('option');
+      option.value = unit;
+      option.textContent = unit;
+      select.insertBefore(option, select.querySelector(`option[value="${CUSTOM_UNIT_VALUE}"]`));
+      select.value = unit;
+    }
+    onChange(select.value);
   });
-  select.value = normalized;
-  select.addEventListener('change', () => onChange(select.value));
   return select;
 }
 
@@ -2298,7 +2551,7 @@ function bulkAddStore() {
     if (!bulkSelected.has(product.id)) return;
 
     const duplicate = product.stores.some(row =>
-      String(row.store || '').trim().toLowerCase() === storeName.toLowerCase()
+      normalizeLooseKey(row.store) === normalizeLooseKey(storeName)
     );
 
     if (duplicate) {
@@ -2421,7 +2674,7 @@ function exportCurrentTemplateFile() {
   a.click();
   a.remove();
   URL.revokeObjectURL(url);
-  msg.textContent = `現在の商品${products.length}件をテンプレートに書き出したよ。価格・クーポン・履歴は含めていないよ。`;
+  msg.textContent = `現在の商品${products.length}件をテンプレートに書き出したよ。価格・履歴は含めていないよ。`;
 }
 
 function importTemplateFile(e) {
@@ -2472,7 +2725,7 @@ function importTemplateFile(e) {
           const storeName = String(storeRaw?.name ?? storeRaw?.store ?? '').trim();
           if (!storeName) return;
           const exists = product.stores.some(row =>
-            String(row.store || '').trim().toLowerCase() === storeName.toLowerCase()
+            normalizeLooseKey(row.store) === normalizeLooseKey(storeName)
           );
           if (exists) return;
 
@@ -2741,7 +2994,7 @@ function addTemplateStore() {
   }
 
   const duplicate = templateDraft.stores.some(item =>
-    item.name.trim().toLowerCase() === name.toLowerCase()
+    normalizeLooseKey(item.name) === normalizeLooseKey(name)
   );
 
   if (duplicate) {
@@ -2922,7 +3175,7 @@ function loadProductTemplate() {
       if (!storeName) return;
 
       const exists = product.stores.some(row =>
-        String(row.store || '').trim().toLowerCase() === storeName.toLowerCase()
+        normalizeLooseKey(row.store) === normalizeLooseKey(storeName)
       );
 
       if (exists) return;
@@ -2950,10 +3203,7 @@ function loadProductTemplate() {
 
 
 function productTemplateKey(product) {
-  const name = katakanaToHiragana(String(product.name || ''))
-    .normalize('NFKC')
-    .trim()
-    .toLowerCase();
+  const name = normalizeLooseKey(product.name);
   const kind = product.kind === 'type' ? 'type' : 'product';
   if (kind === 'type') return `${kind}|${name}`;
 
@@ -4378,7 +4628,7 @@ function registerBarcodeProduct() {
 }
 
 function normalizeProductNameKey(value) {
-  return String(value || '').normalize('NFKC').trim().toLowerCase();
+  return normalizeLooseKey(value);
 }
 
 function hasKanji(value) {
@@ -4585,7 +4835,7 @@ function makeBlankDialogStore() {
 }
 
 function hasMeaningfulDialogStore(row) {
-  return !!String(row.store || '').trim() || row.price !== '' || row.couponValue !== '' || Number(row.amount) > 0;
+  return !!String(row.store || '').trim() || row.price !== '' || Number(row.amount) > 0;
 }
 
 function renderProductDialogStores() {
@@ -4608,15 +4858,13 @@ function renderProductDialogStores() {
         <button class="qs-delete" type="button" aria-label="この店舗を削除">×</button>
       </div>
       <div class="quick-store-options">
-        <label>税込/税抜<select class="qs-price-type"><option value="inc">税込</option><option value="ex">税抜</option></select></label>
+        <label>税込/抜<select class="qs-price-type"><option value="inc">税込</option><option value="ex">税抜</option></select></label>
         <label>税率<select class="qs-tax">${taxOptions(row.tax)}</select></label>
-        <label>クーポン<select class="qs-coupon-type"><option value="none">なし</option><option value="percent">%OFF</option><option value="yen">円引</option></select></label>
-        <label>値<span class="unit-input"><input class="qs-coupon-value" type="text" inputmode="decimal" placeholder="-"><span class="input-unit-suffix"></span></span></label>
       </div>
       <div class="quick-store-product-info ${kind === 'type' ? '' : 'hidden'}"><label>商品情報<input class="qs-product-info" type="text" maxlength="80"></label></div>
       <div class="quick-store-quantity ${kind === 'type' ? '' : 'hidden'}">
         <label>内容量<input class="qs-amount" type="text" inputmode="decimal"></label>
-        <label>単位<select class="qs-unit"><option value="g">g</option><option value="ml">ml</option><option value="m">m</option><option value="個">個</option><option value="枚">枚</option><option value="粒">粒</option><option value="本">本</option><option value="袋">袋</option><option value="箱">箱</option><option value="パック">パック</option><option value="缶">缶</option><option value="瓶">瓶</option></select></label>
+        <label>単位<select class="qs-unit"></select></label>
       </div>
       <div class="quick-store-result">税込価格・単価：<strong class="qs-result">-</strong></div>`;
 
@@ -4625,23 +4873,17 @@ function renderProductDialogStores() {
     const price = card.querySelector('.qs-price');
     const priceType = card.querySelector('.qs-price-type');
     const tax = card.querySelector('.qs-tax');
-    const couponType = card.querySelector('.qs-coupon-type');
-    const couponValue = card.querySelector('.qs-coupon-value');
     const amount = card.querySelector('.qs-amount');
     const unit = card.querySelector('.qs-unit');
     const result = card.querySelector('.qs-result');
 
     store.value = row.store || '';
+    bindSmartSuggestion(store, 'store');
     if (productInfo) productInfo.value = row.productInfo || '';
     price.value = row.price ?? '';
     priceType.value = row.priceType === 'inc' ? 'inc' : 'ex';
     tax.value = String(row.tax ?? settings.reducedTax);
-    couponType.value = ['percent','yen'].includes(row.couponType) ? row.couponType : 'none';
-    couponValue.value = row.couponValue ?? '';
     const refreshPriceUnit = bindInputUnitSuffix(price, '円');
-    const refreshCouponUnit = bindInputUnitSuffix(couponValue, () =>
-      couponType.value === 'percent' ? '%' : couponType.value === 'yen' ? '円' : ''
-    );
     amount.value = Number(row.amount) > 0 ? row.amount : '';
     setSelectValueWithOption(unit, row.unit || '個');
 
@@ -4651,22 +4893,18 @@ function renderProductDialogStores() {
       row.price = numberOrBlank(price.value);
       row.priceType = priceType.value;
       row.tax = Number(tax.value);
-      row.couponType = couponType.value;
-      row.couponValue = numberOrBlank(couponValue.value);
       row.amount = numberOrBlank(amount.value);
       row.unit = unit.value || '個';
-      couponValue.disabled = row.couponType === 'none';
-      couponValue.placeholder = row.couponType === 'none' ? '-' : '数字';
       refreshPriceUnit();
-      refreshCouponUnit();
-      const tempProduct = { kind: kind || 'product', amount: productAmount, unit: productUnit };
+        const tempProduct = { kind: kind || 'product', amount: productAmount, unit: productUnit };
       const calc = calcRow(tempProduct, row);
       result.textContent = calc
         ? `${fmtCalc(calc.grossBefore)}円 / ${fmtCalc(calc.beforeUnit)}円/${(tempProduct.kind === 'type' ? (row.unit || tempProduct.unit) : tempProduct.unit) || '個'}`
         : '-';
     };
 
-    [store, productInfo, price, priceType, tax, couponType, couponValue, amount, unit].filter(Boolean).forEach(control => {
+    enableCustomUnitSelect(unit, update);
+    [store, productInfo, price, priceType, tax, amount, unit].filter(Boolean).forEach(control => {
       control.addEventListener('input', update);
       control.addEventListener('change', update);
     });
@@ -4684,6 +4922,121 @@ function renderProductDialogStores() {
     empty.textContent = '店舗情報なしでも商品だけ保存できる。';
     list.appendChild(empty);
   }
+}
+
+
+
+function refreshProductDialogStoreResults() {
+  const list = $('productStoreList');
+  if (!list || editProductId) return;
+  const kind = $('productKind').value;
+  const productAmount = Number($('productAmount').value) || 1;
+  const productUnit = $('productUnit').value || '個';
+  const cards = [...list.querySelectorAll('.product-add-store-card')];
+
+  cards.forEach((card, index) => {
+    const row = productDialogStores[index];
+    if (!row) return;
+    const result = card.querySelector('.qs-result');
+    if (!result) return;
+    const tempProduct = { kind: kind || 'product', amount: productAmount, unit: productUnit };
+    const calc = calcRow(tempProduct, row);
+    result.textContent = calc
+      ? `${fmtCalc(calc.grossBefore)}円 / ${fmtCalc(calc.beforeUnit)}円/${(tempProduct.kind === 'type' ? (row.unit || tempProduct.unit) : tempProduct.unit) || '個'}`
+      : '-';
+  });
+}
+
+function makeBulkAddRow(kind = 'product') {
+  return { id:makeId('ba'), kind, name:'', productInfo:'', amount:'', unit:kind==='product'?'g':'個', price:'', status:'' };
+}
+
+function openBulkAddDialog() {
+  bulkAddKind='product';
+  bulkAddRowsByKind={product:[makeBulkAddRow('product')],type:[makeBulkAddRow('type')]};
+  $('bulkAddStore').value='';
+  $('bulkAddPriceType').value=settings.defaultPriceType;
+  $('bulkAddTax').innerHTML=taxOptions(settings.reducedTax);
+  $('bulkAddTax').value=String(settings.reducedTax);
+  setBulkAddKind('product');
+  $('bulkAddDialog').showModal();
+  requestAnimationFrame(()=>$('bulkAddStore').focus());
+}
+
+function closeBulkAddDialog() {
+  const hasInput = Object.values(bulkAddRowsByKind).flat().some(row=>row.name||row.price!==''||row.amount!=='') || $('bulkAddStore').value.trim();
+  if (hasInput && !window.confirm('まとめて追加の入力内容を破棄して閉じますか？')) return;
+  $('bulkAddDialog').close();
+}
+
+function setBulkAddKind(kind) {
+  bulkAddKind = kind==='type'?'type':'product';
+  $('bulkTabProduct').classList.toggle('active',bulkAddKind==='product');
+  $('bulkTabType').classList.toggle('active',bulkAddKind==='type');
+  renderBulkAddRows();
+}
+
+function updateBulkRowStatus(row, statusEl) {
+  const existing = findExistingProductLoose(row.kind,row.name);
+  if (!row.name.trim()) { statusEl.textContent=''; statusEl.className='bulk-row-status'; return; }
+  if (!existing) { statusEl.textContent='新規'; statusEl.className='bulk-row-status is-new'; return; }
+  const store = $('bulkAddStore').value.trim();
+  const sameStore = store ? findStoreRowLoose(existing,store) : null;
+  statusEl.textContent = sameStore ? '登録済み・上書き' : '商品登録済み';
+  statusEl.className = 'bulk-row-status is-existing';
+}
+
+function renderBulkAddRows() {
+  const host=$('bulkAddRows'); if(!host) return;
+  host.innerHTML='';
+  const rows=bulkAddRowsByKind[bulkAddKind];
+  rows.forEach((row,index)=>{
+    const wrap=document.createElement('div'); wrap.className='bulk-add-row-wrap';
+    const line=document.createElement('div'); line.className='bulk-add-row '+(bulkAddKind==='type'?'is-type':'is-product');
+    if (bulkAddKind==='product') {
+      line.innerHTML=`<label>商品名<input class="ba-name" type="text" maxlength="80"></label><label>容量<input class="ba-amount" type="text" inputmode="decimal"></label><label>単位<select class="ba-unit"></select></label><label>価格<input class="ba-price" type="text" inputmode="decimal"></label><span class="bulk-row-status"></span><button class="st-delete ba-delete" type="button">×</button>`;
+    } else {
+      line.innerHTML=`<label>種類<input class="ba-name" type="text" maxlength="60"></label><label>商品情報<input class="ba-info" type="text" maxlength="80" placeholder="メーカーなど"></label><label>容量<input class="ba-amount" type="text" inputmode="decimal"></label><label>単位<select class="ba-unit"></select></label><label>価格<input class="ba-price" type="text" inputmode="decimal"></label><span class="bulk-row-status"></span><button class="st-delete ba-delete" type="button">×</button>`;
+    }
+    const name=line.querySelector('.ba-name'), info=line.querySelector('.ba-info'), amount=line.querySelector('.ba-amount'), unit=line.querySelector('.ba-unit'), price=line.querySelector('.ba-price'), status=line.querySelector('.bulk-row-status');
+    name.value=row.name; if(info) info.value=row.productInfo; amount.value=row.amount; price.value=row.price;
+    unit.innerHTML=getUnitOptionsHtml(row.unit); setSelectValueWithOption(unit,row.unit||'個'); enableCustomUnitSelect(unit,()=>{row.unit=unit.value;});
+    bindSmartSuggestion(name,bulkAddKind);
+    const sync=()=>{ row.name=name.value.trim(); row.productInfo=info?info.value.trim():''; row.amount=numberOrBlank(amount.value); row.unit=unit.value||'個'; row.price=numberOrBlank(price.value); updateBulkRowStatus(row,status); };
+    [name,info,amount,unit,price].filter(Boolean).forEach(el=>{el.addEventListener('input',sync);el.addEventListener('change',sync);});
+    line.querySelector('.ba-delete').addEventListener('click',()=>{ rows.splice(index,1); if(!rows.length)rows.push(makeBulkAddRow(bulkAddKind)); renderBulkAddRows(); });
+    wrap.appendChild(line); host.appendChild(wrap); sync();
+  });
+}
+
+function saveBulkAdd() {
+  const storeName=$('bulkAddStore').value.trim();
+  if(!storeName) return alert('店舗名を入力してね。');
+  const priceType=$('bulkAddPriceType').value==='inc'?'inc':'ex';
+  const tax=Number($('bulkAddTax').value);
+  const rows=Object.values(bulkAddRowsByKind).flat().filter(row=>row.name.trim());
+  if(!rows.length) return alert('商品を1件以上入力してね。');
+  const invalid=rows.find(row=>!(Number(row.amount)>0)||row.price==='');
+  if(invalid) return alert(`「${invalid.name}」の容量と価格を確認してね。`);
+  const overwrites=[];
+  rows.forEach(row=>{ const p=findExistingProductLoose(row.kind,row.name); if(p&&findStoreRowLoose(p,storeName)) overwrites.push(`${p.name} / ${storeName}`); });
+  if(overwrites.length){
+    const ok=window.confirm(`以下の商品はすでに登録があります。上書きしますか？\n\n${overwrites.map(v=>`・${v}`).join('\n')}`);
+    if(!ok) return;
+  }
+  const now=new Date().toISOString(); let added=0, updated=0;
+  rows.forEach(row=>{
+    let product=findExistingProductLoose(row.kind,row.name);
+    if(!product){
+      product={id:makeId('p'),barcode:'',name:row.name.trim(),nameCandidates:{product:row.kind==='product'?row.name.trim():'',type:row.kind==='type'?row.name.trim():''},reading:makeReadingCandidate(row.name)||'',kind:row.kind,amount:row.kind==='product'?Number(row.amount):'',unit:row.kind==='product'?row.unit:'',defaultTax:tax,updatedAt:now,history:[],stores:[]};
+      products.unshift(product); added++;
+    } else { updated++; }
+    if(row.kind==='product'){ product.amount=Number(row.amount); product.unit=row.unit; }
+    product.defaultTax=tax; product.updatedAt=now;
+    mergeStoreIntoProduct(product,{store:storeName,productInfo:row.productInfo,price:row.price,priceType,tax,amount:row.amount,unit:row.unit},{kind:row.kind,amount:Number(row.amount),unit:row.unit,defaultTax:tax,savedAt:now});
+  });
+  products=normalizeProductsData(products); persistNow(); render(); $('bulkAddDialog').close();
+  showSaveToast(`一括保存しました（新規${added}件・更新${updated}件）`);
 }
 
 function openProductDialog(id = null) {
@@ -4841,36 +5194,47 @@ function saveProductFromDialog() {
       price: row.price ?? '',
       priceType: row.priceType === 'inc' ? 'inc' : 'ex',
       tax: Number.isFinite(Number(row.tax)) ? Number(row.tax) : defaultTax,
-      couponType: ['percent','yen'].includes(row.couponType) ? row.couponType : 'none',
-      couponValue: row.couponValue ?? '',
+      couponType: 'none', couponValue: '',
       amount: kind === 'type' ? (Number(row.amount) > 0 ? Number(row.amount) : '') : amount,
       unit: kind === 'type' ? String(row.unit || '個') : unit,
       updatedAt: savedAt
     }));
 
-    const p = {
-      id: makeId('p'),
-      barcode,
-      name,
-      nameCandidates,
-      reading: normalizeReadingInput($('productReading').value),
-      kind,
-      amount,
-      unit,
-      defaultTax,
-      updatedAt: savedAt,
-      history: [],
-      stores
-    };
-    products.unshift(p);
-    persistNow();
-    openProductId = null;
-    productEditDraft = null;
-    productEditDirty = false;
-    showSaveToast(stores.length ? '商品と店舗情報を保存しました' : '商品を保存しました');
+    const existingProduct = findExistingProductLoose(kind, name);
+    if (existingProduct) {
+      const duplicateStores = stores.filter(row => findStoreRowLoose(existingProduct, row.store)).map(row=>row.store);
+      const lines = [`「${existingProduct.name}」はすでに登録されています。`];
+      if (duplicateStores.length) lines.push('', '以下の店舗は登録済みです。上書きしますか？', ...duplicateStores.map(store=>`・${store}`));
+      else lines.push('', '既存の商品に今回の店舗情報を追加しますか？');
+      if (!window.confirm(lines.join('\n'))) return;
+
+      existingProduct.nameCandidates = existingProduct.nameCandidates || {product:'',type:''};
+      existingProduct.nameCandidates[kind] = existingProduct.name;
+      existingProduct.reading = normalizeReadingInput($('productReading').value) || existingProduct.reading;
+      existingProduct.defaultTax = defaultTax;
+      if (kind === 'product') { existingProduct.amount = amount; existingProduct.unit = unit; }
+      if (barcode && !existingProduct.barcode) existingProduct.barcode = barcode;
+      stores.forEach(row => mergeStoreIntoProduct(existingProduct,row,{kind,amount,unit,defaultTax,savedAt}));
+      existingProduct.updatedAt = savedAt;
+      products = normalizeProductsData(products);
+      persistNow();
+      openProductId = null; productEditDraft = null; productEditDirty = false;
+      showSaveToast(duplicateStores.length ? '登録済みの内容を上書きしました' : '登録済みの商品に追加しました');
+    } else {
+      const p = {
+        id: makeId('p'), barcode, name, nameCandidates,
+        reading: normalizeReadingInput($('productReading').value), kind, amount, unit, defaultTax,
+        updatedAt: savedAt, history: [], stores
+      };
+      products.unshift(p);
+      persistNow();
+      openProductId = null; productEditDraft = null; productEditDirty = false;
+      showSaveToast(stores.length ? '商品と店舗情報を保存しました' : '商品を保存しました');
+    }
   }
 
   productDialogBarcodeDraft = null;
+  hideSmartSuggestions();
   $('productDialog').close();
   render();
 }
@@ -4945,8 +5309,6 @@ function storeDataSnapshot(row) {
     price: numberOrBlank(row?.price ?? ''),
     priceType: row?.priceType === 'inc' ? 'inc' : 'ex',
     tax: Number.isFinite(Number(row?.tax)) ? Number(row.tax) : '',
-    couponType: ['percent','yen'].includes(row?.couponType) ? row.couponType : 'none',
-    couponValue: numberOrBlank(row?.couponValue ?? ''),
     amount: numberOrBlank(row?.amount ?? ''),
     unit: String(row?.unit || '').normalize('NFKC').trim()
   };
@@ -5274,13 +5636,8 @@ function productMetaSummary(product) {
 
 function storeDataSummary(row) {
   const price = row?.price === '' ? '価格未設定' : `${fmt(Number(row.price) || 0)}円${row?.priceType === 'inc' ? '(税込)' : '(税抜)'}`;
-  const coupon = row?.couponType === 'percent'
-    ? ` / ${fmt(Number(row.couponValue) || 0)}%OFF`
-    : row?.couponType === 'yen'
-      ? ` / ${fmt(Number(row.couponValue) || 0)}円引`
-      : '';
   const quantity = Number(row?.amount) > 0 ? ` / ${fmt(row.amount)}${row.unit || ''}` : '';
-  return `${price} / 税率${Number(row?.tax) || 0}%${coupon}${quantity}`;
+  return `${price} / 税率${Number(row?.tax) || 0}%${quantity}`;
 }
 
 function importSharedData(e) {
@@ -5508,4 +5865,43 @@ function escapeAttr(v) {
 function cssEscape(v) {
   return window.CSS?.escape ? CSS.escape(v) : String(v).replace(/["\\]/g, '\\$&');
 }
+
+
+window.PriceLogApp = {
+  getProducts: () => structuredCloneSafe(products),
+  replaceProducts: (next, { persist = true } = {}) => {
+    products = normalizeProductsData(Array.isArray(next) ? next : []);
+    if (persist) persistNow();
+    render();
+  },
+  mergeProducts: (base, incoming) => {
+    const original = products;
+    products = normalizeProductsData(Array.isArray(base) ? structuredCloneSafe(base) : []);
+    const incomingList = normalizeProductsData(Array.isArray(incoming) ? structuredCloneSafe(incoming) : []);
+    incomingList.forEach(item => {
+      let target = findExistingProductLoose(item.kind==='type'?'type':'product', item.name);
+      if (!target) { products.push(item); return; }
+      const targetTime = Date.parse(target.updatedAt||'')||0, incomingTime=Date.parse(item.updatedAt||'')||0;
+      if (incomingTime>targetTime) {
+        target.reading=item.reading||target.reading; target.defaultTax=item.defaultTax; target.updatedAt=item.updatedAt;
+        if (item.kind==='product'){target.amount=item.amount;target.unit=item.unit;}
+      }
+      (item.stores||[]).forEach(row => {
+        const existing=findStoreRowLoose(target,row.store);
+        if(!existing){target.stores.push(row);return;}
+        const a=Date.parse(existing.updatedAt||'')||0,b=Date.parse(row.updatedAt||'')||0;
+        if(b>=a) Object.assign(existing,row,{id:existing.id});
+      });
+      target.stores=collapseDuplicateStores(target.stores||[]);
+      const hist=[...(target.history||[]),...(item.history||[])];
+      const seen=new Set(); target.history=hist.filter(h=>{const k=`${h.updatedAt}|${h.store}|${h.beforePrice}|${h.afterPrice}`;if(seen.has(k))return false;seen.add(k);return true;}).sort((a,b)=>(Date.parse(b.updatedAt||'')||0)-(Date.parse(a.updatedAt||'')||0)).slice(0,20);
+    });
+    const merged=normalizeProductsData(products);
+    products=original;
+    return structuredCloneSafe(merged);
+  },
+  normalizeLooseKey,
+  render
+};
+
 })();

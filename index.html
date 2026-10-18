@@ -7,19 +7,20 @@
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="default">
   <title>PriceLog</title>
-  <link rel="manifest" href="./manifest.webmanifest?v=0.82">
+  <link rel="manifest" href="./manifest.webmanifest?v=0.83">
   <link rel="apple-touch-icon" href="./icon-192-v058.png">
-  <link rel="stylesheet" href="./style.css?v=0.82">
+  <link rel="stylesheet" href="./style.css?v=0.83">
 </head>
 <body>
   <header class="topbar">
     <div>
-      <strong>PriceLog</strong> <small class="app-version">Ver.0.82</small>
+      <strong>PriceLog</strong> <small class="app-version">Ver.0.83</small>
     </div>
     <div class="top-actions">
       <button id="btnProductList" class="ghost mini view-jump" type="button">商品一覧</button>
       <button id="btnStorePurchase" class="ghost mini view-jump" type="button">買い物メモ</button>
       <button id="btnShelfCompare" class="ghost mini view-jump" type="button">売り場比較</button>
+      <button id="btnAccount" class="icon-btn account-button" type="button" aria-label="アカウント"><span id="accountFallback" aria-hidden="true">人</span><img id="accountAvatar" class="account-avatar hidden" alt=""></button>
       <button id="btnSettings" class="icon-btn" type="button" aria-label="設定">⚙</button>
       <button id="btnAddProduct" class="primary mini" type="button">＋商品</button>
     </div>
@@ -81,7 +82,7 @@
       </div>
       <div class="shelf-compare-table">
         <div class="shelf-compare-row shelf-compare-head" aria-hidden="true">
-          <span>選択</span><span>商品情報</span><span>容量</span><span>価格</span><span>単価</span><span aria-label="削除"></span>
+          <span>選択</span><span>商品情報</span><span>容量</span><span>価格</span><span id="shelfUnitPriceHead">単価</span><span aria-label="削除"></span>
         </div>
         <div id="shelfCompareList" class="shelf-compare-list"></div>
       </div>
@@ -145,14 +146,37 @@
           <select id="productUnit">
             <option value=""></option>
             <option value="g">g</option>
+            <option value="kg">kg</option>
+            <option value="mg">mg</option>
             <option value="ml">ml</option>
+            <option value="L">L</option>
+            <option value="cl">cl</option>
+            <option value="dl">dl</option>
             <option value="m">m</option>
+            <option value="cm">cm</option>
+            <option value="mm">mm</option>
             <option value="個">個</option>
             <option value="枚">枚</option>
             <option value="粒">粒</option>
             <option value="本">本</option>
             <option value="袋">袋</option>
             <option value="箱">箱</option>
+            <option value="パック">パック</option>
+            <option value="セット">セット</option>
+            <option value="束">束</option>
+            <option value="缶">缶</option>
+            <option value="瓶">瓶</option>
+            <option value="カップ">カップ</option>
+            <option value="食">食</option>
+            <option value="ロール">ロール</option>
+            <option value="組">組</option>
+            <option value="錠">錠</option>
+            <option value="包">包</option>
+            <option value="ケース">ケース</option>
+            <option value="台">台</option>
+            <option value="冊">冊</option>
+            <option value="足">足</option>
+            <option value="__custom__">その他…</option>
           </select>
         </label>
         <label>既定税率
@@ -248,7 +272,7 @@
 
       <div class="settings-block">
         <div class="settings-title">テンプレート</div>
-        <div class="template-note">現在登録している商品と店舗をテンプレートJSONに保存する。価格・クーポン・履歴は引き継がない。</div>
+        <div class="template-note">現在登録している商品と店舗をテンプレートJSONに保存する。価格・履歴は引き継がない。</div>
         <div class="stack">
           <button id="btnEditTemplate" class="ghost backup-btn" type="button">現在の商品からテンプレート作成</button>
           <button id="btnLoadTemplate" class="ghost backup-btn" type="button">テンプレートファイルを読み込む</button>
@@ -549,7 +573,7 @@
         <div class="store-scroll">
           <div class="store-table">
             <div class="store-head">
-              <span class="mark-head"></span><span>店舗</span><span>入力価格</span><span>税込</span><span>税率</span><span>クーポン</span><span>値</span><span>価格(クーポン適用)</span><span>単価(クーポン適用)</span><span></span>
+              <span class="mark-head"></span><span>店舗</span><span>入力価格</span><span>税込/抜</span><span>税率</span><span>税込価格</span><span>税込単価</span><span></span>
             </div>
             <div class="store-mobile-head" aria-hidden="true">
               <span class="mobile-mark-head"></span>
@@ -564,9 +588,7 @@
               <span class="mobile-head-label mh-price">値段</span>
               <span class="mobile-head-label mh-ptype">税込/抜</span>
               <span class="mobile-head-label mh-tax">税率</span>
-              <span class="mobile-head-label mh-coupon">クーポン</span>
-              <span class="mobile-head-label mh-cvalue">内容</span>
-              <span class="mobile-head-label mh-result">演算結果</span>
+              <span class="mobile-result-head mh-result"><span>税込価格</span><span>税込単価</span></span>
             </div>
             <div class="store-list"></div>
           </div>
@@ -602,12 +624,6 @@
         <option value="ex">抜</option>
       </select>
       <select class="st-tax" aria-label="税率"></select>
-      <select class="st-coupon-type" aria-label="クーポン">
-        <option value="none">なし</option>
-        <option value="percent">%OFF</option>
-        <option value="yen">円引</option>
-      </select>
-      <span class="unit-input st-coupon-value-wrap"><input class="st-coupon-value" type="text" inputmode="decimal" placeholder="-"><span class="input-unit-suffix"></span></span>
       <div class="st-result-cell">
         <output class="st-price-result">-</output>
         <output class="st-unit">-</output>
@@ -616,9 +632,70 @@
     </div>
   </template>
 
+
+  <dialog id="addChoiceDialog" class="dialog compact-dialog">
+    <div class="simple-dialog-body">
+      <div class="dialog-head"><strong>商品を追加</strong><button id="btnCloseAddChoice" class="icon-btn" type="button" aria-label="閉じる">×</button></div>
+      <div class="add-choice-grid">
+        <button id="btnAddSingle" class="ghost add-choice-card" type="button"><strong>1件追加</strong><small>バーコード・通常入力</small></button>
+        <button id="btnAddBulkProducts" class="primary add-choice-card" type="button"><strong>まとめて追加</strong><small>同じ店舗の商品を連続登録</small></button>
+      </div>
+    </div>
+  </dialog>
+
+  <dialog id="bulkAddDialog" class="dialog bulk-add-dialog">
+    <div class="bulk-add-shell">
+      <div class="dialog-head"><strong>まとめて追加</strong><button id="btnCloseBulkAdd" class="icon-btn" type="button" aria-label="閉じる">×</button></div>
+      <div class="bulk-common-grid">
+        <label>店舗<input id="bulkAddStore" type="text" maxlength="40" autocomplete="off"></label>
+        <label>税込/抜<select id="bulkAddPriceType"><option value="inc">税込</option><option value="ex">税抜</option></select></label>
+        <label>税率<select id="bulkAddTax"></select></label>
+      </div>
+      <div class="bulk-kind-tabs" role="tablist" aria-label="登録方法">
+        <button id="bulkTabProduct" class="ghost active" type="button">商品名</button>
+        <button id="bulkTabType" class="ghost" type="button">種類比較</button>
+      </div>
+      <div class="bulk-add-note">横一列で入力。登録済みの候補があれば入力中に表示します。</div>
+      <div id="bulkAddRows" class="bulk-add-rows"></div>
+      <div class="bulk-add-actions">
+        <button id="btnBulkAddRow" class="ghost" type="button">＋行</button>
+        <button id="btnSaveBulkAdd" class="primary" type="button">一括保存</button>
+      </div>
+    </div>
+  </dialog>
+
+  <dialog id="accountDialog" class="dialog account-dialog">
+    <div class="simple-dialog-body">
+      <div class="dialog-head"><strong>アカウント</strong><button id="btnCloseAccount" class="icon-btn" type="button" aria-label="閉じる">×</button></div>
+      <div id="accountSignedOut">
+        <p class="account-lead">Googleアカウントを使うと、別の端末でも同じPriceLogを使えます。ログインしなくても今まで通りこの端末だけで使えます。</p>
+        <button id="btnGoogleLogin" class="primary account-main-btn" type="button">Googleで続ける</button>
+      </div>
+      <div id="accountSignedIn" class="hidden">
+        <div class="account-profile-row"><img id="accountDialogAvatar" class="account-profile-avatar" alt=""><div><strong id="accountDisplayName"></strong><small id="accountEmail"></small></div></div>
+        <div class="account-section">
+          <div class="account-section-title">使うデータ</div>
+          <button id="btnUsePersonalData" class="ghost account-scope-btn" type="button">自分だけ</button>
+          <div id="accountGroups" class="account-groups"></div>
+        </div>
+        <div class="account-section">
+          <div class="account-section-title">共有</div>
+          <div class="account-inline-form"><input id="newGroupName" type="text" maxlength="40" placeholder="共有名"><button id="btnCreateGroup" class="ghost" type="button">作成</button></div>
+          <div class="account-inline-form"><input id="joinInviteCode" type="text" maxlength="12" placeholder="招待コード"><button id="btnJoinGroup" class="ghost" type="button">参加</button></div>
+        </div>
+        <div id="accountMessage" class="account-message"></div>
+        <button id="btnLogout" class="ghost account-main-btn" type="button">ログアウト</button>
+      </div>
+    </div>
+  </dialog>
+
+  <div id="smartSuggestionBox" class="smart-suggestion-box hidden" role="listbox"></div>
+
   <div id="saveToast" class="save-toast hidden" role="status" aria-live="polite">保存しました</div>
 
-  <script src="./app.js?v=0.82"></script>
-  <script src="./ads.js?v=0.82"></script>
+  <script src="./config.js?v=0.83"></script>
+  <script src="./app.js?v=0.83"></script>
+  <script src="./cloud.js?v=0.83"></script>
+  <script src="./ads.js?v=0.83"></script>
 </body>
 </html>
