@@ -1,6 +1,9 @@
-Ver.0.83
+Ver.0.84
 
-【Ver.0.83 変更内容】
+【Ver.0.84 変更内容】
+- GoogleログインをMealLog共用の通常Google Providerから、PriceLog専用Custom OAuth Provider「custom:pricelog-google」へ切替。
+- SupabaseはMealLogと同一プロジェクトを無料枠内で共用し、PriceLogデータはpricelog_*テーブルで分離。
+- 既存のローカル保存・ローカルデータ引継ぎ・共有機能は維持。
 - Ver.0.82をバックアップとして退避したうえで更新。
 - クーポン入力・クーポン適用表示を画面と計算から外し、既存データ内のクーポン情報自体は互換性のため保持。
 - 商品詳細の演算結果を「税込価格」「税込単価」と明示し、数字だけでは意味が分かりにくい状態を改善。

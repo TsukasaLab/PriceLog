@@ -138,7 +138,7 @@ async function applySession(session) {
 async function loginGoogle() {
   if(!client) return setMessage('Googleログインの準備ができていません。');
   const redirectTo=`${location.origin}${location.pathname}`;
-  const {error}=await client.auth.signInWithOAuth({provider:'google',options:{redirectTo}}); if(error) setMessage(error.message || 'Googleログインを開始できませんでした。');
+  const {error}=await client.auth.signInWithOAuth({provider:'custom:pricelog-google',options:{redirectTo}}); if(error) setMessage(error.message || 'Googleログインを開始できませんでした。');
 }
 
 async function createGroup() {
