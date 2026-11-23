@@ -2100,3 +2100,120 @@ button[aria-selected="true"]{
   .product-merge-dialog{width:96vw;max-height:calc(100dvh - 12px)}
   .detail-toolbar{flex-wrap:wrap}
 }
+
+/* Ver.0.92 通常価格・安売価格、商品詳細の入力位置と余白を統一 */
+.store-head,.store-mobile-head{display:none!important}
+.store-scroll,.store-table{overflow:visible!important;min-width:0!important;width:100%!important}
+.store-list{display:flex;flex-direction:column;gap:9px}
+.store-row,.store-table.is-type .store-row{
+  display:grid!important;
+  width:100%!important;
+  min-width:0!important;
+  grid-template-columns:40px minmax(100px,1.1fr) minmax(110px,1.25fr) minmax(88px,.85fr) minmax(88px,.85fr) 78px 68px 32px!important;
+  grid-template-areas:"mark store info price sale ptype tax delete" "mark qty qty result result result result delete"!important;
+  gap:7px!important;
+  align-items:center!important;
+  margin:0!important;
+  padding:10px 8px!important;
+  background:#fffdf8;
+  border:1px solid #e8d7bf!important;
+  border-radius:14px;
+  box-shadow:0 1px 4px rgba(86,64,35,.04);
+  isolation:auto!important;
+}
+.store-row::before,.store-row::after{content:none!important;display:none!important}
+.store-row .st-store-cell{display:contents!important;padding:0!important;margin:0!important}
+.store-row .best-mark{grid-area:mark!important;align-self:center!important;justify-content:center!important;min-width:0!important;padding:0!important;z-index:auto}
+.store-row .st-store{grid-area:store!important}
+.store-row .st-product-info{grid-area:info!important;display:block!important;margin:0!important;width:100%!important;color:#40362d!important;font-size:13px!important}
+.store-row .st-product-info.hidden{display:none!important}
+.store-row .st-quantity-fields{grid-area:qty!important;display:grid!important;grid-template-columns:minmax(0,1fr) minmax(0,1fr)!important;gap:7px!important;min-width:0!important}
+.store-row .st-quantity-fields.hidden{display:none!important}
+.store-row .st-price-wrap{grid-area:price!important}
+.store-row .st-sale-price-wrap{grid-area:sale!important}
+.store-row .st-price-type{grid-area:ptype!important}
+.store-row .st-tax{grid-area:tax!important}
+.store-row .st-delete{grid-area:delete!important;justify-self:center;width:30px!important;height:38px!important;margin:0!important}
+.store-row .st-result-cell{grid-area:result!important;display:flex!important;flex-wrap:wrap!important;align-items:center!important;justify-content:flex-end!important;gap:5px 14px!important;padding:0!important;min-width:0!important;background:transparent!important}
+.store-row .st-price-result,.store-row .st-unit,.store-row .st-sale-result{font-size:12px!important;color:#584636!important;text-align:left!important;overflow:visible!important;white-space:normal!important;text-overflow:clip!important;max-width:100%}
+.store-row .st-sale-result{color:#277a42!important;font-weight:700}
+.store-row input,.store-row select,.store-row .st-quantity-fields input,.store-row .st-quantity-fields select{box-sizing:border-box!important;width:100%!important;min-width:0!important;height:40px!important;font-size:14px!important;padding:0 8px!important;margin:0!important;border:1px solid #deccb4!important;border-radius:8px!important;background:#fff!important;line-height:1.25!important}
+.store-row select{padding-left:5px!important;padding-right:1px!important}
+.store-row input::placeholder{color:#a99f95!important;opacity:1;font-size:12px!important}
+.store-row .st-price-wrap,.store-row .st-sale-price-wrap{min-width:0!important;display:block!important;position:relative!important}
+.store-row .unit-input>input{padding-right:20px!important}
+.store-row .unit-input .input-unit-suffix{right:6px!important;font-size:11px!important}
+.store-row .st-quantity-fields input{padding:0 7px!important}
+.store-row .st-quantity-fields select{padding:0 4px!important}
+.store-table:not(.is-type) .store-row{grid-template-areas:"mark store store price sale ptype tax delete" "mark result result result result result result delete"!important}
+.store-table:not(.is-type) .store-row .st-product-info{display:none!important}
+.best-sale-inline{font-size:10px!important;font-weight:700!important;color:#2a7543!important;white-space:nowrap;line-height:1.2}
+.product-card:not(.open) .best-wrap{display:flex!important;width:auto!important;max-width:235px;flex-wrap:wrap;gap:2px 5px!important;align-content:center;justify-content:flex-end!important}
+.product-card:not(.open) .best-wrap .best-store-name{flex:1 1 auto;min-width:0}
+.product-card:not(.open) .best-wrap .best-price{width:auto!important;min-width:0!important}
+.product-card:not(.open) .best-wrap .best-sale-inline{flex:1 1 100%;text-align:right}
+/* 詳細の単価と結果は値があるときだけ。税区分は二文字で固定 */
+.store-row .st-price-type{min-width:74px!important}
+@media(max-width:790px){
+  .store-row,.store-table.is-type .store-row{
+    grid-template-columns:36px minmax(0,1fr) minmax(0,1fr) minmax(0,1fr) 30px!important;
+    grid-template-areas:"mark store info info delete" "mark qty price sale delete" "mark ptype ptype tax delete" "mark result result result delete"!important;
+    gap:6px!important;padding:8px 5px!important;
+  }
+  .store-table:not(.is-type) .store-row{
+    grid-template-areas:"mark store store store delete" "mark price price sale delete" "mark ptype ptype tax delete" "mark result result result delete"!important;
+  }
+  .store-row .st-quantity-fields{grid-template-columns:minmax(0,1fr) minmax(0,1fr)!important;gap:4px!important}
+  .store-row .st-price-type{min-width:0!important}
+  .store-row .st-price-result,.store-row .st-unit,.store-row .st-sale-result{font-size:11px!important}
+  .store-row .st-result-cell{justify-content:flex-start!important;padding:2px 4px!important;gap:3px 10px!important}
+  .store-row input,.store-row select,.store-row .st-quantity-fields input,.store-row .st-quantity-fields select{height:38px!important;font-size:13px!important;padding:0 5px!important}
+  .store-row .st-store,.store-row .st-product-info{min-width:0!important}
+  .store-row .st-sale-price-wrap{min-width:0!important}
+  .store-row .best-mark .price-badge{font-size:9px!important;padding:3px 2px!important}
+  .store-row .st-delete{height:36px!important}
+}
+@media(max-width:425px){
+  .store-row,.store-table.is-type .store-row{
+    grid-template-columns:35px minmax(0,1fr) minmax(0,1fr) minmax(0,1fr) 29px!important;
+    gap:5px!important;
+  }
+  .product-card:not(.open) .best-wrap{max-width:145px!important}
+  .product-card:not(.open) .best-wrap .best-sale-inline{font-size:9px!important}
+  .store-row .st-price-result,.store-row .st-unit,.store-row .st-sale-result{font-size:10px!important}
+  .store-row input::placeholder{font-size:11px!important}
+}
+/* 新規商品ダイアログの安売価格入力 */
+.quick-store-sale{margin-top:7px;max-width:100%}
+.quick-store-sale label{display:block}
+.quick-store-sale .unit-input{max-width:100%}
+.product-add-store-card input::placeholder{color:#a99f95}
+.bulk-add-row.is-product{grid-template-columns:minmax(170px,1.6fr) 76px 78px 90px 90px 100px 30px!important;min-width:730px}
+.bulk-add-row.is-type{grid-template-columns:minmax(130px,1.2fr) minmax(150px,1.4fr) 72px 76px 90px 90px 100px 30px!important;min-width:840px}
+/* 売り場比較。安売価格も個別に入力できる */
+.shelf-compare-row{grid-template-columns:38px minmax(105px,1fr) 134px 96px 96px 118px 27px!important;gap:5px!important}
+.shelf-sale-price-cell{min-width:0}
+.shelf-sale-price-cell input{width:100%!important}
+.shelf-compare-head{font-size:10px}
+@media(max-width:750px){
+ .shelf-compare-table{overflow-x:auto!important;-webkit-overflow-scrolling:touch}
+ .shelf-compare-row{min-width:665px!important}
+}
+/* 旧Ver.0.88の種類比較グリッド指定を完全に置き換える */
+.store-table.is-type .store-row .st-product-info{grid-area:info!important}
+.store-table.is-type .store-row .st-store-cell{display:contents!important}
+.store-table.is-type .store-row .st-price-wrap{grid-area:price!important}
+.store-table.is-type .store-row .st-sale-price-wrap{grid-area:sale!important}
+.store-table.is-type .store-row .st-quantity-fields{grid-area:qty!important}
+.store-table.is-type .store-row .st-result-cell{grid-area:result!important}
+.store-table.is-type .store-row .st-price-type{grid-area:ptype!important}
+.store-table.is-type .store-row .st-tax{grid-area:tax!important}
+.store-table.is-type .store-row .st-delete{grid-area:delete!important}
+.store-row .st-quantity-fields select{
+  appearance:none!important;-webkit-appearance:none!important;
+  background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 8'%3E%3Cpath d='m1 1 5 5 5-5' fill='none' stroke='%238b7b6c' stroke-width='1.5'/%3E%3C/svg%3E")!important;
+  background-repeat:no-repeat!important;background-size:9px 6px!important;
+  background-position:right 3px center!important;padding-right:13px!important;
+}
+.shelf-unit-price .shelf-normal-unit,.shelf-unit-price .shelf-sale-unit{display:block;font-size:11px;white-space:normal}
+.shelf-unit-price .shelf-sale-unit{color:#267a43;font-weight:700}

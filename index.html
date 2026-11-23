@@ -7,14 +7,14 @@
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="default">
   <title>PriceLog</title>
-  <link rel="manifest" href="./manifest.webmanifest?v=0.91">
+  <link rel="manifest" href="./manifest.webmanifest?v=0.92">
   <link rel="apple-touch-icon" href="./icon-192-v058.png">
-  <link rel="stylesheet" href="./style.css?v=0.91">
+  <link rel="stylesheet" href="./style.css?v=0.92">
 </head>
 <body>
   <header class="topbar">
     <div>
-      <strong>PriceLog</strong> <small class="app-version">Ver.0.91</small>
+      <strong>PriceLog</strong> <small class="app-version">Ver.0.92</small>
     </div>
     <div class="top-actions">
       <button id="btnProductList" class="ghost mini view-jump" type="button">商品一覧</button>
@@ -82,7 +82,7 @@
       </div>
       <div class="shelf-compare-table">
         <div class="shelf-compare-row shelf-compare-head" aria-hidden="true">
-          <span>選択</span><span>商品情報</span><span>容量</span><span>価格</span><span id="shelfUnitPriceHead">単価</span><span aria-label="削除"></span>
+          <span>選択</span><span>商品情報</span><span>容量</span><span>通常価格</span><span>安売価格</span><span id="shelfUnitPriceHead">単価</span><span aria-label="削除"></span>
         </div>
         <div id="shelfCompareList" class="shelf-compare-list"></div>
       </div>
@@ -398,25 +398,6 @@
 
         <div class="store-scroll">
           <div class="store-table">
-            <div class="store-head">
-              <span class="mark-head"></span><span>店舗</span><span>入力価格</span><span>税込/抜</span><span>税率</span><span>税込価格</span><span>税込単価</span><span></span>
-            </div>
-            <div class="store-mobile-head" aria-hidden="true">
-              <span class="mobile-mark-head"></span>
-              <div class="mobile-head-store-cell">
-                <span class="mobile-head-label mh-store">店舗</span>
-                <span class="mobile-head-label mh-product-info">商品情報</span>
-                <div class="mobile-head-quantity">
-                  <span class="mobile-head-label">量</span>
-                  <span class="mobile-head-label">単位</span>
-                </div>
-              </div>
-              <span class="mh-delete"></span>
-              <span class="mobile-head-label mh-price">値段</span>
-              <span class="mobile-head-label mh-ptype">税込/抜</span>
-              <span class="mobile-head-label mh-tax">税率</span>
-              <span class="mobile-result-head mh-result"><span>税込価格</span><span>税込単価</span></span>
-            </div>
             <div class="store-list"></div>
           </div>
         </div>
@@ -433,10 +414,10 @@
     <div class="store-row">
       <span class="best-mark" aria-hidden="true"></span>
       <div class="st-store-cell">
-        <input class="st-store" type="text" maxlength="40">
-        <input class="st-product-info hidden" type="text" maxlength="80" aria-label="商品情報">
+        <input class="st-store" type="text" maxlength="40" placeholder="店舗" aria-label="店舗">
+        <input class="st-product-info hidden" type="text" maxlength="80" placeholder="商品情報" aria-label="商品情報">
         <div class="st-quantity-fields hidden">
-          <input class="st-amount" type="text" inputmode="decimal" aria-label="内容量">
+          <input class="st-amount" type="text" inputmode="decimal" placeholder="量" aria-label="量">
           <select class="st-unit-select" aria-label="単位">
             <option value="g">g</option><option value="ml">ml</option><option value="m">m</option>
             <option value="個">個</option><option value="枚">枚</option><option value="粒">粒</option>
@@ -445,15 +426,17 @@
           </select>
         </div>
       </div>
-      <span class="unit-input st-price-wrap"><input class="st-price" type="text" inputmode="decimal"><span class="input-unit-suffix">円</span></span>
+      <span class="unit-input st-price-wrap"><input class="st-price" type="text" inputmode="decimal" placeholder="通常価格" aria-label="通常価格"><span class="input-unit-suffix">円</span></span>
+      <span class="unit-input st-sale-price-wrap"><input class="st-sale-price" type="text" inputmode="decimal" placeholder="安売価格" aria-label="安売価格（任意）"><span class="input-unit-suffix">円</span></span>
       <select class="st-price-type" aria-label="税込・税抜">
-        <option value="inc">込</option>
-        <option value="ex">抜</option>
+        <option value="inc">税込</option>
+        <option value="ex">税抜</option>
       </select>
       <select class="st-tax" aria-label="税率"></select>
       <div class="st-result-cell">
         <output class="st-price-result">-</output>
         <output class="st-unit">-</output>
+        <output class="st-sale-result hidden"></output>
       </div>
       <button class="st-delete" type="button" aria-label="店舗行を削除">×</button>
     </div>
@@ -535,10 +518,10 @@
 
   <div id="saveToast" class="save-toast hidden" role="status" aria-live="polite">保存しました</div>
 
-  <script src="./config.js?v=0.91"></script>
-  <script src="./merge-core.js?v=0.91"></script>
-  <script src="./app.js?v=0.91"></script>
-  <script src="./cloud.js?v=0.91"></script>
-  <script src="./ads.js?v=0.91"></script>
+  <script src="./config.js?v=0.92"></script>
+  <script src="./merge-core.js?v=0.92"></script>
+  <script src="./app.js?v=0.92"></script>
+  <script src="./cloud.js?v=0.92"></script>
+  <script src="./ads.js?v=0.92"></script>
 </body>
 </html>

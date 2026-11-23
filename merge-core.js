@@ -12,7 +12,7 @@
   const safeNum = value => value === '' || value === null || value === undefined ? '' : (Number.isFinite(Number(value)) ? Number(value) : String(value));
   const amountKey = row => safeNum(row.amount) + '/' + unitKey(row.unit);
   const quantitySame = (a,b) => amountKey(a) === amountKey(b);
-  const priceSame = (a,b) => safeNum(a.price) === safeNum(b.price) && (a.priceType==='inc'?'inc':'ex') === (b.priceType==='inc'?'inc':'ex') && safeNum(a.tax) === safeNum(b.tax);
+  const priceSame = (a,b) => safeNum(a.price) === safeNum(b.price) && (a.priceType==='inc'?'inc':'ex') === (b.priceType==='inc'?'inc':'ex') && safeNum(a.tax) === safeNum(b.tax) && safeNum(a.salePrice) === safeNum(b.salePrice);
   const fullSame = (a,b) => nameKey(a.store)===nameKey(b.store) && infoKey(a.productInfo)===infoKey(b.productInfo) && quantitySame(a,b) && priceSame(a,b);
 
   function asTypeRow(row, source) {
