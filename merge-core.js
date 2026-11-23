@@ -52,6 +52,7 @@
     merged.allowSameStoreVariants=true;
     merged.mergedSourceIds=[...new Set([...(target.mergedSourceIds||[]),...(source.mergedSourceIds||[]),source.id])];
     merged.kind='type';
+    merged.labelId = target.labelId || source.labelId || '';
     merged.nameCandidates={...source.nameCandidates,...target.nameCandidates, product:source.nameCandidates?.product||source.name, type:target.nameCandidates?.type||target.name};
     merged.reading=target.reading||source.reading||'';
     merged.updatedAt=now;

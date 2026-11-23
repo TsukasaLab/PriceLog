@@ -88,6 +88,31 @@ async function loadGroups() {
   localStorage.setItem(ACTIVE_SCOPE_KEY,activeScope); renderGroups();
 }
 
+
+// ラベルと商品を一体のクラウドスナップショットとして扱う。
+function localState() {
+  return window.PriceLogApp?.getCloudSnapshot?.() || {products:window.PriceLogApp?.getProducts?.()||[],labels:[]};
+}
+function asState(value) {
+  if (Array.isArray(value)) return {products:value,labels:[]};
+  return {products:Array.isArray(value?.products)?value.products:[],labels:Array.isArray(value?.labels)?value.labels:[]};
+}
+function mergeState(baseValue,incomingValue) {
+  const base=asState(baseValue), incoming=asState(incomingValue);
+  const labels=base.labels.map(x=>({...x}));
+  const remap=new Map();
+  const key=value=>String(value||'').normalize('NFKC').replace(/[\s\u3000]+/g,'').toLowerCase();
+  for (const label of incoming.labels) {
+    const same=labels.find(x=>key(x.name)===key(label.name));
+    if(same){remap.set(label.id,same.id);continue;}
+    const id=labels.some(x=>x.id===label.id)?`label_${Date.now()}_${Math.random().toString(36).slice(2,8)}`:label.id;
+    labels.push({...label,id});remap.set(label.id,id);
+  }
+  const incomingProducts=incoming.products.map(p=>({...p,labelId:remap.get(p.labelId)||p.labelId||''}));
+  const products=window.PriceLogApp?.mergeProducts?.(base.products,incomingProducts)||incomingProducts;
+  return {products,labels};
+}
+
 function scopeFilter() {
   if(activeScope.startsWith('group:')) return {scope_type:'group',group_id:activeScope.slice(6)};
   return {scope_type:'personal',owner_id:currentUser?.id || ''};
@@ -101,26 +126,27 @@ async function fetchDocument() {
   const {data,error}=await query.maybeSingle(); if(error) throw error; return data || null;
 }
 
-async function writeDocument(products) {
+async function writeDocument(snapshot=localState()) {
+  const state=Array.isArray(snapshot)?{...localState(),products:snapshot}:asState(snapshot);
   if(!client || !currentUser) return;
   const now=new Date().toISOString();
   if(currentDocumentId){
-    const {data,error}=await client.from('pricelog_documents').update({data:{products},updated_at:now,updated_by:currentUser.id}).eq('id',currentDocumentId).select('id,updated_at').single();
+    const {data,error}=await client.from('pricelog_documents').update({data:state,updated_at:now,updated_by:currentUser.id}).eq('id',currentDocumentId).select('id,updated_at').single();
     if(error) throw error;
     lastCloudUpdatedAt=data?.updated_at || now;
     return;
   }
   const scope=scopeFilter();
-  const payload={scope_type:scope.scope_type,owner_id:scope.scope_type==='personal'?currentUser.id:null,group_id:scope.scope_type==='group'?scope.group_id:null,data:{products},updated_at:now,updated_by:currentUser.id};
+  const payload={scope_type:scope.scope_type,owner_id:scope.scope_type==='personal'?currentUser.id:null,group_id:scope.scope_type==='group'?scope.group_id:null,data:state,updated_at:now,updated_by:currentUser.id};
   const {data,error}=await client.from('pricelog_documents').insert(payload).select('id,updated_at').single(); if(error) throw error;
   currentDocumentId=data.id;
   lastCloudUpdatedAt=data?.updated_at || now;
 }
 
-function localProducts() { return window.PriceLogApp?.getProducts?.() || []; }
-function replaceLocal(products) {
+function localProducts() { return localState().products; }
+function replaceLocal(snapshot) {
   suppressUpload=true;
-  try { window.PriceLogApp?.replaceProducts?.(products,{persist:true}); }
+  try { window.PriceLogApp?.replaceCloudSnapshot?.(asState(snapshot),{persist:true}); }
   finally { setTimeout(()=>{suppressUpload=false;},0); }
 }
 function mergeProducts(base,incoming) { return window.PriceLogApp?.mergeProducts?.(base,incoming) || incoming || base || []; }
@@ -153,13 +179,13 @@ async function applyPendingRemoteWhenSafe(){
   const doc=pendingRemoteDocument;
   pendingRemoteDocument=null;
   setSyncBanner('');
-  const remoteProducts=Array.isArray(doc?.data?.products)?doc.data.products:[];
-  const local=localProducts();
-  const merged=mergeProducts(remoteProducts,local);
+  const remoteState=asState(doc?.data);
+  const local=localState();
+  const merged=mergeState(remoteState,local);
   currentDocumentId=doc?.id || currentDocumentId;
   lastCloudUpdatedAt=doc?.updated_at || lastCloudUpdatedAt;
   replaceLocal(merged);
-  if(!sameProducts(merged,remoteProducts)){
+  if(!sameProducts(merged,remoteState)){
     try{await writeDocument(merged);}catch(error){console.error('PriceLog merged sync write failed',error);}
   }
 }
@@ -177,12 +203,13 @@ function handleRemoteDocument(doc){
     applyPendingRemoteWhenSafe();
     return;
   }
-  const remoteProducts=Array.isArray(doc?.data?.products)?doc.data.products:[];
+  const remoteState=asState(doc?.data);
   lastCloudUpdatedAt=doc.updated_at || lastCloudUpdatedAt;
-  replaceLocal(remoteProducts);
+  replaceLocal(remoteState);
 }
 
 function stopScopeSync(){
+  clearTimeout(uploadTimer); uploadTimer=null;
   clearTimeout(pendingApplyTimer); pendingApplyTimer=null; pendingRemoteDocument=null; setSyncBanner('');
   if(pollTimer){clearInterval(pollTimer);pollTimer=null;}
   if(realtimeChannel && client){try{client.removeChannel(realtimeChannel);}catch{} realtimeChannel=null;}
@@ -243,29 +270,29 @@ function resolveMigration(choice){
 async function loadPersonalOnLogin(){
   activeScope='personal'; localStorage.setItem(ACTIVE_SCOPE_KEY,activeScope);
   const doc=await fetchDocument(); currentDocumentId=doc?.id || null; lastCloudUpdatedAt=doc?.updated_at || '';
-  const cloudProducts=Array.isArray(doc?.data?.products)?doc.data.products:[];
-  const local=localProducts();
-  if(!migrationAlreadyDecided() && local.length){
-    const choice=await askLocalMigration(local.length,Boolean(doc));
+  const cloudState=asState(doc?.data);
+  const local=localState();
+  if(!migrationAlreadyDecided() && local.products.length){
+    const choice=await askLocalMigration(local.products.length,Boolean(doc));
     if(choice==='import'){
-      const merged=doc ? mergeProducts(cloudProducts,local) : local;
+      const merged=doc ? mergeState(cloudState,local) : local;
       replaceLocal(merged);
       await writeDocument(merged);
     }else if(choice==='empty'){
-      replaceLocal([]);
-      await writeDocument([]);
+      replaceLocal({products:[],labels:[]});
+      await writeDocument({products:[],labels:[]});
     }else{
-      replaceLocal(cloudProducts);
-      if(!doc) await writeDocument([]);
+      replaceLocal(cloudState);
+      if(!doc) await writeDocument({products:[],labels:[]});
     }
     markMigrationDone();
     return;
   }
   if(doc){
-    replaceLocal(cloudProducts);
+    replaceLocal(cloudState);
   }else{
-    replaceLocal([]);
-    await writeDocument([]);
+    replaceLocal({products:[],labels:[]});
+    await writeDocument({products:[],labels:[]});
   }
   markMigrationDone();
 }
@@ -273,19 +300,19 @@ async function loadPersonalOnLogin(){
 async function loadScope({mergeLocal=false}={}) {
   if(!currentUser) return;
   const doc=await fetchDocument(); currentDocumentId=doc?.id || null; lastCloudUpdatedAt=doc?.updated_at || '';
-  const cloudProducts=Array.isArray(doc?.data?.products)?doc.data.products:[];
-  const local=localProducts();
+  const cloudState=asState(doc?.data);
+  const local=localState();
   if(!doc){
-    const initial=mergeLocal ? local : [];
+    const initial=mergeLocal ? local : {products:[],labels:[]};
     replaceLocal(initial);
     await writeDocument(initial);
     return;
   }
   if(mergeLocal){
-    const merged=mergeProducts(cloudProducts,local);
+    const merged=mergeState(cloudState,local);
     replaceLocal(merged); await writeDocument(merged);
   }else{
-    replaceLocal(cloudProducts);
+    replaceLocal(cloudState);
   }
 }
 
@@ -293,7 +320,7 @@ function queueUpload() {
   if(suppressUpload || !currentUser || !client) return;
   clearTimeout(uploadTimer);
   uploadTimer=setTimeout(async()=>{
-    try{await writeDocument(localProducts());}
+    try{await writeDocument(localState());}
     catch(error){console.error(error);setMessage('クラウドへの保存に失敗しました。');}
   },700);
 }

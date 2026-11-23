@@ -5,8 +5,10 @@ const STORAGE_KEY = 'pricelog_v02_data';
 const SETTINGS_KEY = 'pricelog_v02_settings';
 const INITIALIZED_KEY = 'pricelog_initialized_v1';
 const SHOPPING_MEMO_KEY = 'pricelog_shopping_memo_v1';
+const LABELS_KEY = 'pricelog_labels_v093';
+const LAST_LABEL_KEY = 'pricelog_last_label_v093';
 const V051_SETTINGS_MIGRATION_KEY = 'pricelog_v051_settings_migrated';
-const APP_VERSION = '0.92';
+const APP_VERSION = '0.93';
 const PRODUCT_MERGE_UNDO_KEY = 'pricelog_last_product_merge_v091';
 const productMergeCore = window.PriceLogMergeCore;
 const DATA_SCHEMA_VERSION = 3;
@@ -41,6 +43,9 @@ if (localStorage.getItem(V051_SETTINGS_MIGRATION_KEY) !== '1') {
   localStorage.setItem(V051_SETTINGS_MIGRATION_KEY, '1');
 }
 let products = normalizeProductsData(loadJson(STORAGE_KEY, []));
+let labels = normalizeLabelDefinitions(loadJson(LABELS_KEY, []));
+let activeLabelTab = 'all';
+let bulkSelectionMode = 'store';
 let openProductId = null;
 let editProductId = null;
 let saveTimer = null;
@@ -69,6 +74,8 @@ let productDialogStores = [];
 let shareSelectedProducts = new Set();
 let pendingMergePlan = null;
 let pendingProductMerge = null;
+let productLabelTouched = false;
+let bulkLabelTouched = false;
 
 
 
@@ -82,10 +89,11 @@ render();
 
 $('searchInput').addEventListener('input', render);
 $('btnAddProduct').addEventListener('click', () => $('addChoiceDialog').showModal());
-$('btnBulkStore').addEventListener('click', () => setBulkMode(!bulkMode));
+$('btnBulkStore').addEventListener('click', () => bulkMode && bulkSelectionMode==='store'?setBulkMode(false):setBulkSelectionMode('store'));
+$('btnBulkLabels').addEventListener('click', () => bulkMode && bulkSelectionMode==='label'?setBulkMode(false):setBulkSelectionMode('label'));
 $('btnBulkCancel').addEventListener('click', () => setBulkMode(false));
 $('btnBulkSelectAll').addEventListener('click', toggleBulkSelectAll);
-$('btnBulkAdd').addEventListener('click', bulkAddStore);
+$('btnBulkAdd').addEventListener('click', () => bulkSelectionMode==='label'?applyBulkLabels():bulkAddStore());
 $('btnProductList').addEventListener('click', () => switchMainView('products'));
 $('btnStorePurchase').addEventListener('click', () => switchMainView('shopping'));
 $('btnShelfCompare').addEventListener('click', () => switchMainView('shelf'));
@@ -113,6 +121,10 @@ $('shelfCompareTax').addEventListener('change', () => { shelfCompareDirty = true
 $('storePurchaseSearch').addEventListener('input', renderStorePurchaseView);
 $('btnDeleteAllProducts').addEventListener('click', deleteAllProducts);
 $('btnSettings').addEventListener('click', openSettings);
+$('btnManageLabels').addEventListener('click',openLabelManager);
+$('btnCloseLabelManager').addEventListener('click',()=>$('labelManagerDialog').close());
+$('btnCreateLabel').addEventListener('click',createLabelFromManager);
+$('newLabelName').addEventListener('keydown',e=>{if(e.key==='Enter'){e.preventDefault();createLabelFromManager();}});
 
 $('productForm').addEventListener('submit', (e) => {
   e.preventDefault();
@@ -179,6 +191,8 @@ $('btnAddProductStore').addEventListener('click', () => { productDialogStores.pu
 $('productAmount').addEventListener('input', refreshProductDialogStoreResults);
 $('productAmount').addEventListener('change', refreshProductDialogStoreResults);
 $('productUnit').addEventListener('change', refreshProductDialogStoreResults);
+$('productLabel').addEventListener('change',()=>{productLabelTouched=true;});
+$('bulkAddLabel').addEventListener('change',()=>{bulkLabelTouched=true;});
 
 $('btnCloseAddChoice')?.addEventListener('click', () => $('addChoiceDialog').close());
 $('btnAddSingle')?.addEventListener('click', () => { $('addChoiceDialog').close(); openProductDialog(); });
@@ -198,6 +212,16 @@ bindSmartSuggestion($('bulkAddStore'),'store');
 bindSmartSuggestion($('bulkStoreName'),'store');
 enableCustomUnitSelect($('productUnit'));
 setupInputExperience();
+
+function offerExistingLabelForProductName() {
+  if(productLabelTouched || editProductId) return;
+  const kind = $('productKind').value;
+  const input = kind === 'type' ? $('productTypeName') : $('productName');
+  const key=normalizeLooseKey(input?.value);
+  if(!key) return;
+  const existing=products.find(p=>normalizeLooseKey(p.name)===key && labelForProduct(p));
+  if(existing) $('productLabel').value=existing.labelId;
+}
 
 function bindProductNameReadingEvents(input) {
   input.addEventListener('compositionstart', () => {
@@ -219,6 +243,7 @@ function bindProductNameReadingEvents(input) {
       return;
     }
     autoFillProductReading();
+    offerExistingLabelForProductName();
   });
 
   input.addEventListener('compositionend', () => {
@@ -229,6 +254,7 @@ function bindProductNameReadingEvents(input) {
     if (finalCandidate) $('productReading').value = finalCandidate;
     else if (compositionReadingCandidate) $('productReading').value = compositionReadingCandidate;
     compositionReadingCandidate = '';
+    offerExistingLabelForProductName();
   });
 
   input.addEventListener('blur', () => {
@@ -345,6 +371,7 @@ function normalizeProductsData(list) {
       ...productData,
       id: String(product.id || makeId('p')),
       kind,
+      labelId: String(product.labelId || ''),
       name: String(product.name || '').trim(),
       nameCandidates: normalizeNameCandidates(product.nameCandidates, kind, product.name),
       reading: normalizeReadingInput(product.reading || ''),
@@ -377,6 +404,133 @@ function normalizeProductsData(list) {
   }).filter(product => product.name);
 }
 
+function labelKey(value) {
+  return String(value || '').normalize('NFKC').replace(/[\s\u3000]+/g, '').toLowerCase();
+}
+function normalizeLabelDefinitions(list) {
+  if (!Array.isArray(list)) return [];
+  const usedIds = new Set(), usedNames = new Set();
+  return list.map(raw => {
+    const name = String(raw?.name || '').trim().slice(0, 32);
+    const id = String(raw?.id || '').trim();
+    if (!id || !name || usedIds.has(id) || usedNames.has(labelKey(name))) return null;
+    usedIds.add(id); usedNames.add(labelKey(name));
+    return {id, name};
+  }).filter(Boolean).slice(0, 40);
+}
+function labelForProduct(product) {
+  return labels.find(l => l.id === product?.labelId) || null;
+}
+function labelSelectOptions(selected = '') {
+  return '<option value="">未分類</option>' + labels.map(l =>
+    `<option value="${escapeAttr(l.id)}"${l.id === selected ? ' selected' : ''}>${escapeAttr(l.name)}</option>`
+  ).join('');
+}
+function defaultNewProductLabel() {
+  const last = localStorage.getItem(LAST_LABEL_KEY) || '';
+  return labels.some(l => l.id === last) ? last : '';
+}
+function getCloudSnapshot() {
+  return {products:structuredCloneSafe(products), labels:structuredCloneSafe(labels)};
+}
+function replaceCloudSnapshot(snapshot, {persist=true}={}) {
+  const state = snapshot && typeof snapshot === 'object' ? snapshot : {};
+  labels = normalizeLabelDefinitions(state.labels || []);
+  products = normalizeProductsData(state.products || []);
+  if(activeLabelTab !== 'all' && activeLabelTab !== 'unclassified' && !labels.some(l=>l.id === activeLabelTab)) activeLabelTab = 'all';
+  if (persist) persistNow();
+  else { localStorage.setItem(STORAGE_KEY,JSON.stringify(products)); localStorage.setItem(LABELS_KEY,JSON.stringify(labels)); }
+  render();
+}
+function renderLabelTabs() {
+  const host = $('labelTabs');
+  if(!host) return;
+  const usable = labels.filter(l => products.some(p => p.labelId === l.id));
+  const hasUnclassified = products.some(p => !labelForProduct(p));
+  const available = new Set(['all',...usable.map(l => l.id),'unclassified']);
+  if (!available.has(activeLabelTab)) activeLabelTab = 'all';
+  host.innerHTML='';
+  const add = (id,name,count) => {
+    const button = document.createElement('button');
+    button.type = 'button'; button.className = 'ghost mini label-tab';
+    button.textContent = `${name} ${count}`;
+    button.setAttribute('role','tab'); button.setAttribute('aria-selected',String(activeLabelTab===id));
+    button.classList.toggle('active',activeLabelTab===id);
+    button.addEventListener('click',()=>{
+      if(!confirmDiscardProductEdit()) return;
+      activeLabelTab=id; openProductId=null; productEditDraft=null; productEditDirty=false; render();
+      host.querySelector('[aria-selected=true]')?.scrollIntoView({block:'nearest',inline:'nearest',behavior:'smooth'});
+    });
+    host.appendChild(button);
+  };
+  add('all','すべて',products.length);
+  usable.forEach(l=>add(l.id,l.name,products.filter(p=>p.labelId===l.id).length));
+  if(hasUnclassified) add('unclassified','未分類',products.filter(p=>!labelForProduct(p)).length);
+}
+function currentVisibleProducts() {
+  const q = $('searchInput').value.trim().toLowerCase();
+  return products.filter(p =>
+    (activeLabelTab==='all' || (activeLabelTab==='unclassified' ? !labelForProduct(p) : p.labelId===activeLabelTab)) &&
+    (!q || p.name.toLowerCase().includes(q) || (p.reading||'').toLowerCase().includes(q))
+  );
+}
+function renderLabelManager() {
+  const host=$('labelManagerRows'); if(!host) return;
+  host.innerHTML='';
+  labels.forEach((label,index)=>{
+    const row=document.createElement('div');row.className='label-manager-row';
+    const input=document.createElement('input');input.type='text';input.maxLength=32;input.value=label.name;input.setAttribute('aria-label','ラベル名');
+    input.addEventListener('change',()=>{
+      const next=input.value.trim();
+      if(!next || labels.some(other=>other.id!==label.id && labelKey(other.name)===labelKey(next))){
+        alert('ラベル名を確認してね。同じ名前は登録できません。');input.value=label.name;return;
+      }
+      label.name=next;persistNow();renderLabelTabs();render();
+    });
+    const up=document.createElement('button');up.type='button';up.className='ghost mini';up.textContent='↑';up.title='上へ';up.disabled=index===0;
+    up.addEventListener('click',()=>{[labels[index-1],labels[index]]=[labels[index],labels[index-1]];persistNow();renderLabelManager();render();});
+    const down=document.createElement('button');down.type='button';down.className='ghost mini';down.textContent='↓';down.title='下へ';down.disabled=index===labels.length-1;
+    down.addEventListener('click',()=>{[labels[index+1],labels[index]]=[labels[index],labels[index+1]];persistNow();renderLabelManager();render();});
+    const del=document.createElement('button');del.type='button';del.className='ghost mini';del.textContent='削除';del.title='商品は消さず未分類にする';
+    del.addEventListener('click',()=>{
+      const count=products.filter(p=>p.labelId===label.id).length;
+      if(!confirm(`「${label.name}」を削除しますか？\n${count}件の商品は削除せず「未分類」へ移動します。`)) return;
+      labels=labels.filter(l=>l.id!==label.id);
+      products.forEach(p=>{if(p.labelId===label.id){p.labelId='';p.updatedAt=new Date().toISOString();}});
+      if(activeLabelTab===label.id) activeLabelTab='unclassified';
+      if(localStorage.getItem(LAST_LABEL_KEY)===label.id) localStorage.removeItem(LAST_LABEL_KEY);
+      persistNow();renderLabelManager();render();
+    });
+    row.append(input,up,down,del);host.appendChild(row);
+  });
+  $('labelManagerCount').textContent=`${labels.length}種類のラベル`;
+}
+function createLabelFromManager() {
+  const input=$('newLabelName');const name=String(input.value||'').trim();
+  if(!name) {input.focus();return;}
+  if(labels.length>=40) return alert('ラベルは40種類まで登録できます。');
+  if(labels.some(l=>labelKey(l.name)===labelKey(name))) return alert('同じ名前のラベルが登録されています。');
+  labels.push({id:makeId('label'),name:name.slice(0,32)});
+  input.value='';persistNow();renderLabelManager();render();input.focus();
+}
+function openLabelManager() {
+  renderLabelManager();$('labelManagerDialog').showModal();
+}
+function setBulkSelectionMode(mode) {
+  if(bulkMode) setBulkMode(false);
+  bulkSelectionMode = mode;
+  setBulkMode(true);
+}
+function applyBulkLabels() {
+  if(!bulkSelected.size) return $('bulkMessage').textContent='商品を選択してね。';
+  const labelId=$('bulkLabelChoice').value;
+  const now=new Date().toISOString();
+  const count=bulkSelected.size;
+  products.forEach(p=>{if(bulkSelected.has(p.id)){p.labelId=labelId;p.updatedAt=now;}});
+  if(labelId) localStorage.setItem(LAST_LABEL_KEY,labelId);
+  persistNow();setBulkMode(false);render();showSaveToast(`${count}件の商品を分類しました`);
+}
+
 function persistSoon() {
   clearTimeout(saveTimer);
   saveTimer = setTimeout(persistNow, 250);
@@ -385,6 +539,7 @@ function persistSoon() {
 function persistNow() {
   clearTimeout(saveTimer);
   localStorage.setItem(STORAGE_KEY, JSON.stringify(products));
+  localStorage.setItem(LABELS_KEY, JSON.stringify(labels));
   try {
     window.dispatchEvent(new CustomEvent('pricelog:data-changed', { detail: { products: structuredCloneSafe(products) } }));
   } catch {}
@@ -772,6 +927,8 @@ function render() {
   $('productList').classList.toggle('hidden', storePurchaseMode || shelfCompareMode);
   $('searchInput').closest('.searchbar').classList.toggle('hidden', storePurchaseMode || shelfCompareMode);
   $('btnBulkStore').classList.toggle('hidden', storePurchaseMode || shelfCompareMode);
+  $('btnBulkLabels').classList.toggle('hidden', storePurchaseMode || shelfCompareMode);
+  $('labelTabs').classList.toggle('hidden', storePurchaseMode || shelfCompareMode);
   const productListHead = $('productListHead');
   if (productListHead) productListHead.classList.toggle('hidden', storePurchaseMode || shelfCompareMode);
 
@@ -789,13 +946,11 @@ function render() {
     return;
   }
 
+  renderLabelTabs();
   listEl.innerHTML = '';
   listEl.classList.toggle('bulk-mode', bulkMode);
 
-  const visible = products
-    .filter(p => !q || p.name.toLowerCase().includes(q) || (p.reading || '').toLowerCase().includes(q))
-    .slice()
-    .sort(compareProducts);
+  const visible = currentVisibleProducts().slice().sort(compareProducts);
 
   $('productCount').textContent = `${visible.length}/${products.length}`;
   $('emptyState').classList.toggle('hidden', visible.length !== 0);
@@ -837,6 +992,8 @@ function render() {
         })();
     node.querySelector('.product-size').textContent = productListMeta;
     node.querySelector('.product-size').title = productListMeta;
+    const labelChip=node.querySelector('.product-label-chip');
+    if(labelChip) {const label=labelForProduct(displayProduct);labelChip.textContent=label?.name||'';labelChip.classList.toggle('hidden',!label);}
 
     const bestWrap = node.querySelector('.best-wrap');
     const bestPrice = node.querySelector('.best-price');
@@ -2540,12 +2697,18 @@ function setBulkMode(enabled) {
   }
 
   $('bulkStoreBar').classList.toggle('hidden', !bulkMode);
-  $('btnBulkStore').textContent = bulkMode ? '追加対象選択中' : '店舗一括追加';
+  $('bulkStoreName').classList.toggle('hidden',bulkSelectionMode==='label');
+  $('bulkLabelChoice').classList.toggle('hidden',bulkSelectionMode!=='label');
+  $('btnBulkAdd').textContent=bulkSelectionMode==='label'?'ラベルを設定':'追加';
+  $('bulkBarTitle').textContent=bulkSelectionMode==='label'?'選択した商品にラベルを一括設定':'選択した商品に店舗を一括追加';
+  if(bulkSelectionMode==='label') $('bulkLabelChoice').innerHTML=labelSelectOptions(activeLabelTab!=='all'&&activeLabelTab!=='unclassified'?activeLabelTab:'');
+  $('btnBulkStore').textContent = bulkMode && bulkSelectionMode==='store' ? '追加対象選択中' : '店舗一括追加';
+  $('btnBulkLabels').textContent=bulkMode && bulkSelectionMode==='label'?'分類対象選択中':'ラベル一括設定';
   updateBulkSelectedCount();
   render();
 
   if (bulkMode) {
-    requestAnimationFrame(() => $('bulkStoreName').focus());
+    requestAnimationFrame(() => (bulkSelectionMode==='label'?$('bulkLabelChoice'):$('bulkStoreName')).focus());
   }
 }
 
@@ -2554,12 +2717,7 @@ function updateBulkSelectedCount() {
 }
 
 function toggleBulkSelectAll() {
-  const q = $('searchInput').value.trim().toLowerCase();
-  const visible = products.filter(p =>
-    !q ||
-    p.name.toLowerCase().includes(q) ||
-    (p.reading || '').toLowerCase().includes(q)
-  );
+  const visible = currentVisibleProducts();
 
   const allSelected = visible.length > 0 && visible.every(p => bulkSelected.has(p.id));
 
@@ -2939,6 +3097,8 @@ function openBulkAddDialog() {
   $('bulkAddPriceType').value=settings.defaultPriceType;
   $('bulkAddTax').innerHTML=taxOptions(settings.reducedTax);
   $('bulkAddTax').value=String(settings.reducedTax);
+  bulkLabelTouched=false;
+  $('bulkAddLabel').innerHTML=labelSelectOptions(defaultNewProductLabel());
   setBulkAddKind(initialKind);
   $('bulkAddDialog').showModal();
   requestAnimationFrame(()=>$('bulkAddStore').focus());
@@ -2995,6 +3155,8 @@ function saveBulkAdd() {
   if(!storeName) return alert('店舗名を入力してね。');
   const priceType=$('bulkAddPriceType').value==='inc'?'inc':'ex';
   const tax=Number($('bulkAddTax').value);
+  const selectedLabelId=$('bulkAddLabel').value;
+  if(selectedLabelId) localStorage.setItem(LAST_LABEL_KEY,selectedLabelId);
   const rows=Object.values(bulkAddRowsByKind).flat().filter(row=>row.name.trim());
   if(!rows.length) return alert('商品を1件以上入力してね。');
   const invalid=rows.find(row=>!(Number(row.amount)>0)||row.price==='');
@@ -3009,11 +3171,11 @@ function saveBulkAdd() {
   rows.forEach(row=>{
     let product=findExistingProductLoose(row.kind,row.name);
     if(!product){
-      product={id:makeId('p'),name:row.name.trim(),nameCandidates:{product:row.kind==='product'?row.name.trim():'',type:row.kind==='type'?row.name.trim():''},reading:makeReadingCandidate(row.name)||'',kind:row.kind,amount:row.kind==='product'?Number(row.amount):'',unit:row.kind==='product'?row.unit:'',defaultTax:tax,updatedAt:now,history:[],stores:[]};
+      product={id:makeId('p'),name:row.name.trim(),nameCandidates:{product:row.kind==='product'?row.name.trim():'',type:row.kind==='type'?row.name.trim():''},reading:makeReadingCandidate(row.name)||'',kind:row.kind,amount:row.kind==='product'?Number(row.amount):'',unit:row.kind==='product'?row.unit:'',defaultTax:tax,labelId:selectedLabelId,updatedAt:now,history:[],stores:[]};
       products.unshift(product); added++;
     } else { updated++; }
     if(row.kind==='product'){ product.amount=Number(row.amount); product.unit=row.unit; }
-    product.defaultTax=tax; product.updatedAt=now;
+    product.defaultTax=tax; if(selectedLabelId && (bulkLabelTouched || !product.labelId)) product.labelId=selectedLabelId; product.updatedAt=now;
     mergeStoreIntoProduct(product,{store:storeName,productInfo:row.productInfo,price:row.price,salePrice:row.salePrice,priceType,tax,amount:row.amount,unit:row.unit},{kind:row.kind,amount:Number(row.amount),unit:row.unit,defaultTax:tax,savedAt:now});
   });
   products=normalizeProductsData(products); persistNow(); render(); $('bulkAddDialog').close();
@@ -3042,6 +3204,8 @@ function openProductDialog(id = null) {
   $('productName').value = p ? candidates.product : '';
   $('productTypeName').value = p ? candidates.type : '';
   $('productReading').value = p?.reading ?? '';
+  productLabelTouched=false;
+  $('productLabel').innerHTML=labelSelectOptions(p ? (p.labelId || '') : defaultNewProductLabel());
   if (p) {
     const savedKind = p.kind === 'type' ? 'type' : 'product';
     productDialogReadings[savedKind] = p.reading ?? '';
@@ -3114,6 +3278,8 @@ function saveProductFromDialog() {
   }
 
   const defaultTax = Number($('productTax').value);
+  const selectedLabelId = $('productLabel').value;
+  if(selectedLabelId) localStorage.setItem(LAST_LABEL_KEY,selectedLabelId);
   const savedAt = new Date().toISOString();
   const nameCandidates = { product: productNameCandidate, type: typeNameCandidate };
 
@@ -3129,6 +3295,7 @@ function saveProductFromDialog() {
       target.amount = amount;
       target.unit = unit;
       target.defaultTax = defaultTax;
+      target.labelId = selectedLabelId;
       target.updatedAt = savedAt;
 
       if (previousKind !== kind && kind === 'type') {
@@ -3182,6 +3349,8 @@ function saveProductFromDialog() {
       existingProduct.nameCandidates[kind] = existingProduct.name;
       existingProduct.reading = normalizeReadingInput($('productReading').value) || existingProduct.reading;
       existingProduct.defaultTax = defaultTax;
+      if(productLabelTouched) existingProduct.labelId=selectedLabelId;
+      else if(!existingProduct.labelId && selectedLabelId) existingProduct.labelId=selectedLabelId;
       if (kind === 'product') { existingProduct.amount = amount; existingProduct.unit = unit; }
       stores.forEach(row => mergeStoreIntoProduct(existingProduct,row,{kind,amount,unit,defaultTax,savedAt}));
       existingProduct.updatedAt = savedAt;
@@ -3192,7 +3361,7 @@ function saveProductFromDialog() {
     } else {
       const p = {
         id: makeId('p'), name, nameCandidates,
-        reading: normalizeReadingInput($('productReading').value), kind, amount, unit, defaultTax,
+        reading: normalizeReadingInput($('productReading').value), kind, amount, unit, defaultTax, labelId:selectedLabelId,
         updatedAt: savedAt, history: [], stores
       };
       products.unshift(p);
@@ -3246,7 +3415,8 @@ function productMetaSnapshot(product) {
     kind: product?.kind === 'type' ? 'type' : 'product',
     amount: numberOrBlank(product?.amount ?? ''),
     unit: String(product?.unit || '').normalize('NFKC').trim(),
-    defaultTax: Number.isFinite(Number(product?.defaultTax)) ? Number(product.defaultTax) : ''
+    defaultTax: Number.isFinite(Number(product?.defaultTax)) ? Number(product.defaultTax) : '',
+    labelId: String(product?.labelId || '')
   };
 }
 
@@ -3284,7 +3454,8 @@ function buildBackupPayload({ selectedProducts = null, mode = 'backup' } = {}) {
   const targetProducts = selectedProducts
     ? products.filter(product => selectedProducts.has(product.id))
     : products;
-  const data = { products: structuredCloneSafe(targetProducts) };
+  const selectedLabelIds=new Set(targetProducts.map(p=>p.labelId).filter(Boolean));
+  const data = { products: structuredCloneSafe(targetProducts), labels: structuredCloneSafe(labels.filter(l=>!selectedProducts || selectedLabelIds.has(l.id))) };
   if (mode === 'backup') {
     data.settings = settings;
     data.shoppingMemoChecked = Array.from(shoppingMemoChecked);
@@ -3339,6 +3510,7 @@ function migrateBackupPayload(data) {
     exportedAt: data.exportedAt || source.exportedAt || '',
     schemaVersion: Number.isFinite(schema) ? schema : 2,
     products: normalizeProductsData(source.products),
+    labels: normalizeLabelDefinitions(Array.isArray(source.labels)?source.labels:labels),
     settings: normalizeSettingsData(source.settings || settings)
   };
 }
@@ -3356,6 +3528,8 @@ function importBackup(e) {
       }
       settings = normalizeSettingsData(data.settings || {});
       products = normalizeProductsData(data.products);
+      labels = normalizeLabelDefinitions(data.labels || []);
+      activeLabelTab='all';
       localStorage.removeItem(PRODUCT_MERGE_UNDO_KEY);
       shoppingMemoChecked = new Set(Array.isArray(data.shoppingMemoChecked) ? data.shoppingMemoChecked.map(String) : []);
       persistShoppingMemoChecked();
@@ -3560,6 +3734,7 @@ function importSharedData(e) {
     try {
       const data = migrateBackupPayload(JSON.parse(String(reader.result)));
       pendingMergePlan = buildMergePlan(data.products);
+      pendingMergePlan.incomingLabels=data.labels || [];
       renderMergeDialog();
       if ($('settingsDialog').open) $('settingsDialog').close();
       $('mergeDialog').showModal();
@@ -3670,6 +3845,7 @@ function applyIncomingProductMeta(target, incoming) {
   target.amount = incoming.amount;
   target.unit = incoming.unit;
   target.defaultTax = incoming.defaultTax;
+  target.labelId = incoming.labelId || '';
   target.updatedAt = incoming.updatedAt || new Date().toISOString();
 }
 
@@ -3678,7 +3854,14 @@ function applyPendingMerge() {
   if (!plan) return;
   const appliedAt = new Date().toISOString();
 
-  plan.newProducts.forEach(incoming => products.push(cloneIncomingProductForLocal(incoming)));
+  const idMap = new Map();
+  for(const incoming of plan.incomingLabels || []) {
+    const existing=labels.find(l=>labelKey(l.name)===labelKey(incoming.name));
+    if(existing) idMap.set(incoming.id,existing.id);
+    else {const label={id:labels.some(l=>l.id===incoming.id)?makeId('label'):incoming.id,name:incoming.name};labels.push(label);idMap.set(incoming.id,label.id);}
+  }
+  const remap = p => ({...p,labelId:idMap.get(p.labelId) || (labels.some(l=>l.id===p.labelId)?p.labelId:'')});
+  plan.newProducts.forEach(incoming => products.push(cloneIncomingProductForLocal(remap(incoming))));
 
   plan.newRows.forEach(item => {
     const product = products.find(p => p.id === item.productId);
@@ -3695,7 +3878,7 @@ function applyPendingMerge() {
     const product = products.find(p => p.id === conflict.productId);
     if (!product) return;
     if (conflict.type === 'product') {
-      applyIncomingProductMeta(product, conflict.incoming);
+      applyIncomingProductMeta(product, remap(conflict.incoming));
       return;
     }
     const row = product.stores.find(r => r.id === conflict.rowId);
@@ -3780,6 +3963,7 @@ function cssEscape(v) {
 
 window.PriceLogApp = {
   getProducts: () => structuredCloneSafe(products),
+  getCloudSnapshot, replaceCloudSnapshot,
   replaceProducts: (next, { persist = true } = {}) => {
     products = normalizeProductsData(Array.isArray(next) ? next : []);
     if (persist) persistNow();
@@ -3798,8 +3982,10 @@ window.PriceLogApp = {
       const targetTime = Date.parse(target.updatedAt||'')||0, incomingTime=Date.parse(item.updatedAt||'')||0;
       if (incomingTime>targetTime) {
         target.reading=item.reading||target.reading; target.defaultTax=item.defaultTax; target.updatedAt=item.updatedAt;
+        target.labelId=item.labelId||target.labelId||'';
         if (item.kind==='product'){target.amount=item.amount;target.unit=item.unit;}
       }
+      if(!target.labelId && item.labelId) target.labelId=item.labelId;
       target.allowSameStoreVariants = Boolean(target.allowSameStoreVariants || item.allowSameStoreVariants);
       target.mergedSourceIds = [...new Set([...(target.mergedSourceIds||[]),...(item.mergedSourceIds||[])])];
       (item.stores||[]).forEach(row => {
@@ -3826,6 +4012,7 @@ window.PriceLogApp = {
     shoppingMemoEditStore ||
     $('productDialog')?.open ||
     $('bulkAddDialog')?.open ||
+    $('labelManagerDialog')?.open ||
     $('productMergeDialog')?.open
   ),
   render
