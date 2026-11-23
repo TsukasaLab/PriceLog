@@ -2075,3 +2075,28 @@ button[aria-selected="true"]{
   .store-table.is-type .store-mobile-head .mobile-head-quantity,.store-table.is-type .store-row .st-quantity-fields{grid-template-columns:46px 42px!important;gap:3px!important}
   .store-table.is-type .store-row::before{left:40px!important}
 }
+
+/* Ver.0.91: 異なる登録方式の同名商品と、安全な結合確認 */
+.product-card.kind-duplicate{background:#fff2f1;border-color:#e8b6b3}
+.product-card.kind-duplicate .product-summary{background:rgba(210,65,65,.025)}
+.kind-duplicate-label{display:inline-flex;align-items:center;flex:none;padding:2px 5px;border-radius:5px;background:#ffe0de;color:#95332d;font-size:10px;line-height:1.3;font-weight:700;white-space:normal}
+.product-merge-dialog{max-height:calc(100dvh - 22px);overflow:auto;width:min(94vw,610px)}
+.product-merge-inner{padding:12px}
+.product-merge-dialog .dialog-head{position:sticky;top:-12px;padding:9px 0;z-index:5;background:var(--panel)}
+.product-merge-help{font-size:12px;color:var(--muted);line-height:1.55;margin:9px 0}
+.product-merge-summary{border-radius:9px;background:#f8f1e6;padding:10px;font-size:12px;font-weight:700;line-height:1.65}
+.product-merge-conflicts{display:grid;gap:10px;margin:12px 0}
+.product-merge-conflict{border:1px solid #e9c9c5;border-radius:9px;padding:10px;background:#fff9f8}
+.product-merge-conflict>strong{font-size:13px}
+.product-merge-origin{margin:8px 0;white-space:pre-line;line-height:1.65;font-size:12px;color:#54433a}
+.product-merge-choices{display:flex;flex-direction:column;gap:6px}
+.product-merge-choice{display:flex!important;align-items:center;gap:8px;border:1px solid #ddd5c9;border-radius:7px;background:#fff;padding:9px!important;color:var(--text)!important;font-size:12px!important;cursor:pointer}
+.product-merge-choice:has(input:checked){border-color:var(--accent);background:#f1f8f1}
+.product-merge-choice input{width:17px!important;height:17px!important;flex:none;margin:0!important;accent-color:var(--accent)}
+.product-merge-empty{font-size:12px;color:var(--muted);line-height:1.6}
+@media(max-width:600px){
+  .kind-duplicate-label{font-size:9px}
+  .product-card.kind-duplicate .summary-main{flex-wrap:wrap;row-gap:2px}
+  .product-merge-dialog{width:96vw;max-height:calc(100dvh - 12px)}
+  .detail-toolbar{flex-wrap:wrap}
+}

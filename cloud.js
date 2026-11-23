@@ -382,6 +382,19 @@ $('btnLogout')?.addEventListener('click',async()=>{
   if(client)await client.auth.signOut();
   activeScope='personal';localStorage.setItem(ACTIVE_SCOPE_KEY,activeScope);currentDocumentId=null;lastCloudUpdatedAt='';loadedUserId=null;
 });
+// 結合開始時にクラウド側の更新有無を確認する（端末間同時操作を減らすための事前照合）。
+// 完全な排他制御ではないため、複数端末での同時編集は避けてください。
+async function checkMergeFresh(){
+  if(!client || !currentUser) return true;
+  const doc=await fetchDocument();
+  if(!doc) return !currentDocumentId;
+  if(doc.id!==currentDocumentId || (lastCloudUpdatedAt && doc.updated_at!==lastCloudUpdatedAt)){
+    handleRemoteDocument(doc);
+    return false;
+  }
+  return true;
+}
+window.PriceLogCloud={getUserId:()=>currentUser?.id||'',checkMergeFresh};
 window.addEventListener('pricelog:data-changed',queueUpload);
 renderAccount();
 initClient();

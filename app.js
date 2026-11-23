@@ -6,7 +6,9 @@ const SETTINGS_KEY = 'pricelog_v02_settings';
 const INITIALIZED_KEY = 'pricelog_initialized_v1';
 const SHOPPING_MEMO_KEY = 'pricelog_shopping_memo_v1';
 const V051_SETTINGS_MIGRATION_KEY = 'pricelog_v051_settings_migrated';
-const APP_VERSION = '0.90';
+const APP_VERSION = '0.91';
+const PRODUCT_MERGE_UNDO_KEY = 'pricelog_last_product_merge_v091';
+const productMergeCore = window.PriceLogMergeCore;
 const DATA_SCHEMA_VERSION = 3;
 const UNIT_OPTIONS = ['g','kg','mg','ml','L','cl','dl','m','cm','mm','個','枚','粒','本','袋','箱','パック','セット','束','缶','瓶','カップ','食','ロール','組','錠','包','ケース','台','冊','足'];
 const CUSTOM_UNIT_VALUE = '__custom__';
@@ -66,6 +68,7 @@ let compositionReadingCandidate = '';
 let productDialogStores = [];
 let shareSelectedProducts = new Set();
 let pendingMergePlan = null;
+let pendingProductMerge = null;
 
 
 
@@ -149,6 +152,11 @@ $('btnConflictsKeepCurrent').addEventListener('click', () => setAllConflictChoic
 $('btnConflictsUseShared').addEventListener('click', () => setAllConflictChoices('shared'));
 $('btnApplyMerge').addEventListener('click', applyPendingMerge);
 $('btnCloseHistory').addEventListener('click', () => $('historyDialog').close());
+$('btnCloseProductMerge')?.addEventListener('click', closeProductMerge);
+$('btnCloseProductMergeSecondary')?.addEventListener('click', closeProductMerge);
+$('btnConfirmProductMerge')?.addEventListener('click', confirmProductMerge);
+$('productMergeDialog')?.addEventListener('cancel', () => { pendingProductMerge=null; });
+$('btnUndoMergeInSettings')?.addEventListener('click', undoLastProductMerge);
 
 $('btnCloseProductDialog').addEventListener('click', (e) => {
   e.preventDefault();
@@ -344,7 +352,7 @@ function normalizeProductsData(list) {
       unit,
       defaultTax: Number.isFinite(Number(product.defaultTax)) ? Number(product.defaultTax) : settings.reducedTax,
       updatedAt: normalizeIsoDate(product.updatedAt),
-      history: Array.isArray(product.history) ? product.history.slice(0, 20) : [],
+      history: Array.isArray(product.history) ? (product.allowSameStoreVariants ? product.history.slice() : product.history.slice(0,20)) : [],
       stores: stores.map(rawRow => {
         const row = rawRow && typeof rawRow === 'object' ? rawRow : {};
         return {
@@ -529,7 +537,14 @@ function findStoreRowLoose(product, storeName) {
 function mergeStoreIntoProduct(product, source, {kind='product', amount='', unit='', defaultTax=settings.reducedTax, savedAt=new Date().toISOString()}={}) {
   const storeName = String(source.store || '').trim();
   if (!storeName) return {added:false, overwritten:false};
-  let target = findStoreRowLoose(product, storeName);
+  let target = product.allowSameStoreVariants
+    ? (product.stores || []).find(row =>
+        normalizeLooseKey(row.store)===normalizeLooseKey(storeName) &&
+        normalizeLooseKey(row.productInfo)===normalizeLooseKey(source.productInfo) &&
+        Number(row.amount)===Number(kind==='type' ? source.amount : amount) &&
+        String(row.unit||'').normalize('NFKC')===String(kind==='type' ? source.unit : unit).normalize('NFKC')
+      )
+    : findStoreRowLoose(product, storeName);
   const nextPrice = source.price ?? '';
   const oldPrice = target ? Number(target.price) : null;
   if (!target) {
@@ -550,10 +565,10 @@ function mergeStoreIntoProduct(product, source, {kind='product', amount='', unit
   if (Number.isFinite(oldPrice) && nextPrice !== '' && Number(oldPrice) !== Number(nextPrice)) {
     product.history = Array.isArray(product.history) ? product.history : [];
     product.history.unshift({id:makeId('h'),updatedAt:savedAt,store:storeName,beforePrice:Number(oldPrice),afterPrice:Number(nextPrice)});
-    product.history = product.history.slice(0,20);
+    if(!product.allowSameStoreVariants) product.history = product.history.slice(0,20);
   }
   const key = normalizeLooseKey(storeName);
-  product.stores = product.stores.filter(row => row===target || normalizeLooseKey(row.store)!==key);
+  if(!product.allowSameStoreVariants) product.stores = product.stores.filter(row => row===target || normalizeLooseKey(row.store)!==key);
   return {added: oldPrice===null, overwritten: oldPrice!==null};
 }
 
@@ -670,7 +685,7 @@ function saveProductEdit(productId) {
 
   const original = products[index];
   const draft = structuredCloneSafe(productEditDraft);
-  const duplicateNames = duplicateStoreNames(draft.stores || []);
+  const duplicateNames = draft.allowSameStoreVariants ? [] : duplicateStoreNames(draft.stores || []);
   if (duplicateNames.length) {
     const ok = window.confirm(`同じ店舗が重複しています。
 ${duplicateNames.map(name=>`・${name}`).join('\n')}
@@ -703,7 +718,7 @@ ${duplicateNames.map(name=>`・${name}`).join('\n')}
     if (!sameStoreData(beforeRow, row)) row.updatedAt = savedAt;
   }
 
-  draft.history = history.slice(0, 20);
+  draft.history = draft.allowSameStoreVariants ? history : history.slice(0,20);
   if (!sameProductMeta(original, draft) || productEditDirty) draft.updatedAt = savedAt;
   products[index] = draft;
   persistNow();
@@ -732,6 +747,7 @@ function render() {
   const q = $('searchInput').value.trim().toLowerCase();
 
   updateViewJumpButtons();
+  $('btnUndoMergeInSettings')?.classList.toggle('hidden', !canUndoProductMerge());
   document.body.classList.toggle('focus-mode', !!openProductId && !storePurchaseMode && !shelfCompareMode);
 
   $('storePurchaseView').classList.toggle('hidden', !storePurchaseMode);
@@ -781,6 +797,13 @@ function render() {
 
     const node = productTemplate.content.firstElementChild.cloneNode(true);
     node.dataset.id = product.id;
+    const counterpart = findCrossKindDuplicate(product);
+    node.classList.toggle('kind-duplicate',!!counterpart);
+    const note=node.querySelector('.kind-duplicate-label');
+    if(note){
+      note.classList.toggle('hidden',!counterpart);
+      if(counterpart) note.textContent = (product.kind==='type'?'商品名':'種類比較')+'にも同じ名称あり';
+    }
 
     const isOpen = !bulkMode && openProductId === product.id;
     if (isOpen && (!productEditDraft || productEditDraft.id !== product.id)) beginProductEdit(product.id);
@@ -857,6 +880,12 @@ function render() {
       const draft = productEditDraft;
       node.querySelector('.btn-edit-product').addEventListener('click', () => openProductDialog(product.id));
       node.querySelector('.btn-history').addEventListener('click', () => openHistoryDialog(product.id));
+      const mergeButton=node.querySelector('.btn-merge-kind');
+      mergeButton?.classList.toggle('hidden',!counterpart);
+      mergeButton?.addEventListener('click',()=>openProductMerge(product.id));
+      const undoButton=node.querySelector('.btn-undo-product-merge');
+      undoButton?.classList.toggle('hidden',!canUndoProductMerge(product.id));
+      undoButton?.addEventListener('click',undoLastProductMerge);
       node.querySelector('.btn-add-store').addEventListener('click', () => {
         draft.stores.push({
           id: makeId('s'),
@@ -908,6 +937,133 @@ function render() {
 
     listEl.appendChild(node);
   });
+}
+
+
+// 同名の「商品名」と「種類比較」は表示上だけ警告。自動統合はしない。
+function findCrossKindDuplicate(product) {
+  if(!productMergeCore || !product) return null;
+  const key=productMergeCore.nameKey(product.name);
+  return products.find(other=>other.id!==product.id && other.kind!==product.kind && productMergeCore.nameKey(other.name)===key) || null;
+}
+function productMergeContext() {
+  const scope=localStorage.getItem('pricelog_cloud_scope_v1') || 'personal';
+  const user=window.PriceLogCloud?.getUserId?.() || 'offline';
+  return `${user}|${scope}`;
+}
+function readProductMergeUndo() {
+  try {
+    const backup=JSON.parse(localStorage.getItem(PRODUCT_MERGE_UNDO_KEY)||'null');
+    if(!backup || backup.context!==productMergeContext()) return null;
+    return backup;
+  } catch { return null; }
+}
+function canUndoProductMerge(targetId='') {
+  const backup=readProductMergeUndo();
+  if(!backup || (targetId && targetId!==backup.targetId)) return false;
+  const target=products.find(p=>p.id===backup.targetId);
+  return !!target && JSON.stringify(target)===backup.afterSnapshot;
+}
+function closeProductMerge(){
+  const dialog=$('productMergeDialog');
+  if(dialog?.open) dialog.close();
+  pendingProductMerge=null;
+}
+function openProductMerge(productId) {
+  if(!productMergeCore) return alert('結合機能を読み込めませんでした。ページを更新してね。');
+  if(productEditDirty || shelfCompareDirty || shoppingMemoEditStore) return alert('編集中のデータを先に保存またはキャンセルしてね。');
+  const from=products.find(p=>p.id===productId);
+  const other=from&&findCrossKindDuplicate(from);
+  if(!other) return alert('異なる登録方式に同名の商品が見つかりません。');
+  const source=from.kind==='product'?from:other;
+  const target=from.kind==='type'?from:other;
+  let plan;
+  try {plan=productMergeCore.planMerge(source,target);} catch(e){return alert(e.message);}
+  pendingProductMerge={sourceId:source.id,targetId:target.id,plan};
+  $('productMergeTitle').textContent = `「${target.name}」のデータ結合`;
+  $('productMergeExplanation').textContent = '結合後は「種類比較」にまとめます。両方の店舗・容量・価格履歴を保持します。同じ店舗でも異なる商品は別々に残します。';
+  const summary=$('productMergeSummary');
+  summary.textContent=`商品名：${plan.sourceCount}店舗行 ／ 種類比較：${plan.targetCount}店舗行 ／ 完全一致：${plan.duplicates.length}件 ／ 要確認：${plan.conflicts.length}件`;
+  const host=$('productMergeConflicts'); host.innerHTML='';
+  if(!plan.conflicts.length){const note=document.createElement('p');note.className='product-merge-empty';note.textContent='確認が必要な組み合わせはありません。元の2商品を統合します。';host.appendChild(note);}
+  plan.conflicts.forEach((item,i)=>{
+    const block=document.createElement('section');block.className='product-merge-conflict';
+    const head=document.createElement('strong');head.textContent=`要確認 ${i+1}：${item.sourceRow.store||'店舗未入力'}`;
+    const describe=row=>`${row.productInfo||'商品情報なし'} / ${row.amount||'-'}${row.unit||''} / ${row.price===''?'価格未設定':row.price+'円'}（${row.priceType==='inc'?'税込':'税抜'}）`;
+    const origin=document.createElement('div');origin.className='product-merge-origin';origin.textContent=`商品名：${describe(item.sourceRow)}\n種類比較：${describe(item.targetRow)}`;
+    const radioHost=document.createElement('div');radioHost.className='product-merge-choices';
+    [['keep','両方残す（おすすめ）'],['source','1件にまとめ、商品名側の価格を採用'],['target','1件にまとめ、種類比較側の価格を採用']].forEach(([value,label])=>{
+      const wrap=document.createElement('label');wrap.className='product-merge-choice';
+      const input=document.createElement('input');input.type='radio';input.name=`product-merge-${i}`;input.value=value;input.checked=value==='keep';input.dataset.sourceId=item.sourceId;
+      const span=document.createElement('span');span.textContent=label;
+      wrap.append(input,span);radioHost.appendChild(wrap);
+    });
+    block.append(head,origin,radioHost);host.appendChild(block);
+  });
+  $('productMergeDialog').showModal();
+}
+async function confirmProductMerge() {
+  if(!pendingProductMerge || !productMergeCore) return;
+  const btn=$('btnConfirmProductMerge');
+  if(btn?.disabled) return;
+  if(btn) btn.disabled=true;
+  try {
+    const {sourceId,targetId,plan}=pendingProductMerge;
+    const source=products.find(p=>p.id===sourceId),target=products.find(p=>p.id===targetId);
+    if(!source || !target || JSON.stringify(source)!==plan.sourceSnapshot || JSON.stringify(target)!==plan.targetSnapshot){
+      alert('確認中にデータが変わりました。最新の内容を開き直してね。');closeProductMerge();return;
+    }
+    if(window.PriceLogCloud?.checkMergeFresh && !(await window.PriceLogCloud.checkMergeFresh())){
+      alert('クラウド上でデータが更新されました。更新内容を読み込んでから、もう一度結合してね。');closeProductMerge();return;
+    }
+    // 非同期確認中にローカル更新がなかったか、再確認する。
+    if(JSON.stringify(products.find(p=>p.id===sourceId))!==plan.sourceSnapshot || JSON.stringify(products.find(p=>p.id===targetId))!==plan.targetSnapshot){
+      alert('データが変更されたため結合を中止したよ。');closeProductMerge();return;
+    }
+    const choices={};
+    $('productMergeConflicts').querySelectorAll('input[type=radio]:checked').forEach(input=>{choices[input.dataset.sourceId]=input.value;});
+    const result=productMergeCore.executeMerge(source,target,choices,makeId,new Date().toISOString());
+    const merged=normalizeProductsData([result.merged])[0];
+    const undo={context:productMergeContext(),source:structuredCloneSafe(source),target:structuredCloneSafe(target),sourceId,targetId,
+      sourceIndex:products.findIndex(p=>p.id===sourceId),targetIndex:products.findIndex(p=>p.id===targetId),
+      afterSnapshot:JSON.stringify(merged),oldChecked:Array.from(shoppingMemoChecked),savedAt:new Date().toISOString()};
+    try {localStorage.setItem(PRODUCT_MERGE_UNDO_KEY,JSON.stringify(undo));}
+    catch {alert('結合前の復元データを保存できませんでした。端末の空き容量を確認してね。結合は実行していないよ。');return;}
+    // 結合元を外し、結合先のIDを保つ。チェック済み店舗行も可能な限り引き継ぐ。
+    for(const [from,to] of Object.entries(result.memoRedirect)){
+      if(shoppingMemoChecked.has(from)){shoppingMemoChecked.add(to);shoppingMemoChecked.delete(from);}
+    }
+    persistShoppingMemoChecked();
+    products=products.filter(p=>p.id!==sourceId).map(p=>p.id===targetId?merged:p);
+    openProductId=targetId;productEditDraft=null;productEditDirty=false;
+    closeProductMerge();persistNow();render();showSaveToast('商品を結合したよ。「結合を元に戻す」から取り消せる');
+  } catch(error){console.error(error);alert(`結合に失敗しました：${error.message||'不明なエラー'}`);}
+  finally {if(btn) btn.disabled=false;}
+}
+async function undoLastProductMerge(){
+  const backup=readProductMergeUndo();
+  if(!backup)return alert('このデータで復元できる結合履歴がありません。');
+  if(!canUndoProductMerge())return alert('結合後にデータが変更されています。安全のため自動では戻せません。');
+  if(productEditDirty || shelfCompareDirty || shoppingMemoEditStore)return alert('編集中の内容を保存またはキャンセルしてから実行してね。');
+  if(!confirm('直前の結合を元に戻し、「商品名」と「種類比較」の2件に分けますか？'))return;
+  try{
+    if(window.PriceLogCloud?.checkMergeFresh && !(await window.PriceLogCloud.checkMergeFresh())){
+      alert('クラウド側のデータが変更されたため、復元を中止したよ。最新データを確認してね。');return;
+    }
+  }catch(error){console.error(error);alert('クラウドを確認できないため、安全のため復元を中止したよ。');return;}
+  if(!canUndoProductMerge()){alert('確認中に結合先のデータが変わったため、復元を中止したよ。');return;}
+  const others=products.filter(p=>p.id!==backup.targetId && p.id!==backup.sourceId);
+  const entries=[{index:backup.sourceIndex,item:backup.source},{index:backup.targetIndex,item:backup.target}].sort((a,b)=>a.index-b.index);
+  entries.forEach(({index,item})=>others.splice(Math.min(Math.max(0,index),others.length),0,item));
+  products=normalizeProductsData(others);
+  const involved=new Set([...(backup.source.stores||[]),...(backup.target.stores||[])].map(r=>r.id));
+  const currentIds=new Set((JSON.parse(backup.afterSnapshot).stores||[]).map(r=>r.id));
+  for(const id of currentIds)shoppingMemoChecked.delete(id);
+  (backup.oldChecked||[]).forEach(id=>{if(involved.has(id))shoppingMemoChecked.add(id);});
+  persistShoppingMemoChecked();
+  localStorage.removeItem(PRODUCT_MERGE_UNDO_KEY);
+  openProductId=null;productEditDraft=null;productEditDirty=false;
+  persistNow();render();showSaveToast('結合前の2商品に戻したよ');
 }
 
 function normalizeNumericInputText(value) {
@@ -1166,7 +1322,7 @@ function applyBestFlags(rowEl, markEl, flags) {
 
 function ensureHistory(product) {
   if (!Array.isArray(product.history)) product.history = [];
-  if (product.history.length > 20) product.history = product.history.slice(0, 20);
+  if (!product.allowSameStoreVariants && product.history.length > 20) product.history = product.history.slice(0, 20);
   return product.history;
 }
 
@@ -1192,7 +1348,7 @@ function addPriceHistory(product, storeName, beforePrice, afterPrice) {
     afterPrice: Number(afterPrice)
   });
 
-  if (history.length > 20) history.length = 20;
+  if (!product.allowSameStoreVariants && history.length > 20) history.length = 20;
   persistNow();
 }
 
@@ -1214,7 +1370,8 @@ function openHistoryDialog(productId) {
 
     const store = document.createElement('span');
     store.className = 'history-store';
-    store.textContent = item.store || '店舗未入力';
+    const details=[item.mergeOrigin ? `元:${item.mergeOrigin}` : '', item.productInfo||'', Number(item.amount)>0?`${item.amount}${item.unit||''}`:''].filter(Boolean);
+    store.textContent = `${item.store || '店舗未入力'}${details.length?' ('+details.join(' / ')+')':''}`;
 
     const before = document.createElement('span');
     before.className = 'history-price';
@@ -1519,21 +1676,18 @@ function getShelfCompareExistingRows(typeName, storeName) {
       const bt = Date.parse(b.updatedAt || '') || 0;
       return bt - at;
     });
-  const row = matches[0];
-  if (!row) return [];
-
-  return [makeShelfCompareRow({
+  return (product.allowSameStoreVariants ? matches : matches.slice(0,1)).map((row,i) => makeShelfCompareRow({
     id: `existing_${row.id}`,
     productInfo: String(row.productInfo || ''),
     price: row.price ?? '',
     amount: row.amount ?? '',
     unit: row.unit || product.unit || '個',
-    selected: true,
+    selected: i===0,
     existing: true,
     sourceProductId: product.id,
     sourceStoreRowId: row.id,
     sourceUpdatedAt: row.updatedAt || ''
-  })];
+  }));
 }
 
 function syncShelfCompareCommonFromExistingRow(existingRow) {
@@ -1612,7 +1766,9 @@ function upsertShelfCompareRow(row, typeName, storeName, now) {
       .filter(item => normalizeMergeText(item.store) === storeKey)
       .slice()
       .sort((a, b) => (Date.parse(b.updatedAt || '') || 0) - (Date.parse(a.updatedAt || '') || 0));
-    storeRow = matches[0] || null;
+    storeRow = product.allowSameStoreVariants
+      ? (matches.find(item=>productMergeCore.nameKey(item.productInfo)===productMergeCore.nameKey(row.productInfo) && Number(item.amount)===Number(row.amount) && String(item.unit||'')===String(row.unit||'')) || null)
+      : (matches[0] || null);
   }
   const nextPrice = Number(row.price);
   const nextAmount = Number(row.amount);
@@ -1629,19 +1785,19 @@ function upsertShelfCompareRow(row, typeName, storeName, now) {
       String(storeRow.productInfo || '') !== nextInfo || Number(storeRow.price) !== nextPrice ||
       Number(storeRow.amount) !== nextAmount || String(storeRow.unit || '') !== nextUnit ||
       storeRow.priceType !== nextPriceType || Number(storeRow.tax) !== nextTax;
-    if (!changed && duplicateCount <= 1) return { changed:false, added:false };
+    if (!changed && (product.allowSameStoreVariants || duplicateCount <= 1)) return { changed:false, added:false };
 
     if (changed && Number.isFinite(beforePrice) && beforePrice !== nextPrice) {
       product.history = Array.isArray(product.history) ? product.history : [];
       product.history.unshift({ id:makeId('h'), updatedAt:now, store:storeName, beforePrice, afterPrice:nextPrice });
-      product.history = product.history.slice(0,20);
+      if(!product.allowSameStoreVariants) product.history = product.history.slice(0,20);
     }
     Object.assign(storeRow, {
       store:storeName, productInfo:nextInfo, price:nextPrice, priceType:nextPriceType,
       tax:nextTax, couponType:'none', couponValue:'', amount:nextAmount, unit:nextUnit, updatedAt:now
     });
     // 種類比較では同じ店舗の登録情報は1件に統一し、最新内容で上書きする。
-    product.stores = product.stores.filter(item => item === storeRow || normalizeMergeText(item.store) !== storeKey);
+    if(!product.allowSameStoreVariants) product.stores = product.stores.filter(item => item === storeRow || normalizeMergeText(item.store) !== storeKey);
     product.updatedAt = now;
     return { changed:true, added:false };
   }
@@ -1951,7 +2107,7 @@ function saveShoppingMemoEdit() {
         beforePrice: Number(beforePrice),
         afterPrice: Number(afterPrice)
       });
-      if (history.length > 20) history.length = 20;
+      if (!product.allowSameStoreVariants && history.length > 20) history.length = 20;
     }
     row.updatedAt = savedAt;
     product.updatedAt = savedAt;
@@ -2294,6 +2450,7 @@ function deleteAllProducts() {
   if (!ok) return;
 
   products = [];
+  localStorage.removeItem(PRODUCT_MERGE_UNDO_KEY);
   openProductId = null;
   openStoreName = null;
   bulkSelected.clear();
@@ -3137,6 +3294,7 @@ function importBackup(e) {
       }
       settings = normalizeSettingsData(data.settings || {});
       products = normalizeProductsData(data.products);
+      localStorage.removeItem(PRODUCT_MERGE_UNDO_KEY);
       shoppingMemoChecked = new Set(Array.isArray(data.shoppingMemoChecked) ? data.shoppingMemoChecked.map(String) : []);
       persistShoppingMemoChecked();
 
@@ -3272,6 +3430,11 @@ function buildMergePlan(incomingProducts) {
   };
 
   incomingProducts.forEach(incoming => {
+    // 以前に手動結合した商品名側の旧データを再度取り込まない。
+    if(products.some(p=>Array.isArray(p.mergedSourceIds) && p.mergedSourceIds.includes(incoming.id))){
+      plan.duplicates+=1;
+      return;
+    }
     const current = findMatchingProduct(incoming);
     if (!current) {
       plan.newProducts.push(incoming);
@@ -3290,7 +3453,9 @@ function buildMergePlan(incomingProducts) {
 
     meaningfulShareRows(incoming).forEach(incomingRow => {
       const storeKey = normalizeMergeText(incomingRow.store);
-      const currentRow = (current.stores || []).find(row => normalizeMergeText(row.store) === storeKey);
+      const currentRow = current.allowSameStoreVariants
+        ? (current.stores||[]).find(row=>row.id===incomingRow.id || productMergeCore.fullSame(row,incomingRow))
+        : (current.stores || []).find(row => normalizeMergeText(row.store) === storeKey);
       if (!currentRow) {
         plan.newRows.push({ productId: current.id, incomingRow });
         return;
@@ -3431,7 +3596,7 @@ function cloneIncomingProductForLocal(incoming) {
   const copy = structuredCloneSafe(incoming);
   copy.id = makeId('p');
   copy.stores = meaningfulShareRows(copy).map(row => ({...row, id: makeId('s')}));
-  copy.history = Array.isArray(copy.history) ? copy.history.map(item => ({...item, id: makeId('h')})).slice(0,20) : [];
+  copy.history = Array.isArray(copy.history) ? (copy.allowSameStoreVariants ? copy.history.map(item => ({...item, id: makeId('h')})) : copy.history.map(item => ({...item, id: makeId('h')})).slice(0,20)) : [];
   return copy;
 }
 
@@ -3562,7 +3727,10 @@ window.PriceLogApp = {
     const original = products;
     products = normalizeProductsData(Array.isArray(base) ? structuredCloneSafe(base) : []);
     const incomingList = normalizeProductsData(Array.isArray(incoming) ? structuredCloneSafe(incoming) : []);
+    // 結合元IDは統合済み商品側に記録する。クラウドの古いデータで復活させない。
+    const mergedSourceIds=new Set([...products,...incomingList].flatMap(p=>p.mergedSourceIds||[]));
     incomingList.forEach(item => {
+      if(mergedSourceIds.has(item.id)) return;
       let target = findExistingProductLoose(item.kind==='type'?'type':'product', item.name);
       if (!target) { products.push(item); return; }
       const targetTime = Date.parse(target.updatedAt||'')||0, incomingTime=Date.parse(item.updatedAt||'')||0;
@@ -3570,17 +3738,22 @@ window.PriceLogApp = {
         target.reading=item.reading||target.reading; target.defaultTax=item.defaultTax; target.updatedAt=item.updatedAt;
         if (item.kind==='product'){target.amount=item.amount;target.unit=item.unit;}
       }
+      target.allowSameStoreVariants = Boolean(target.allowSameStoreVariants || item.allowSameStoreVariants);
+      target.mergedSourceIds = [...new Set([...(target.mergedSourceIds||[]),...(item.mergedSourceIds||[])])];
       (item.stores||[]).forEach(row => {
-        const existing=findStoreRowLoose(target,row.store);
+        const existing=target.allowSameStoreVariants
+          ? (target.stores||[]).find(r=>r.id===row.id || productMergeCore.fullSame(r,row))
+          : findStoreRowLoose(target,row.store);
         if(!existing){target.stores.push(row);return;}
         const a=Date.parse(existing.updatedAt||'')||0,b=Date.parse(row.updatedAt||'')||0;
         if(b>=a) Object.assign(existing,row,{id:existing.id});
       });
-      target.stores=collapseDuplicateStores(target.stores||[]);
+      if(!target.allowSameStoreVariants) target.stores=collapseDuplicateStores(target.stores||[]);
       const hist=[...(target.history||[]),...(item.history||[])];
-      const seen=new Set(); target.history=hist.filter(h=>{const k=`${h.updatedAt}|${h.store}|${h.beforePrice}|${h.afterPrice}`;if(seen.has(k))return false;seen.add(k);return true;}).sort((a,b)=>(Date.parse(b.updatedAt||'')||0)-(Date.parse(a.updatedAt||'')||0)).slice(0,20);
+      const seen=new Set(); target.history=hist.filter(h=>{const k=h.id||`${h.updatedAt}|${h.store}|${h.beforePrice}|${h.afterPrice}|${h.mergeOrigin||''}`;if(seen.has(k))return false;seen.add(k);return true;}).sort((a,b)=>(Date.parse(b.updatedAt||'')||0)-(Date.parse(a.updatedAt||'')||0));
+      if(!target.allowSameStoreVariants) target.history=target.history.slice(0,20);
     });
-    const merged=normalizeProductsData(products);
+    const merged=normalizeProductsData(products.filter(p=>!mergedSourceIds.has(p.id)));
     products=original;
     return structuredCloneSafe(merged);
   },
@@ -3590,7 +3763,8 @@ window.PriceLogApp = {
     shelfCompareDirty ||
     shoppingMemoEditStore ||
     $('productDialog')?.open ||
-    $('bulkAddDialog')?.open
+    $('bulkAddDialog')?.open ||
+    $('productMergeDialog')?.open
   ),
   render
 };
